@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Ticket {{ ticket.code }} · {{ brand }}{% endblock %}
+{% block heading %}Ticket {{ ticket.code }}{% endblock %}
+{% block actions %}
+<button class="btn btn-primary" type="button" onclick="window.print()">Print</button>
+<a class="btn" href="/betlogs">Back to list</a>
+{% endblock %}
+{% block content %}
+<div class="ticket-body">
+  <article class="ticket" aria-label="Betting ticket {{ ticket.code }}">
+    <h2>{{ brand }}</h2>
+    <div class="t-sub">{{ event.title }}</div>
+    <div class="t-sep"></div>
+    <div class="t-row"><span>Game #</span><strong>{{ fight.number }}</strong></div>
+    <div class="t-big">{{ ticket.side.value | upper }}</div>
+    <div class="t-row"><span>Entry</span><span>{{ 'Draw' if ticket.side.value == 'draw' else (fight.entry_name_meron if ticket.side.value == 'meron' else fight.entry_name_wala) }}</span></div>
+    <div class="t-row"><span>Amount</span><strong>{{ ticket.stake_cents | money }}</strong></div>
+    <div class="t-row"><span>Est. payout</span><span>{{ ticket.est_payout_cents | money }}</span></div>
+    <div class="t-row"><span>Teller</span><span>{{ ticket.station.code if ticket.station else (ticket.teller.username if ticket.teller else '—') }}</span></div>
+    <div class="t-row"><span>Sold</span><span>{{ ticket.placed_at | datetime }}</span></div>
+    {% if ticket.status.value != 'active' %}
+    <div class="t-sep"></div>
+    <div class="t-row"><span>Status</span><strong>{{ ticket.status.value | upper }}</strong></div>
+    {% if ticket.status.value in ('settled', 'refunded') and ticket.payout_cents %}<div class="t-row"><span>{{ 'Refund' if ticket.status.value == 'refunded' else 'Payout' }}</span><strong>{{ ticket.payout_cents | money }}</strong></div>
+    <div class="t-row"><span>Claim</span><span>{{ 'claimed ' ~ (ticket.claimed_at | datetime) if ticket.claimed_at else 'UNCLAIMED' }}</span></div>{% endif %}
+    {% endif %}
+    <div class="t-sep"></div>
+    <div class="t-qr">{{ qr | safe }}</div>
+    <div class="t-code">{{ ticket.code }}</div>
+    <div class="t-sub">Present this ticket to claim. Cancelled if altered.</div>
+  </article>
+
+  {% if ticket.status.value == 'active' and Perm.BETS_CANCEL.value in perms %}
+  <form method="post" action="/bets/{{ ticket.id }}/cancel" class="card no-print" style="max-width:280px" data-confirm="Cancel this ticket and refund the stake?">
+    {{ ui.csrf(csrf_token) }}
+    <div class="card-body">
+      {{ ui.field('Reason for cancelling', 'reason', required=true, attrs='minlength=5 maxlength=255') }}
+      <button class="btn btn-danger btn-block" type="submit">Cancel ticket</button>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

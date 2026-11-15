@@ -1,0 +1,67 @@
+{% macro csrf(token) %}<input type="hidden" name="csrf_token" value="{{ token }}">{% endmacro %}
+
+{% macro idem() %}<input type="hidden" name="idempotency_key" value="" data-idem>{% endmacro %}
+
+{% macro stat(label, value, hint='', tone='') %}
+<div class="stat {{ tone }}">
+  <span class="stat-label">{{ label }}</span>
+  <strong class="stat-value">{{ value }}</strong>
+  {% if hint %}<span class="stat-hint">{{ hint }}</span>{% endif %}
+</div>
+{% endmacro %}
+
+{% macro badge(text, tone='slate') %}<span class="badge badge-{{ tone }}">{{ text }}</span>{% endmacro %}
+
+{% macro status_badge(value) %}
+{% set v = value.value if value.value is defined else value %}
+{% set tones = {'active':'green','open':'green','settled':'blue','approved':'green','applied':'green',
+                'pending':'amber','locked':'amber','draft':'slate','suspended':'red','closed':'slate',
+                'canceled':'red','rejected':'red','reversed':'red','refunded':'purple','void':'slate','canceled':'red'} %}
+{{ badge(v, tones.get(v, 'slate')) }}
+{% endmacro %}
+
+{% macro side_badge(side) %}
+{% set v = side.value if side.value is defined else side %}
+<span class="badge badge-{{ 'meron' if v == 'meron' else 'wala' }}">{{ v | upper }}</span>
+{% endmacro %}
+
+{% macro empty(text='Nothing here yet.') %}<div class="empty">{{ text }}</div>{% endmacro %}
+
+{% macro table_start(headers, id='') %}
+<div class="table-wrap">
+<table class="table" {% if id %}id="{{ id }}" data-table{% endif %}>
+<thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr></thead>
+<tbody>
+{% endmacro %}
+
+{% macro table_end() %}</tbody></table></div>{% endmacro %}
+
+{% macro modal(id, title) %}
+<dialog class="modal" id="{{ id }}" aria-labelledby="{{ id }}-title">
+  <form method="dialog" class="modal-head">
+    <h3 id="{{ id }}-title">{{ title }}</h3>
+    <button class="icon-btn" value="close" aria-label="Close"><svg><use href="#i-x"/></svg></button>
+  </form>
+  <div class="modal-body">{{ caller() }}</div>
+</dialog>
+{% endmacro %}
+
+{% macro field(label, name, type='text', value='', required=false, help='', attrs='') %}
+<label class="field">
+  <span>{{ label }}{% if required %} <em>*</em>{% endif %}</span>
+  <input type="{{ type }}" name="{{ name }}" value="{{ value }}" {% if required %}required{% endif %} {{ attrs }}>
+  {% if help %}<small>{{ help }}</small>{% endif %}
+</label>
+{% endmacro %}
+
+{% macro chart(series, key='stake', height=90) %}
+{% set max = series | map(attribute=key) | max %}
+<div class="chart" style="--h: {{ height }}px">
+  {% for point in series %}
+  <div class="bar" title="{{ point.day }}: {{ point[key] | money }}">
+    <i style="height: {{ (point[key] / max * 100) if max else 0 }}%"></i>
+    <small>{{ point.day[5:] }}</small>
+  </div>
+  {% endfor %}
+</div>
+{% endmacro %}

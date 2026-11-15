@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}{{ player.full_name }} · {{ brand }}{% endblock %}
+{% block heading %}{{ player.full_name }}{% endblock %}
+{% block actions %}<a class="btn" href="/clp">Back to players</a>{% endblock %}
+{% block content %}
+<div class="grid grid-3">
+  {{ ui.stat('Balance', balance | money, 'load credit / card load') }}
+  {{ ui.stat('Tickets', tickets | length, 'last 200') }}
+  {{ ui.stat('Status', player.status.value | upper, 'KYC ' ~ ('verified' if player.kyc_verified else 'not verified')) }}
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Profile</h2></div>
+  <div class="card-body">
+    <dl class="kv">
+      <dt>Type</dt><dd>{{ player.kind.value }}</dd>
+      <dt>Card / Username</dt><dd class="mono">{{ player.card_number or player.username or '—' }}</dd>
+      <dt>Birth date</dt><dd>{{ player.birth_date | date }}</dd>
+      <dt>Gender</dt><dd>{{ player.gender or '—' }}</dd>
+      <dt>Address</dt><dd>{{ address or '—' }}</dd>
+      <dt>GCash</dt><dd>{{ gcash or '—' }}</dd>
+      <dt>Agent</dt><dd>{{ player.agent.username if player.agent else '—' }}</dd>
+      <dt>Daily limit</dt><dd>{{ player.daily_bet_limit_cents | money if player.daily_bet_limit_cents else 'system default' }}</dd>
+      <dt>Self-excluded until</dt><dd>{{ player.self_excluded_until | datetime }}</dd>
+    </dl>
+  </div>
+  {% if Perm.PLAYERS_EDIT.value in perms %}
+  <div class="card-body">
+    <form method="post" action="/players/{{ player.id }}/update" class="inline-form" data-confirm="Apply self-exclusion? The player cannot bet during this period.">
+      {{ ui.csrf(csrf_token) }}
+      <label class="field"><span>Self-exclude (days)</span><input name="self_exclude_days" type="number" min="1" max="3650"></label>
+      <button class="btn" type="submit">Apply</button>
+    </form>
+    <form method="post" action="/players/{{ player.id }}/update" class="inline-form">
+      {{ ui.csrf(csrf_token) }}
+      <label class="field"><span>Status</span>
+        <select name="status">
+          <option value="">— no change —</option>
+          <option value="active">active</option><option value="suspended">suspended</option>
+        </select></label>
+      {{ ui.field('Reason', 'reason', attrs='maxlength=255') }}
+      <button class="btn" type="submit">Update</button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Betting List</h2></div>
+  <div class="card-body tight">
+    {% if tickets %}
+    <div class="table-wrap"><table class="table" data-table data-page-size="20">
+      <thead><tr><th>Bar code</th><th>Side</th><th class="right">Amount</th><th class="right">Winning</th><th>Game #</th><th>Station</th><th>Status</th><th>DIY</th><th>Placed</th></tr></thead>
+      <tbody>
+      {% for t in tickets %}
+        <tr>
+          <td class="mono"><a href="/tickets/{{ t.id }}">{{ t.code }}</a></td>
+          <td>{{ ui.side_badge(t.side) }}</td>
+          <td class="right num">{{ t.stake_cents | money }}</td>
+          <td class="right num">{{ t.payout_cents | money }}</td>
+          <td class="num">{{ t.fight.number }}</td>
+          <td>{{ t.station.code if t.station else '—' }}</td>
+          <td>{{ ui.status_badge(t.status) }}</td>
+          <td>{{ 'yes' if t.is_diy else '' }}</td>
+          <td class="small nowrap">{{ t.placed_at | datetime }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}{{ ui.empty('No bets yet.') }}{% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Load credit ledger</h2><span class="muted small">latest 40 entries</span></div>
+  <div class="card-body tight">
+    {% if entries %}
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>When</th><th>Type</th><th>Memo</th><th class="right">Amount</th><th class="right">Balance</th></tr></thead>
+      <tbody>
+      {% for e in entries %}
+        <tr>
+          <td class="small nowrap">{{ e.created_at | datetime }}</td>
+          <td>{{ e.txn.kind }}</td>
+          <td class="small">{{ e.txn.memo }}</td>
+          <td class="right num">{{ e.amount_cents | money }}</td>
+          <td class="right num">{{ e.balance_after_cents | money }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}{{ ui.empty('No ledger entries.') }}{% endif %}
+  </div>
+</div>
+{% endblock %}

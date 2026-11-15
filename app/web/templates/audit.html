@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Audit Trail · {{ brand }}{% endblock %}
+{% block heading %}Audit Trail{% endblock %}
+{% block actions %}<a class="btn btn-sm" href="/integrity">Ledger integrity</a>{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-head">
+    <h2>Append-only log</h2>
+    <form class="inline-form" method="get" action="/audit">
+      <input name="action" value="{{ filters.action }}" placeholder="action contains…" aria-label="Filter by action">
+      <input name="entity" value="{{ filters.entity }}" placeholder="entity type" aria-label="Filter by entity">
+      <button class="btn btn-sm btn-primary">Filter</button>
+    </form>
+  </div>
+  <div class="card-body tight">
+    {% if rows %}
+    <div class="table-wrap"><table class="table" data-table data-page-size="40">
+      <thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Entity</th><th>Before → after</th><th>Reason</th><th>IP</th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td class="small nowrap">{{ row.created_at | datetime('%Y-%m-%d %H:%M:%S') }}</td>
+          <td class="small">{{ row.actor_username }}<br><span class="muted">{{ row.actor_role }}</span></td>
+          <td>{{ ui.badge(row.action, 'amber' if 'redeclare' in row.action or 'reverse' in row.action else 'slate') }}</td>
+          <td class="small">{{ row.entity_type }} #{{ row.entity_id }}</td>
+          <td class="mono small" style="max-width:340px;word-break:break-word">
+            {% if row.before %}{{ row.before }} → {% endif %}{{ row.after }}
+          </td>
+          <td class="small">{{ row.reason or '—' }}</td>
+          <td class="mono small">{{ row.ip or '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}{{ ui.empty('No audit entries match.') }}{% endif %}
+  </div>
+</div>
+<p class="notice">Audit rows cannot be updated or deleted — a database trigger rejects it, even for the application user. Passwords and personal data are redacted before storage.</p>
+{% endblock %}

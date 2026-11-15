@@ -1,0 +1,6 @@
+# Automatic HTTPS + reverse proxy. Replace the domain, then:  caddy run --config deploy/Caddyfile
+stelnexus.example.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8000
+	header -Server
+}

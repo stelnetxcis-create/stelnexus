@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Referral codes · {{ brand }}{% endblock %}
+{% block heading %}Referral Codes{% endblock %}
+{% block actions %}
+{% if roles %}<button class="btn btn-sm btn-brand" data-modal="ref-modal"><svg class="ico"><use href="#i-plus"/></svg>New code</button>{% endif %}
+{% endblock %}
+{% block content %}
+<div class="notice" style="margin-bottom:16px">Every code is <strong>single-use</strong> and stops working when its timer runs out. The person you give it to opens <span class="mono">/register</span>, enters the code, and creates their own account under you. Times shown are UTC.</div>
+<div class="card">
+  <div class="card-head"><h2>Codes</h2></div>
+  <div class="card-body tight">
+    {% if rows %}
+    <div class="table-wrap"><table class="table" data-table>
+      <thead><tr><th>Code</th><th>For role</th><th>Issued by</th><th>Note</th><th>Expires (UTC)</th><th>Status</th><th>Used by</th><th></th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+      {% set st = row.status(now) %}
+      <tr>
+        <td class="mono"><strong>{{ row.code }}</strong>{% if st == 'active' %} <button type="button" class="btn btn-ghost btn-sm" data-copy="{{ request.base_url }}register?code={{ row.code }}">Copy link</button>{% endif %}</td>
+        <td>{{ {'master':'Master Agent','gold':'Gold Agent','sub':'Sub Agent','teller':'Teller / Station','admin':'Admin'}[row.role] }}</td>
+        <td class="small">{{ row.issuer.username }}</td>
+        <td class="small">{{ row.note or '—' }}</td>
+        <td class="small nowrap">{{ row.expires_at | datetime }}</td>
+        <td>{{ ui.badge(st, {'active':'green','used':'blue','expired':'slate','revoked':'red'}[st]) }}</td>
+        <td class="small">{{ row.used_by.username if row.used_by else '—' }}</td>
+        <td class="right">{% if st == 'active' %}
+          <form method="post" action="/referrals/{{ row.id }}/revoke" data-confirm="Revoke this code?">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="btn btn-sm btn-ghost" type="submit">Revoke</button>
+          </form>{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}{{ ui.empty('No codes yet. Create one to invite someone.') }}{% endif %}
+  </div>
+</div>
+{% if roles %}
+{% call ui.modal('ref-modal', 'New referral code') %}
+<form method="post" action="/referrals/create">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label class="field"><span>Account type this code creates</span>
+    <select name="role" required>
+      {% for r in roles %}<option value="{{ r.value }}">{{ r.label }}</option>{% endfor %}
+    </select>
+  </label>
+  <div class="form-grid">
+    <label class="field"><span>Expires after</span><input type="number" name="ttl_amount" min="1" value="{{ default_ttl }}" required></label>
+    <label class="field"><span>Unit</span>
+      <select name="ttl_unit"><option value="minutes" selected>minutes</option><option value="hours">hours</option><option value="days">days</option></select>
+    </label>
+  </div>
+  <small class="muted">Default is {{ default_ttl }} minutes (change in Settings). Maximum 30 days. One use only.</small>
+  {{ ui.field('Note (who is it for?)', 'note', attrs='maxlength=120') }}
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Create code</button></div>
+</form>
+{% endcall %}
+{% endif %}
+{% endblock %}

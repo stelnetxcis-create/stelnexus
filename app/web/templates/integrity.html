@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Ledger integrity · {{ brand }}{% endblock %}
+{% block heading %}Ledger integrity{% endblock %}
+{% block actions %}<a class="btn" href="/audit">Audit log</a>{% endblock %}
+{% block content %}
+<div class="alert alert-{{ 'success' if report.ok else 'danger' }}" role="status">
+  {% if report.ok %}All checks passed across {{ report.accounts }} accounts: every transaction balances, cached balances match the ledger, and the trial balance reconciles.
+  {% else %}<strong>Integrity problems detected.</strong> Do not approve settlements until these are investigated.{% endif %}
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Trial balance</h2></div>
+  <div class="card-body tight">
+    {% set tb = report.trial_balance %}
+    {{ ui.table_start(['Class', 'Balance']) }}
+    <tr><td>Assets</td><td class="right num">{{ tb.asset | money }}</td></tr>
+    <tr><td>Expenses</td><td class="right num">{{ tb.expense | money }}</td></tr>
+    <tr><td>Liabilities</td><td class="right num">{{ tb.liability | money }}</td></tr>
+    <tr><td>Revenue</td><td class="right num">{{ tb.revenue | money }}</td></tr>
+    {{ ui.table_end() }}
+    <p class="small muted" style="padding:0 16px 12px">Assets + expenses must equal liabilities + revenue.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Unbalanced transactions</h2></div>
+  <div class="card-body">
+    {% if report.unbalanced_txns %}
+      <p>Transaction IDs: {% for i in report.unbalanced_txns %}<code>{{ i }}</code>{{ ', ' if not loop.last }}{% endfor %}</p>
+    {% else %}{{ ui.empty('None.') }}{% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Balance mismatches</h2></div>
+  <div class="card-body tight">
+    {% if report.balance_mismatches %}
+    {{ ui.table_start(['Account', 'Cached', 'Per ledger']) }}
+    {% for m in report.balance_mismatches %}
+    <tr><td class="mono">{{ m.account }}</td><td class="right num">{{ m.cached | money }}</td><td class="right num">{{ m.ledger | money }}</td></tr>
+    {% endfor %}
+    {{ ui.table_end() }}
+    {% else %}<div class="card-body">{{ ui.empty('None.') }}</div>{% endif %}
+  </div>
+</div>
+{% endblock %}

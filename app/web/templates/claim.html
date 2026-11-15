@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Claim Ticket · {{ brand }}{% endblock %}
+{% block heading %}Claim Ticket{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-head"><h2>Scan or type the ticket code</h2><span class="muted small">pays winners at the counter and marks the ticket claimed</span></div>
+  <div class="card-body">
+    <div class="scan-box">
+      <form method="get" action="/claim" data-claim-form class="inline-form">
+        <label class="field"><span>Ticket code</span>
+          <input name="code" value="{{ code }}" autocomplete="off" autocapitalize="characters" maxlength="200" placeholder="scan, or type the code"></label>
+        <button class="btn btn-primary" type="submit">Look up</button>
+      </form>
+      <button class="btn" type="button" data-scan-start>Scan with camera</button>
+      <video data-scan-video playsinline muted hidden></video>
+      <p class="muted small" data-scan-note></p>
+    </div>
+  </div>
+</div>
+
+{% if ticket %}
+<div class="card">
+  <div class="card-head"><h2>Ticket <span class="mono">{{ ticket.code }}</span></h2>{{ ui.status_badge(ticket.status) }}</div>
+  <div class="card-body">
+    <div class="claim-result">
+      <div class="small muted">Game {{ fight.number }} · {{ ui.side_badge(ticket.side) }} · stake {{ ticket.stake_cents | money }} · {{ 'load credit' if ticket.funded_by == 'wallet' else 'cash' }} ticket</div>
+      {% if state == 'pending' %}
+        <div class="big">{{ ticket.payout_cents | money }}</div>
+        <div>{{ 'Refund' if ticket.status.value == 'refunded' else 'Winning payout' }} to hand over.</div>
+        <form method="post" action="/claim/{{ ticket.id }}" data-confirm="Mark this ticket as paid?">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn-primary" type="submit">Mark claimed &amp; pay</button>
+        </form>
+      {% elif state == 'claimed' %}
+        <div class="big">Already claimed</div><div class="muted">{{ ticket.claimed_at | datetime }} · {{ ticket.payout_cents | money }}</div>
+      {% elif state == 'auto' %}
+        <div class="big">Paid to load credit</div><div class="muted">This player's winnings were added to their load credit at settlement. No cash to hand over.</div>
+      {% elif state == 'open' %}
+        <div class="big">Not settled yet</div><div class="muted">Game {{ fight.number }} has no declared result.</div>
+      {% elif state == 'lost' %}
+        <div class="big">No win</div><div class="muted">This ticket did not win.</div>
+      {% else %}
+        <div class="big">Cancelled</div><div class="muted">The stake was refunded when the ticket was cancelled.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% if recent %}
+<div class="card">
+  <div class="card-head"><h2>Claimed by you</h2></div>
+  <div class="card-body tight"><div class="table-wrap"><table class="table">
+    <thead><tr><th>Code</th><th class="right">Paid</th><th>When</th></tr></thead>
+    <tbody>{% for t in recent %}<tr><td class="mono"><a href="/tickets/{{ t.id }}">{{ t.code }}</a></td><td class="right num">{{ t.payout_cents | money }}</td><td class="small">{{ t.claimed_at | datetime }}</td></tr>{% endfor %}</tbody>
+  </table></div></div>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script src="/static/js/claim.js" defer></script>{% endblock %}

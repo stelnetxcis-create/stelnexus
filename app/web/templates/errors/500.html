@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Something went wrong · {{ brand }}</title>
+<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/css/app.css">
+<link rel="stylesheet" href="/static/css/luxe.css">
+</head>
+<body class="auth-body">
+<main class="auth-card">
+  <div class="auth-brand"><img src="/static/icons/icon.svg" alt="" width="52" height="52"><div><h1>{{ brand }}</h1></div></div>
+  <h2>{{ status_code }} · Something went wrong</h2>
+  <p>{{ message }}</p>
+  <p><a class="btn btn-primary" href="{{ '/dashboard' if user else '/login' }}">{{ 'Back to dashboard' if user else 'Sign in' }}</a></p>
+</main>
+</body>
+</html>

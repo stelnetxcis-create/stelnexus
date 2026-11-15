@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="csrf-token" content="{{ csrf_token }}">
+<meta name="theme-color" content="#09080a">
+<title>Sign in · {{ brand }}</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/css/app.css">
+<link rel="stylesheet" href="/static/css/luxe.css">
+</head>
+<body class="auth-body">
+<main class="auth-card">
+  <div class="auth-brand">
+    <img src="/static/icons/icon.svg" alt="" width="52" height="52">
+    <div><h1>{{ brand }}</h1><p>{{ tagline }}</p></div>
+  </div>
+  {% if error %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endif %}
+  {% for flash in flashes %}<div class="alert alert-{{ flash.level }}">{{ flash.message }}</div>{% endfor %}
+  <form method="post" action="/login" class="auth-form" autocomplete="on">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label class="field"><span>Username</span>
+      <input name="username" value="{{ username or '' }}" required autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="32" autofocus>
+    </label>
+    <label class="field"><span>Password</span>
+      <input type="password" name="password" required autocomplete="current-password" maxlength="256">
+    </label>
+    <button class="btn btn-primary btn-block" type="submit">Sign in</button>
+  </form>
+  <p class="auth-foot" style="margin-top:14px">Have a referral code? <a href="/register">Create an account</a></p>
+  <p class="auth-foot">Protected by Argon2id, session rotation, rate limiting and CSRF tokens.<br>
+  <span class="muted">Authorised personnel only. All actions are logged.</span></p>
+</main>
+<script src="/static/js/app.js" defer></script>
+<script src="/static/js/luxe.js" defer></script>
+</body>
+</html>

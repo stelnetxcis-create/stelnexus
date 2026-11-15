@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Commissions · {{ brand }}{% endblock %}
+{% block heading %}My Commissions{% endblock %}
+{% block actions %}
+{% if 'commissions.claim' in perms and not user.is_admin %}
+<button class="btn btn-sm" data-modal="withdraw-modal">Withdraw</button>
+<button class="btn btn-sm btn-brand" data-modal="convert-modal">Convert to load credit</button>
+{% endif %}
+{% endblock %}
+{% block content %}
+
+<div class="grid grid-3">
+  {{ ui.stat('Unclaimed commissions', totals.unclaimed | money, 'available to claim', 'dark') }}
+  {{ ui.stat('Total earned', totals.earned | money, 'all settled games', 'green') }}
+  {{ ui.stat('My load credit', totals.wallet | money, 'spendable / transferable', 'blue') }}
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>How your commission is calculated</h2></div>
+  <div class="card-body">
+    <p class="small">Basis: <strong>{{ basis }}</strong> — {{ 'a share of every settled stake in your downline' if basis == 'turnover' else 'a share of the house net win, apportioned by stake' }}.
+    Rates are set by the admin in Settings and applied per tier:</p>
+    <div class="table-actions">
+      {% for tier, rate in rates.items() %}<span class="chip">{{ tier }}: {{ '%.2f%%' | format(rate / 100) }}</span>{% endfor %}
+      <span class="chip">cap: {{ '%.2f%%' | format(settings['commission.cap_of_house_cut_bps'] / 100) }} of tong</span>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>Commission list</h2>
+    <div class="table-tools">
+      <a class="chip" href="/commissions">All</a>
+      <a class="chip" href="/commissions?status=unclaimed">Unclaimed</a>
+      <a class="chip" href="/commissions?status=claimed">Claimed</a>
+      <a class="chip" href="/commissions?status=reversed">Reversed</a>
+    </div>
+  </div>
+  <div class="card-body tight">
+    {% if rows %}
+    <div class="table-wrap"><table class="table" data-table data-page-size="25">
+      <thead><tr><th>Type</th><th>Player</th><th>Game</th><th>Ticket</th><th class="right">Base</th><th class="right">Rate</th><th class="right">Commission</th><th>Status</th><th>Date</th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>{{ ui.badge(row.tier) }}</td>
+          <td class="small">{{ row.ticket.player.full_name if row.ticket.player else 'walk-in' }}</td>
+          <td class="num">#{{ row.ticket.fight.number }}</td>
+          <td class="mono small">{{ row.ticket.code }}</td>
+          <td class="right num">{{ row.base_cents | money }}</td>
+          <td class="right num">{{ '%.2f%%' | format(row.rate_bps / 100) }}</td>
+          <td class="right num" data-sort="{{ row.amount_cents }}"><strong>{{ row.amount_cents | money }}</strong></td>
+          <td>{{ ui.status_badge(row.status) }}</td>
+          <td class="small nowrap">{{ row.created_at | datetime }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}{{ ui.empty('No commissions yet. They accrue when a game in your downline settles.') }}{% endif %}
+  </div>
+</div>
+
+{% if 'commissions.claim' in perms %}
+{% call ui.modal('convert-modal', 'Convert commission to load credit') %}
+<form method="post" action="/commissions/convert">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  {{ ui.idem() }}
+  <p class="notice">Available: <strong>{{ totals.unclaimed | money }}</strong>. Leave the amount blank to convert everything.</p>
+  {{ ui.field('Amount (PHP, optional)', 'amount', attrs='inputmode=decimal') }}
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Convert</button></div>
+</form>
+{% endcall %}
+
+{% call ui.modal('withdraw-modal', 'Withdraw commission') %}
+<form method="post" action="/commissions/withdraw">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  {{ ui.idem() }}
+  <p class="notice">Available: <strong>{{ totals.unclaimed | money }}</strong>. An admin approves before funds are released.</p>
+  {{ ui.field('Amount (PHP)', 'amount', required=true, attrs='inputmode=decimal') }}
+  <label class="field"><span>Method</span><select name="method"><option value="gcash">GCash</option><option value="cash">Cash</option><option value="bank">Bank</option></select></label>
+  {{ ui.field('Reference / account', 'reference', attrs='maxlength=64') }}
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Request withdrawal</button></div>
+</form>
+{% endcall %}
+{% endif %}
+{% endblock %}

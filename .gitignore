@@ -1,0 +1,10 @@
+
+.env
+dev.db*
+var/
+.venv/
+requirements.lock
+
+# Python bytecode
+__pycache__/
+*.py[cod]

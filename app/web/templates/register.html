@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="csrf-token" content="{{ csrf_token }}">
+<meta name="theme-color" content="#09080a">
+<title>Create account · {{ brand }}</title>
+<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/css/app.css">
+<link rel="stylesheet" href="/static/css/luxe.css">
+</head>
+<body class="auth-body">
+<main class="auth-card">
+  <div class="auth-brand">
+    <img src="/static/icons/icon.svg" alt="" width="52" height="52">
+    <div><h1>{{ brand }}</h1><p>{% if step == 'details' %}Step 2 of 2 · your details{% else %}Step 1 of 2 · referral code{% endif %}</p></div>
+  </div>
+  {% if error %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endif %}
+
+  {% if step == 'details' %}
+  <div class="notice" style="margin-bottom:14px">Code accepted. You are joining as <strong>{{ role_label }}</strong> under <strong>{{ issuer }}</strong>. This code works once.</div>
+  <form method="post" action="/register" class="auth-form" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="code" value="{{ code }}">
+    <label class="field"><span>Full name</span><input name="full_name" value="{{ full_name or '' }}" required maxlength="120" autofocus></label>
+    <label class="field"><span>Username</span><input name="username" value="{{ username or '' }}" required maxlength="32" autocapitalize="none" spellcheck="false"><small>3–32 characters: letters, digits, dot, dash, underscore.</small></label>
+    <label class="field"><span>Contact number <small>(optional)</small></span><input name="contact" value="{{ contact or '' }}" maxlength="32" inputmode="tel"></label>
+    <label class="field"><span>Password</span><input type="password" name="password" required minlength="{{ settings.get('security.password_min_length', 12) }}" maxlength="256" autocomplete="new-password"><small>At least {{ settings.get('security.password_min_length', 12) }} characters, mixing 3 of: lower, upper, digits, symbols.</small></label>
+    <label class="field"><span>Confirm password</span><input type="password" name="password2" required maxlength="256" autocomplete="new-password"></label>
+    <button class="btn btn-primary btn-block" type="submit">Create account</button>
+  </form>
+  {% else %}
+  <form method="post" action="/register/code" class="auth-form" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label class="field"><span>Referral code</span>
+      <input name="code" value="{{ code or '' }}" required maxlength="16" autocapitalize="characters" spellcheck="false" class="mono" style="letter-spacing:.12em;text-transform:uppercase" autofocus>
+      <small>You need a one-time code from your upline to create an account.</small>
+    </label>
+    <button class="btn btn-primary btn-block" type="submit">Continue</button>
+  </form>
+  {% endif %}
+  <p class="auth-foot"><a href="/login">← Back to sign in</a></p>
+</main>
+<script src="/static/js/app.js" defer></script>
+<script src="/static/js/luxe.js" defer></script>
+</body>
+</html>

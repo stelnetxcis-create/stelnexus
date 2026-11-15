@@ -1,0 +1,20 @@
+# /etc/systemd/system/stelnexus.service  (adjust User, paths)
+# Keep --workers 1 unless you add a shared rate-limit store: the limiter is in-process memory.
+[Unit]
+Description=StelNexus console
+After=network.target postgresql.service
+
+[Service]
+User=stelnexus
+WorkingDirectory=/opt/stelnexus
+EnvironmentFile=/opt/stelnexus/.env
+ExecStart=/opt/stelnexus/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/stelnexus/var
+
+[Install]
+WantedBy=multi-user.target

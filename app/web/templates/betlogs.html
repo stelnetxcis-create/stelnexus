@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Betting List · {{ brand }}{% endblock %}
+{% block heading %}Betting List{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-head">
+    <h2>Tickets</h2>
+    <form class="inline-form" method="get" action="/betlogs">
+      <select name="event_id" aria-label="Event">
+        <option value="">All events</option>
+        {% for event in events %}<option value="{{ event.id }}" {{ 'selected' if filters.event_id == event.id|string }}>{{ event.title }}</option>{% endfor %}
+      </select>
+      <select name="status" aria-label="Status">
+        <option value="">Any status</option>
+        {% for value in ['active','settled','refunded','canceled'] %}<option value="{{ value }}" {{ 'selected' if filters.status == value }}>{{ value }}</option>{% endfor %}
+      </select>
+      <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input type="search" name="q" value="{{ filters.q }}" placeholder="Ticket code" aria-label="Search tickets"></div>
+      <button class="btn btn-sm btn-primary">Filter</button>
+    </form>
+  </div>
+  <div class="card-body tight">
+    {% if rows %}
+    <div class="table-wrap"><table class="table" data-table data-page-size="30">
+      <thead><tr><th>Ticket #</th><th>Type</th><th class="right">Amount bet</th><th class="right">Payout</th><th>Numbers</th><th>Winner</th><th>Date</th><th>Kubrador</th><th>Cavo</th><th>Status</th><th class="right"></th></tr></thead>
+      <tbody>
+      {% for ticket in rows %}
+        <tr>
+          <td class="mono"><a href="/tickets/{{ ticket.id }}">{{ ticket.code }}</a></td>
+          <td>{{ ui.side_badge(ticket.side) }}</td>
+          <td class="right num" data-sort="{{ ticket.stake_cents }}">{{ ticket.stake_cents | money }}</td>
+          <td class="right num" data-sort="{{ ticket.payout_cents }}">{{ ticket.payout_cents | money }}</td>
+          <td class="small">{{ ticket.numbers or '—' }}</td>
+          <td>{% if ticket.fight.result %}{{ ui.badge(ticket.fight.result) }}{% else %}<span class="muted">—</span>{% endif %} <small class="muted">#{{ ticket.fight.number }}</small></td>
+          <td class="small nowrap">{{ ticket.placed_at | datetime }}</td>
+          <td class="small">{{ ticket.kubrador or '—' }}</td>
+          <td class="small">{{ ticket.cavo or '—' }}</td>
+          <td>{{ ui.status_badge(ticket.status) }}</td>
+          <td class="right"><a class="btn btn-sm btn-ghost" href="/tickets/{{ ticket.id }}"><svg class="ico"><use href="#i-print"/></svg></a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}{{ ui.empty('No tickets match this filter.') }}{% endif %}
+  </div>
+</div>
+<p class="notice">“Numbers”, “Kubrador” and “Cavo” are retained from the legacy number-game layout for continuity; they are optional on Meron/Wala tickets.</p>
+{% endblock %}

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="5">
+<meta name="robots" content="noindex">
+<title>Live · {{ brand }}</title>
+<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/css/app.css">
+<link rel="stylesheet" href="/static/css/luxe.css">
+<style>
+  body{display:block;min-height:100vh;padding:20px}
+  .live{max-width:980px;margin:0 auto;display:grid;gap:16px}
+  .live-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+  .live-game{font-size:clamp(40px,9vw,84px);font-weight:800;line-height:1}
+  .live-state{font-size:clamp(18px,3.4vw,28px);font-weight:800;padding:8px 16px;border-radius:999px}
+  .live-open{background:#14532d;color:#bbf7d0}.live-closed{background:#7f1d1d;color:#fecaca}
+  .live-sides{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+  .live-side{border:1px solid var(--line);border-radius:14px;padding:16px;background:var(--panel)}
+  .live-side h3{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+  .live-side .amt{font-size:clamp(26px,5vw,40px);font-weight:800;font-variant-numeric:tabular-nums}
+  .live-side .mult{font-size:18px;font-weight:700}
+  .live-side.meron{border-color:#dc2626}.live-side.wala{border-color:#2563eb}.live-side.draw{border-color:#8b5cf6}
+  .live-rule{border:1px dashed var(--line);border-radius:10px;padding:12px;color:var(--ink-2)}
+  .low{color:#f87171}
+  .recent{display:flex;gap:8px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div class="live">
+  <div class="live-head">
+    <div><strong>{{ brand }}</strong>{% if board.event %} · {{ board.event.title }}{% endif %}</div>
+    <small class="muted">refreshes every 5 seconds</small>
+  </div>
+  {% if not board.event %}
+    <div class="card"><div class="card-body"><h2>No main event is running right now.</h2></div></div>
+  {% elif not board.fight %}
+    <div class="card"><div class="card-body"><h2>All games in this main event are finished.</h2></div></div>
+  {% else %}
+    {% set f = board.fight %}{% set snap = board.snapshot %}{% set mult = board.multipliers %}
+    <div class="live-head">
+      <div class="live-game">Game {{ f.number }}</div>
+      {% if f.status.value == 'open' %}<div class="live-state live-open">BETTING OPEN</div>{% else %}<div class="live-state live-closed">BETTING CLOSED</div>{% endif %}
+    </div>
+    {% if f.bet_mode != 'all' %}<div class="alert alert-warning">Only {{ f.bet_mode | upper }} is open for this game.</div>{% endif %}
+    <div class="live-sides">
+      <div class="live-side meron"><h3>Meron · {{ f.entry_name_meron }}{% if f.llamado_side == 'meron' %} · Llamado{% elif f.llamado_side == 'wala' %} · Dehado{% endif %}</h3>
+        <div class="amt">{{ snap.meron | money }}</div>
+        <div class="mult {{ 'low' if mult.meron.below_min }}">{{ ('%.2fx' | format(mult.meron.bps / 10000)) if mult.meron.bps else '—' }}</div></div>
+      <div class="live-side wala"><h3>Wala · {{ f.entry_name_wala }}{% if f.llamado_side == 'wala' %} · Llamado{% elif f.llamado_side == 'meron' %} · Dehado{% endif %}</h3>
+        <div class="amt">{{ snap.wala | money }}</div>
+        <div class="mult {{ 'low' if mult.wala.below_min }}">{{ ('%.2fx' | format(mult.wala.bps / 10000)) if mult.wala.bps else '—' }}</div></div>
+      {% if board.draw_enabled %}
+      <div class="live-side draw"><h3>Draw</h3>
+        <div class="amt">{{ snap.draw | money }}</div>
+        <div class="mult">{{ '%.2fx' | format(mult.draw.bps / 10000) }} fixed</div></div>
+      {% endif %}
+    </div>
+    {% if board.min_odds_bps %}
+    <div class="live-rule">Odds below <strong>{{ '%.2f' | format(board.min_odds_bps / 10000) }}</strong> will be cancelled and every stake refunded.</div>
+    {% endif %}
+  {% endif %}
+  {% if board.recent %}
+  <div><h3 class="muted small" style="margin-bottom:6px">LAST RESULTS</h3>
+    <div class="recent">
+      {% for r in board.recent %}<span class="badge badge-{{ 'meron' if r.result.value == 'meron' else ('wala' if r.result.value == 'wala' else 'purple') }}">#{{ r.number }} {{ r.result.value | upper }}</span>{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+</body>
+</html>

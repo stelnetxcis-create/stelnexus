@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}My profile · {{ brand }}{% endblock %}
+{% block heading %}My profile{% endblock %}
+{% block content %}
+{% if user.must_change_password %}
+<div class="alert alert-warning" role="alert">You must change your password before continuing.</div>
+{% endif %}
+<div class="grid grid-3">
+  {{ ui.stat('Load credit', wallet | money) }}
+  {{ ui.stat('Commission balance', commission | money) }}
+  {{ ui.stat('Role', user.role_label, 'Ref code ' ~ user.ref_code) }}
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Change password</h2></div>
+  <form class="card-body" method="post" action="/profile/password" autocomplete="off">
+    {{ ui.csrf(csrf_token) }}
+    <div class="form-grid">
+      {{ ui.field('Current password', 'current', 'password', required=true, attrs='autocomplete=current-password') }}
+      {{ ui.field('New password', 'new', 'password', required=true, help='Minimum ' ~ settings.get('security.password_min_length', 12) ~ ' characters.', attrs='autocomplete=new-password minlength=12') }}
+    </div>
+    <button class="btn btn-primary" type="submit">Update password</button>
+  </form>
+</div>
+
+{% if Perm.TOKENS_MANAGE.value in perms %}
+<div class="card">
+  <div class="card-head"><h2>API tokens</h2><span class="muted small">for the mobile app</span></div>
+  {% if new_token %}
+  <div class="card-body">
+    <div class="alert alert-success" role="status">
+      Copy this token now — it will not be shown again.<br>
+      <code class="mono" style="word-break:break-all">{{ new_token }}</code>
+    </div>
+  </div>
+  {% endif %}
+  <form class="card-body" method="post" action="/profile/tokens">
+    {{ ui.csrf(csrf_token) }}
+    <div class="form-grid">
+      {{ ui.field('Device name', 'name', value='mobile', attrs='maxlength=80') }}
+      {{ ui.field('Valid for (days)', 'days', 'number', value='30', attrs='min=1 max=90') }}
+    </div>
+    <button class="btn" type="submit">Create token</button>
+  </form>
+  <div class="card-body tight">
+    {% if tokens %}
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>Name</th><th>Created</th><th>Last used</th><th>Expires</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+      {% for t in tokens %}
+        <tr>
+          <td>{{ t.name }}</td>
+          <td class="small nowrap">{{ t.created_at | datetime }}</td>
+          <td class="small nowrap">{{ t.last_used_at | datetime }}</td>
+          <td class="small nowrap">{{ t.expires_at | datetime }}</td>
+          <td>{{ ui.badge('revoked', 'red') if t.revoked_at else (ui.badge('expired', 'slate') if t.expires_at < now else ui.badge('active', 'green')) }}</td>
+          <td class="right">
+            {% if not t.revoked_at %}
+            <form method="post" action="/profile/tokens/{{ t.id }}/revoke">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm btn-danger" type="submit">Revoke</button></form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}{{ ui.empty('No tokens yet.') }}{% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

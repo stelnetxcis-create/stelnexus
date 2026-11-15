@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Dashboard · {{ brand }}{% endblock %}
+{% block heading %}Dashboard{% endblock %}
+{% block actions %}
+<button class="btn btn-sm btn-ghost" data-install hidden>Install app</button>
+{% if 'events.manage' in perms %}<a class="btn btn-sm btn-brand" href="/events"><svg class="ico"><use href="#i-plus"/></svg>New event</a>{% endif %}
+{% endblock %}
+{% block content %}
+
+<div class="grid grid-4">
+  {{ ui.stat('Stake today', stats.stake_today | money, stats.tickets_today ~ ' tickets sold', 'dark') }}
+  {{ ui.stat('Open games', stats.open_fights, stats.events ~ ' events on file') }}
+  {{ ui.stat('Player balances', stats.cashflow.player_balances | money, 'owed to players', 'blue') }}
+  {{ ui.stat('House revenue', stats.cashflow.house_revenue | money, 'tong + rounding', 'green') }}
+</div>
+
+{% if pending and 'fights.approve' in perms %}
+<div class="card">
+  <div class="card-head"><h2>Corrections awaiting a second admin</h2>{{ ui.badge(pending|length ~ ' pending', 'amber') }}</div>
+  <div class="card-body tight">
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>Game</th><th>Action</th><th>New result</th><th>Requested by</th><th>Reason</th><th class="right">Decision</th></tr></thead>
+      <tbody>
+      {% for run in pending %}
+        <tr>
+          <td>#{{ run.fight.number }} <small class="muted">{{ run.fight.event.title }}</small></td>
+          <td>{{ ui.badge(run.action, 'amber') }}</td>
+          <td>{{ ui.side_badge(run.result) if run.result.value in ('meron','wala') else ui.badge(run.result, 'purple') }}</td>
+          <td>{{ run.requested_by_id }}</td>
+          <td class="small">{{ run.reason }}</td>
+          <td class="right">
+            <div class="table-actions" style="justify-content:flex-end">
+              <form method="post" action="/settlement/{{ run.id }}/approve" data-confirm="Approve this correction? The previous settlement will be reversed and re-posted.">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="btn btn-sm btn-primary">Approve</button>
+              </form>
+              <form method="post" action="/settlement/{{ run.id }}/reject">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="note" value="Rejected from dashboard">
+                <button class="btn btn-sm">Reject</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+</div>
+{% endif %}
+
+<div class="split">
+  <div class="card">
+    <div class="card-head"><h2>Last 7 days · stake volume</h2><a class="btn btn-sm btn-ghost" href="/cashflow">Cashflow →</a></div>
+    <div class="card-body">
+      {{ ui.chart(stats.series, 'stake', 110) }}
+      <div class="hr"></div>
+      <div class="grid grid-2">
+        {{ ui.stat('Load (all time)', stats.cashflow.cash_in | money, '', 'green') }}
+        {{ ui.stat('Cash out (all time)', stats.cashflow.cash_out | money, '', 'red') }}
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Operations</h2></div>
+    <div class="card-body">
+      <div class="grid grid-2">
+        {{ ui.stat('Pending cash requests', stats.pending_requests, 'awaiting admin', 'amber' if stats.pending_requests else '') }}
+        {{ ui.stat('Pending corrections', stats.pending_corrections, 'maker-checker', 'amber' if stats.pending_corrections else '') }}
+        {{ ui.stat('Players', stats.players, 'card + online') }}
+        {{ ui.stat('Agents', stats.active_agents ~ ' / ' ~ stats.agents, 'active / total') }}
+      </div>
+      <div class="hr"></div>
+      <div class="table-actions">
+        {% if 'requests.view' in perms %}<a class="btn btn-sm" href="/cashin_out">Review requests</a>{% endif %}
+        {% if 'players.cash' in perms %}<a class="btn btn-sm" href="/clp">Cash desk</a>{% endif %}
+        {% if 'bets.place' in perms %}<a class="btn btn-sm" href="/events">Sell ticket</a>{% endif %}
+        {% if 'audit.view' in perms %}<a class="btn btn-sm" href="/integrity">Ledger integrity</a>{% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="split">
+  <div class="card">
+    <div class="card-head"><h2>Recent events</h2><a class="btn btn-sm btn-ghost" href="/events">All events →</a></div>
+    <div class="card-body tight">
+      {% if recent_events %}
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Event</th><th>Date</th><th>Games</th><th>Model</th><th>Status</th></tr></thead>
+        <tbody>
+        {% for event in recent_events %}
+          <tr>
+            <td><a href="/events/{{ event.id }}">{{ event.title }}</a></td>
+            <td class="nowrap">{{ event.event_date | date }}</td>
+            <td class="num">{{ event.fight_count }}</td>
+            <td>{{ ui.badge(event.payout_model) }}</td>
+            <td>{{ ui.status_badge(event.status) }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+      {% else %}{{ ui.empty('No events yet. Create one to open betting.') }}{% endif %}
+    </div>
+  </div>
+
+  {% if top_agents %}
+  <div class="card">
+    <div class="card-head"><h2>Top earning agents</h2></div>
+    <div class="card-body tight">
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Agent</th><th>Tier</th><th class="right">Commission earned</th></tr></thead>
+        <tbody>
+        {% for row in top_agents %}
+          <tr><td>{{ row.username }}</td><td>{{ ui.badge(row.role) }}</td><td class="right num">{{ row.earned | money }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

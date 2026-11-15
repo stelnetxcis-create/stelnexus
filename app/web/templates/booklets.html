@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Booklets · {{ brand }}{% endblock %}
+{% block heading %}Booklets{% endblock %}
+{% block actions %}
+{% if 'booklets.manage' in perms %}<button class="btn btn-sm btn-brand" data-modal="booklet-modal"><svg class="ico"><use href="#i-plus"/></svg>Generate booklet</button>{% endif %}
+{% endblock %}
+{% block content %}
+<div class="grid grid-3">
+  {{ ui.stat('Booklets', stats.booklets, 'generated batches', 'dark') }}
+  {{ ui.stat('Pages available', stats.pages_available, 'unused ticket codes') }}
+  {{ ui.stat('Auto-consume', 'ON' if settings['booklet.use_pages_for_tickets'] else 'OFF', 'tickets draw codes from booklets') }}
+</div>
+<div class="card">
+  <div class="card-head"><h2>Booklet list</h2></div>
+  <div class="card-body tight">
+    {% if rows %}
+    <div class="table-wrap"><table class="table" data-table>
+      <thead><tr><th>ID</th><th>Code</th><th class="right">Pages available</th><th class="right">Total</th><th>Generated</th><th>Status</th><th>Admin</th></tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td class="num">{{ row.id }}</td>
+          <td class="mono">{{ row.code }}</td>
+          <td class="right num">{{ row.pages_available }}</td>
+          <td class="right num">{{ row.pages_total }}</td>
+          <td class="small nowrap">{{ row.created_at | datetime }}</td>
+          <td>{{ ui.status_badge(row.status) }}</td>
+          <td class="small">{{ row.created_by_id or '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}{{ ui.empty('No booklets generated yet.') }}{% endif %}
+  </div>
+</div>
+{% if 'booklets.manage' in perms %}
+{% call ui.modal('booklet-modal', 'Generate booklet') %}
+<form method="post" action="/booklets/generate">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  {{ ui.field('Pages amount', 'pages', 'number', default_pages, required=true, attrs='min=1 max=10000') }}
+  <p class="notice">Each page gets a unique CSPRNG code. Pages are claimed with row-level locking, so two tellers can never print the same ticket code.</p>
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Generate</button></div>
+</form>
+{% endcall %}
+{% endif %}
+{% endblock %}

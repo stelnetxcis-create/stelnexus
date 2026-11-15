@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Cashflow · {{ brand }}{% endblock %}
+{% block heading %}Cashflow{% endblock %}
+{% block actions %}
+{% if 'stations.manage' in perms %}<button class="btn btn-sm btn-brand" data-modal="remit-modal">Remit credit</button>{% endif %}
+{% endblock %}
+{% block content %}
+
+<div class="grid grid-4">
+  {{ ui.stat('Total load', figures.cash_in | money, 'counter + GCash loads', 'green') }}
+  {{ ui.stat('Total cash out', figures.cash_out | money, 'counter + approved payouts', 'red') }}
+  {{ ui.stat('Cash on hand', figures.cash_on_hand | money, 'station drawers + central', 'dark') }}
+  {{ ui.stat('Today’s remitted credit', figures.remit_today | money, 'handed in by stations', 'blue') }}
+</div>
+
+<div class="grid grid-4">
+  {{ ui.stat('Player balances', figures.player_balances | money, 'liability owed to players') }}
+  {{ ui.stat('Agent load credit', figures.agent_wallets | money, 'liability owed to agents') }}
+  {{ ui.stat('Commissions payable', figures.commission_payable | money, 'unclaimed') }}
+  {{ ui.stat('Game escrow', figures.pool_escrow | money, 'stakes held for unsettled games') }}
+</div>
+
+<div class="split">
+  <div class="card">
+    <div class="card-head"><h2>House position</h2></div>
+    <div class="card-body">
+      <dl class="kv">
+        <dt>Tong + rounding</dt><dd>{{ figures.house_revenue | money }}</dd>
+        <dt>Commission expense</dt><dd>{{ figures.commission_expense | money }}</dd>
+        <dt>Net house</dt><dd>{{ (figures.house_revenue - figures.commission_expense) | money }}</dd>
+        <dt>GCash clearing float</dt><dd>{{ figures.gcash_float | money }}</dd>
+      </dl>
+      <div class="hr"></div>
+      {{ ui.chart(series, 'stake', 100) }}
+      <p class="small muted">Daily stake volume, last 14 days.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Stations / machines</h2><a class="btn btn-sm btn-ghost" href="/stations">Manage →</a></div>
+    <div class="card-body tight">
+      {% if stations %}
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th>Station</th><th>Teller</th><th class="right">Drawer</th><th class="right">Sold</th><th class="right">Tickets</th></tr></thead>
+        <tbody>
+        {% for row in stations %}
+          <tr>
+            <td><strong>{{ row.station.code }}</strong><br><small class="muted">{{ row.station.name }}</small></td>
+            <td class="small">{{ row.station.user.username if row.station.user else '—' }}</td>
+            <td class="right num">{{ row.drawer | money }}</td>
+            <td class="right num">{{ row.sold | money }}</td>
+            <td class="right num">{{ row.tickets }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+      {% else %}{{ ui.empty('No stations yet. Add one instead of hard-coding machine ids.') }}{% endif %}
+    </div>
+  </div>
+</div>
+
+{% if integrity %}
+<div class="card">
+  <div class="card-head"><h2>Ledger integrity</h2>
+    {{ ui.badge('balanced', 'green') if integrity.ok else ui.badge('mismatch', 'red') }}</div>
+  <div class="card-body">
+    <p class="small">Every transaction sums to zero and every cached balance equals the sum of its entries.
+      Checked {{ integrity.accounts }} accounts.</p>
+    <dl class="kv">
+      <dt>Assets</dt><dd>{{ integrity.trial_balance.asset | money }}</dd>
+      <dt>Liabilities</dt><dd>{{ integrity.trial_balance.liability | money }}</dd>
+      <dt>Revenue</dt><dd>{{ integrity.trial_balance.revenue | money }}</dd>
+      <dt>Expenses</dt><dd>{{ integrity.trial_balance.expense | money }}</dd>
+    </dl>
+    <a class="btn btn-sm" href="/integrity">Full reconciliation report</a>
+  </div>
+</div>
+{% endif %}
+
+{% if 'stations.manage' in perms %}
+{% call ui.modal('remit-modal', 'Remit credit from station') %}
+<form method="post" action="/cashflow/remit">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  {{ ui.idem() }}
+  <label class="field"><span>Station <em>*</em></span>
+    <select name="station_id" required>
+      {% for row in stations %}<option value="{{ row.station.id }}">{{ row.station.code }} — {{ row.station.name }} ({{ row.drawer | money }})</option>{% endfor %}
+    </select>
+  </label>
+  {{ ui.field('Amount (PHP)', 'amount', required=true, attrs='inputmode=decimal') }}
+  {{ ui.field('Note', 'note', attrs='maxlength=200') }}
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Remit credit</button></div>
+</form>
+{% endcall %}
+{% endif %}
+{% endblock %}

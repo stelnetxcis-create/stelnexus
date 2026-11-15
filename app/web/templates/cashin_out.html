@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Load / Cash Out · {{ brand }}{% endblock %}
+{% block heading %}Load / Cash Out{% endblock %}
+{% block actions %}
+{% if 'requests.create' in perms %}<button class="btn btn-sm btn-brand" data-modal="request-modal"><svg class="ico"><use href="#i-plus"/></svg>Request load</button>{% endif %}
+{% endblock %}
+{% block content %}
+{% if 'settings.manage' in perms %}
+<div class="card">
+  <div class="card-head"><h2>Emergency withdrawal switch</h2>{{ ui.badge('ON' if settings['wallet.withdrawals_enabled'] else 'OFF', 'green' if settings['wallet.withdrawals_enabled'] else 'red') }}</div>
+  <div class="card-body">
+    <form method="post" action="/cashin_out/withdrawals" class="inline-form" data-confirm="Change the withdrawal switch?">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="enabled" value="{{ '0' if settings['wallet.withdrawals_enabled'] else '1' }}">
+      <span class="muted small">{{ 'Withdrawals are allowed.' if settings['wallet.withdrawals_enabled'] else 'All cash-outs, agent withdrawals and approvals are blocked.' }}</span>
+      <button class="btn {{ 'btn-danger' if settings['wallet.withdrawals_enabled'] }}" type="submit">{{ 'Turn withdrawals OFF' if settings['wallet.withdrawals_enabled'] else 'Turn withdrawals ON' }}</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-head">
+    <h2>{{ 'Pending load' if view == 'in' else ('Pending cash-out' if view == 'out' else 'Requests History') }}</h2>
+    <div class="table-tools">
+      <a class="chip" href="/cashin_out?t=in">Load</a>
+      <a class="chip" href="/cashin_out?t=out">Cash out</a>
+      <a class="chip" href="/cashin_out?t=hist">Requests History</a>
+    </div>
+  </div>
+  <div class="card-body tight">
+    {% if rows %}
+    <div class="table-wrap"><table class="table" data-table data-page-size="25">
+      <thead><tr><th>Subject</th><th>Requested by</th><th>Method</th><th>Reference</th><th class="right">Amount</th><th>Direction</th><th>Date</th><th>Status</th>{% if 'requests.review' in perms %}<th class="right">Action</th>{% endif %}</tr></thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>{{ row.player.full_name if row.player else (row.agent.username ~ ' (commission)') }}</td>
+          <td class="small">{{ row.requester.username }}</td>
+          <td>{{ ui.badge(row.method) }}</td>
+          <td class="mono small">{{ row.reference or '—' }}</td>
+          <td class="right num" data-sort="{{ row.amount_cents }}">{{ row.amount_cents | money }}</td>
+          <td>{{ ui.badge(row.direction, 'green' if row.direction.value == 'in' else 'red') }}</td>
+          <td class="small nowrap">{{ row.created_at | datetime }}</td>
+          <td>{{ ui.status_badge(row.status) }}</td>
+          {% if 'requests.review' in perms %}
+          <td class="right">
+            {% if row.status.value == 'pending' %}
+            <div class="table-actions" style="justify-content:flex-end">
+              <button class="btn btn-sm btn-primary" data-modal="review-modal" data-action="/cashin_out/{{ row.id }}/review" data-decision="approve" data-label="{{ row.amount_cents | money }}">Approve</button>
+              <button class="btn btn-sm" data-modal="review-modal" data-action="/cashin_out/{{ row.id }}/review" data-decision="reject" data-label="{{ row.amount_cents | money }}">Reject</button>
+            </div>
+            {% else %}<span class="muted small">{{ row.review_note or '—' }}</span>{% endif %}
+          </td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}{{ ui.empty('Nothing in this view.') }}{% endif %}
+  </div>
+</div>
+
+{% if 'requests.create' in perms %}
+{% call ui.modal('request-modal', 'Request load / cash-out') %}
+<form method="post" action="/cashin_out/request">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  {{ ui.idem() }}
+  <label class="field"><span>My player <em>*</em></span>
+    <select name="player_id" required>
+      <option value="">Select a player…</option>
+      {% for player in my_players %}<option value="{{ player.id }}">{{ player.full_name }} ({{ player.card_number or player.username }})</option>{% endfor %}
+    </select>
+  </label>
+  <div class="form-grid">
+    <label class="field"><span>Direction</span>
+      <select name="direction"><option value="in">Load (cash in)</option><option value="out">Cash out</option></select>
+    </label>
+    <label class="field"><span>Method</span>
+      <select name="method"><option value="gcash">GCash</option><option value="cash">Cash</option><option value="bank">Bank</option></select>
+    </label>
+  </div>
+  {{ ui.field('Amount (PHP)', 'amount', required=true, attrs='inputmode=decimal') }}
+  {{ ui.field('Reference number', 'reference', attrs='maxlength=64 placeholder="GCash reference (required for loads)"') }}
+  <p class="notice">Money only moves after an admin approves. Requests cannot be approved twice.</p>
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Submit request</button></div>
+</form>
+{% endcall %}
+{% endif %}
+
+{% if 'requests.review' in perms %}
+{% call ui.modal('review-modal', 'Review request') %}
+<form method="post" action="/cashin_out/0/review" data-action-from>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="decision" data-fill="decision">
+  <p>Amount <strong data-text="label"></strong> — decision <strong data-text="decision"></strong></p>
+  {{ ui.field('Note (required when rejecting)', 'note', attrs='maxlength=200') }}
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Confirm</button></div>
+</form>
+{% endcall %}
+{% endif %}
+{% endblock %}

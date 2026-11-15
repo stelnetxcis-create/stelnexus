@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Staff Chat · {{ brand }}{% endblock %}
+{% block heading %}Staff Chat{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-head"><h2>Admin &amp; tellers</h2><span class="muted small">refreshes every few seconds</span></div>
+  <div class="card-body">
+    <div class="chat-log" data-chat-log data-me="{{ user.username }}" data-last="{{ messages[-1].id if messages else 0 }}" aria-live="polite">
+      {% for m in messages %}
+      <div class="chat-msg {{ 'mine' if m.user == user.username }}"><small>{{ m.user }} · {{ m.role }} · {{ m.at }}</small><div>{{ m.body }}</div></div>
+      {% endfor %}
+    </div>
+    <form class="chat-form" method="post" action="/chat/send" data-chat-form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input name="body" maxlength="300" autocomplete="off" placeholder="Message…" aria-label="Message" required>
+      <button class="btn btn-primary" type="submit">Send</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/chat.js" defer></script>{% endblock %}

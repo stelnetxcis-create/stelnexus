@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}{{ event.title }} · {{ brand }}{% endblock %}
+{% block heading %}{{ event.title }}{% endblock %}
+{% block actions %}
+<a class="btn btn-sm" href="/games?event_id={{ event.id }}"><svg class="ico"><use href="#i-target"/></svg>Game View</a>
+{% if 'events.manage' in perms %}
+<form method="post" action="/events/{{ event.id }}/status" class="inline-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <select name="status" aria-label="Event status">
+    {% for value in ['draft','open','closed'] %}<option value="{{ value }}" {{ 'selected' if event.status.value == value }}>{{ value | upper }}</option>{% endfor %}
+  </select>
+  <button class="btn btn-sm btn-primary">Set</button>
+</form>
+{% endif %}
+{% endblock %}
+{% block content %}
+
+<div class="grid grid-4">
+  {{ ui.stat('Date', event.event_date | date, event.status.value | upper, 'dark') }}
+  {{ ui.stat('Games', event.fight_count, 'numbered 1–' ~ event.fight_count) }}
+  {{ ui.stat('Payout model', event.payout_model.value | upper, 'per-event setting') }}
+  {{ ui.stat('Tong', '%.2f%%' | format(house_cut / 100), 'house cut of Meron + Wala pool') }}
+</div>
+
+{% if event.status.value == 'canceled' %}
+<div class="alert alert-danger">This main event was <strong>cancelled</strong>. All open stakes were refunded.</div>
+{% elif event.status.value != 'open' %}
+<div class="alert alert-warning">This event is <strong>{{ event.status.value }}</strong>. Set it to OPEN before selling tickets.</div>
+{% endif %}
+
+{% if 'bets.place' in perms and not hide_totals and event.status.value != 'canceled' %}
+<div class="card">
+  <div class="card-head"><h2>Sell ticket</h2><span class="muted small">Meron / Wala / Draw · printed receipt with unique code</span></div>
+  <div class="card-body">
+    <form method="post" action="/bets/place">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      {{ ui.idem() }}
+      <div class="form-grid">
+        <label class="field"><span>Game <em>*</em></span>
+          <select name="fight_id" required>
+            {% for fight in fights %}
+            <option value="{{ fight.id }}" {{ 'disabled' if fight.status.value != 'open' }}>
+              #{{ fight.number }} · {{ fight.entry_name_meron }} vs {{ fight.entry_name_wala }}{{ ' (' ~ fight.status.value ~ ')' if fight.status.value != 'open' }}
+            </option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="field"><span>Side <em>*</em></span>
+          <select name="side" required><option value="meron">MERON</option><option value="wala">WALA</option>{% if settings['fight.draw_bets_enabled'] %}<option value="draw">DRAW ({{ '%.2fx' | format(settings['payout.draw_odds_bps'] / 10000) }})</option>{% endif %}</select>
+        </label>
+        {{ ui.field('Amount (PHP)', 'amount', required=true, attrs='inputmode=decimal placeholder="100.00"') }}
+        <label class="field"><span>Funded by</span>
+          <select name="funded_by"><option value="wallet">Player load credit / card</option><option value="cash">Cash at station</option></select>
+        </label>
+        <label class="field"><span>Player (load credit bets)</span>
+          <select name="player_id">
+            <option value="">— walk-in / cash —</option>
+            {% for player in my_players %}<option value="{{ player.id }}">{{ player.full_name }} ({{ player.card_number or player.username }})</option>{% endfor %}
+          </select>
+        </label>
+        <label class="field"><span>Station (cash bets)</span>
+          <select name="station_id">
+            <option value="">My station</option>
+            {% for station in stations %}<option value="{{ station.id }}">{{ station.code }} — {{ station.name }}</option>{% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="form-grid">
+        <label class="switch"><input type="checkbox" name="print" value="1" checked><span>Open printable ticket after sale</span></label>
+        <label class="switch"><input type="checkbox" name="is_diy" value="1"><span>DIY player (self-service kiosk)</span></label>
+      </div>
+      <div class="form-actions"><button class="btn btn-primary" type="submit">Sell ticket</button></div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-head"><h2>Games &amp; live pools</h2><span class="muted small">pools update as tickets are sold</span></div>
+  <div class="card-body tight">
+    <div class="table-wrap"><table class="table" data-table data-page-size="30">
+      <thead><tr><th>#</th><th>Meron entry</th><th>Wala entry</th>{% if not hide_totals %}<th class="right">Meron pool</th><th class="right">Wala pool</th><th class="right">Draw</th><th class="right">Total</th>{% endif %}<th>Result</th><th>Status</th><th class="right">Manage</th></tr></thead>
+      <tbody>
+      {% for fight in fights %}
+        {% set pool = pools[fight.id] %}
+        <tr>
+          <td class="num"><strong>{{ fight.number }}</strong></td>
+          <td>{{ fight.entry_name_meron }}</td>
+          <td>{{ fight.entry_name_wala }}</td>
+          {% if not hide_totals %}
+          <td class="right num" data-sort="{{ pool.meron }}">{{ pool.meron | money }}</td>
+          <td class="right num" data-sort="{{ pool.wala }}">{{ pool.wala | money }}</td>
+          <td class="right num" data-sort="{{ pool.draw }}">{{ pool.draw | money }}</td>
+          <td class="right num" data-sort="{{ pool.total }}"><strong>{{ pool.total | money }}</strong></td>
+          {% endif %}
+          <td>{% if fight.bet_mode != 'all' %}{{ ui.badge(fight.bet_mode ~ ' only', 'amber') }} {% endif %}{% if fight.result %}{{ ui.badge(fight.result, 'meron' if fight.result.value=='meron' else ('wala' if fight.result.value=='wala' else 'purple')) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td>{{ ui.status_badge(fight.status) }}</td>
+          <td class="right"><a class="btn btn-sm" href="/games?event_id={{ event.id }}&fight_id={{ fight.id }}">Open</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+</div>
+
+{% if summary %}
+<div class="card">
+  <div class="card-head"><h2>Main event summary</h2><span class="muted small">net income = house take − agent commission − expenses</span></div>
+  <div class="card-body">
+    <div class="figures">
+      <div class="figure"><span>Staked</span><strong>{{ summary.staked | money }}</strong></div>
+      <div class="figure"><span>Paid out</span><strong>{{ summary.payouts | money }}</strong></div>
+      <div class="figure"><span>House take</span><strong>{{ summary.house | money }}</strong></div>
+      <div class="figure"><span>Commission</span><strong>{{ summary.commission | money }}</strong></div>
+      <div class="figure"><span>Expenses</span><strong>{{ summary.expenses | money }}</strong></div>
+      <div class="figure"><span>Net income</span><strong>{{ summary.net | money }}</strong></div>
+      <div class="figure"><span>Unclaimed cash</span><strong>{{ summary.unclaimed | money }}</strong></div>
+    </div>
+    {% if 'reports.view' in perms %}<a class="btn btn-sm" href="/events/{{ event.id }}/report.csv">Download CSV report</a>{% endif %}
+  </div>
+</div>
+<div class="card">
+  <div class="card-head"><h2>Event expenses</h2><span class="muted small">manual entries, e.g. system fee</span></div>
+  <div class="card-body">
+    {% if expenses %}
+    <div class="table-wrap"><table class="table"><thead><tr><th>Label</th><th class="right">Amount</th><th>Note</th><th>By</th><th></th></tr></thead><tbody>
+    {% for x in expenses %}<tr><td>{{ x.label }}</td><td class="right num">{{ x.amount_cents | money }}</td><td class="small">{{ x.note or '—' }}</td><td class="small">{{ x.created_by.username if x.created_by else '—' }}</td>
+      <td class="right">{% if 'events.manage' in perms %}<form method="post" action="/expenses/{{ x.id }}/delete" data-confirm="Remove this expense?"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-sm btn-ghost">Remove</button></form>{% endif %}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% endif %}
+    {% if 'events.manage' in perms %}
+    <form method="post" action="/events/{{ event.id }}/expenses" class="inline-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      {{ ui.field('Label', 'label', required=true, attrs='maxlength=80 placeholder="System fee"') }}
+      {{ ui.field('Amount (PHP)', 'amount', required=true, attrs='inputmode=decimal') }}
+      {{ ui.field('Note', 'note', attrs='maxlength=255') }}
+      <button class="btn btn-primary" type="submit">Add expense</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% if 'events.manage' in perms and event.status.value != 'canceled' %}
+<div class="card">
+  <div class="card-head"><h2>Cancel whole main event</h2>{{ ui.badge('refunds everyone', 'red') }}</div>
+  <div class="card-body">
+    <p class="notice">Every game that is not yet settled is cancelled and all stakes are refunded in full (no tong, no commission). Games already settled are left as they are.</p>
+    <form method="post" action="/events/{{ event.id }}/cancel" class="inline-form" data-confirm="Cancel this entire main event and refund all open tickets? This cannot be undone.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      {{ ui.field('Reason', 'reason', required=true, attrs='minlength=5 maxlength=200') }}
+      <button class="btn btn-danger" type="submit">Cancel main event</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
