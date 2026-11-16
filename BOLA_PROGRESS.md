@@ -1,6 +1,6 @@
 # Bola progress handoff
 
-Full suite: 205 passed, 1 skipped (`python -m pytest -q`; the skip is the Postgres run, see below).
+Full suite: 208 passed, 1 skipped (`python -m pytest -q`; the skip is the Postgres run, see below).
 Feature is dark: `bola.enabled=false` by default, and `BOLA_DEV_ONLY=true` hides it from every role but the Admin.
 This file supersedes `STELNEXUS_NUMBER_GAME_PROGRESS.md` (written earlier; it still lists items that are now done).
 
@@ -22,14 +22,18 @@ This file supersedes `STELNEXUS_NUMBER_GAME_PROGRESS.md` (written earlier; it st
   - Bug found and fixed by that run: concurrent requests with the same idempotency key got a raw IntegrityError
     (money was safe: one ticket, one charge). `place_bola_bet` now re-checks the key after taking the draw lock and
     returns the first ticket.
-- Pawn proof (`fight.pawn_proof_required`) was already applied in the Bola declare route; only `proofs.required_for`
-  has a test, the route refusal itself is untested.
+- Plan close-out (`tests/test_plan_closeout.py`):
+  - Sabong `betting.place_bet` now re-checks the idempotency key after taking the game lock (same fix as Bola).
+    A duplicate that waited on the lock gets the first ticket instead of a raw IntegrityError. Test removed-fix = fails.
+  - Pawn proof (`fight.pawn_proof_required`) on the Bola declare route is now tested (refused without a picture).
+  - Ruling (a) is pinned by a test: a house-losing draw pays no commission, even with `pay_master` on.
+    Ruling (b) was already pinned by `test_liability_cap_boundary`.
 
 ## Still open
-1. Rulings: (a) no commission on a house-losing draw (plan calls it intended); (b) liability-cap boundary: reaching the cap
-   passes (plan text implied otherwise); (c) legacy `cavo3` has a SOP rate but no commission rate.
-2. The sabong `betting.place_bet` has the same check-before-lock idempotency pattern. Not touched; worth the same re-check.
-3. Independent review of the money paths before real money (a self-review is not that).
-4. Play-money period, then the legal gate (plan 0.1). Not code tasks.
-5. Run `scripts/bola_loadtest.py` against your own PostgreSQL / hardware before launch (numbers here came from a sandbox:
+1. Rulings: (a) and (b) are decided in code and pinned by tests; change them only on purpose.
+   (c) legacy `cavo3` has a SOP rate but no commission rate: needs a number from the operator.
+2. Independent review of the money paths before real money (a self-review is not that).
+3. Play-money period, then the legal gate (plan 0.1). Not code tasks.
+4. Run `scripts/bola_loadtest.py` against your own PostgreSQL / hardware before launch (numbers here came from a sandbox:
    about 48 bets/s with 32 workers on one draw, all of them serialised by the draw lock by design).
+5. Open design questions: per-location money caps (none exist today), more game types (only Tumbok-Sahod exists).

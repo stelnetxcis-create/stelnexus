@@ -129,6 +129,12 @@ def place_bet(
     fight = db.scalar(select(Fight).where(Fight.id == fight_id).with_for_update())
     if fight is None:
         raise NotFound("Game not found.")
+    if idempotency_key:
+        # A duplicate that was waiting on the game lock: the first request has committed by now,
+        # so hand back its ticket instead of tripping the unique key (a double tap is not an error).
+        existing = db.scalar(select(Ticket).where(Ticket.idempotency_key == idempotency_key))
+        if existing is not None:
+            return existing
     event = events.get_event(db, fight.event_id)
     if event.status != EventStatus.OPEN:
         raise LockedState("This event is not open for betting.")
