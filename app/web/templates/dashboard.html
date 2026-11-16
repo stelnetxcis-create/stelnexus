@@ -47,10 +47,46 @@
   </div>
   <div class="hero-actions">
     {% if 'bets.place' in perms %}<a class="btn btn-sm btn-brand" href="/events"><svg class="ico"><use href="#i-list"/></svg>Sell ticket</a>{% endif %}
-    {% if 'fights.view' in perms %}<a class="btn btn-sm" href="/change_name"><svg class="ico"><use href="#i-target"/></svg>Fight view</a>{% endif %}
     {% if 'requests.review' in perms %}<a class="btn btn-sm" href="/wallet?t=approvals"><svg class="ico"><use href="#i-check"/></svg>Review requests{% if stats.pending_requests %}<span class="pill">{{ stats.pending_requests }}</span>{% endif %}</a>{% endif %}
     {% if 'wallet.view' in perms %}<a class="btn btn-sm" href="/wallet"><svg class="ico"><use href="#i-coins"/></svg>Wallet</a>{% endif %}
   </div>
+</section>
+
+<section class="games" aria-label="Available games">
+  {% if sabong_tile %}
+  <a class="game-tile is-live" href="{{ sabong_tile.href }}">
+    <span class="game-ico"><svg class="ico"><use href="#i-target"/></svg></span>
+    <span class="game-body">
+      <span class="game-label">Sabong</span>
+      <strong class="game-name"><b class="side-meron">Meron</b><em>or</em><b class="side-wala">Wala</b></strong>
+      <span class="game-hint">{{ sabong_tile.hint }}</span>
+    </span>
+    <span class="game-go" aria-hidden="true">→</span>
+  </a>
+  {% endif %}
+  {% if number_tile %}
+  {% if number_tile.state == 'live' %}
+  <a class="game-tile is-live" href="{{ number_tile.href }}">
+    <span class="game-ico"><svg class="ico"><use href="#i-hash"/></svg></span>
+    <span class="game-body">
+      <span class="game-label">Number game</span>
+      <strong class="game-name">Tumbok-Sahod</strong>
+      <span class="game-hint">{{ number_tile.hint }}</span>
+    </span>
+    <span class="game-go" aria-hidden="true">→</span>
+  </a>
+  {% else %}
+  <div class="game-tile is-soon" aria-disabled="true">
+    <span class="game-ico"><svg class="ico"><use href="#i-hash"/></svg></span>
+    <span class="game-body">
+      <span class="game-label">Number game</span>
+      <strong class="game-name">Tumbok-Sahod</strong>
+      <span class="game-hint">{{ number_tile.hint }}</span>
+    </span>
+    <span class="game-soon">Soon</span>
+  </div>
+  {% endif %}
+  {% endif %}
 </section>
 
 <div class="kpis">
