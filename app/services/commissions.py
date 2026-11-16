@@ -34,6 +34,9 @@ from app.core.errors import ValidationError
 from app.core.money import bps_of, fmt
 from app.core.settings_registry import SettingsStore
 from app.db.models import (
+    BolaCommission,
+    BolaDraw,
+    BolaRun,
     Commission,
     CommissionStatus,
     Fight,
@@ -144,12 +147,12 @@ def _active(user: User | None) -> bool:
 
 def compute_lines(
     db: Session, tickets: list[Ticket], *, basis: str, house_gross: int, total_staked: int,
-    settings: SettingsStore,
+    settings: SettingsStore, pool_key: str = "commission.pool_bps",
 ) -> list[CommissionLine]:
     if not settings.get("commission.enabled"):
         return []
     pay_refunds = bool(settings.get("commission.pay_on_refund"))
-    pool_bps = int(settings.get("commission.pool_bps"))
+    pool_bps = int(settings.get(pool_key))
     lines: list[CommissionLine] = []
     for ticket in tickets:
         if str(ticket.status) == "refunded" and not pay_refunds:
@@ -252,6 +255,83 @@ def mark_reversed(db: Session, run_id: int) -> int:
     return len(rows)
 
 
+
+# ---------------------------------------------------------------------------
+# Bola (number game) commissions
+# ---------------------------------------------------------------------------
+# Same waterfall as sabong (split_pool / effective_* are reused unchanged); only the pool share
+# comes from ``bola.commission.pool_bps`` and the rows live in ``bola_commissions``.
+# Defaults (plan D3/D4): SOP is paid OUT of the Cavo's cut, and the Master's remainder is a real
+# commission line like in sabong. Change D4 here if the Master share should stay with the house.
+
+def compute_bola_lines(
+    db: Session, tickets: list, *, basis: str, house_gross: int, total_staked: int,
+    settings: SettingsStore,
+) -> list[CommissionLine]:
+    """Commission lines for a settled Bola draw. ``tickets`` are BolaTicket rows."""
+    return compute_lines(db, tickets, basis=basis, house_gross=house_gross,
+                         total_staked=total_staked, settings=settings,
+                         pool_key="bola.commission.pool_bps")
+
+
+def persist_bola(
+    db: Session, actor: User, run: BolaRun, draw: BolaDraw, lines: list[CommissionLine],
+    *, basis: str,
+) -> ledger.LedgerTxn | None:
+    if not lines:
+        return None
+    per_agent: dict[int, int] = {}
+    per_tier = {t: 0 for t in TIERS}
+    for line in lines:
+        db.add(BolaCommission(
+            agent_id=line.agent_id, player_id=line.player_id, ticket_id=line.ticket_id,
+            draw_id=draw.id, run_id=run.id, tier=line.tier, basis=basis,
+            rate_bps=line.rate_bps, base_cents=line.base_cents, amount_cents=line.amount_cents,
+            calc=line.calc, status=CommissionStatus.UNCLAIMED,
+        ))
+        per_agent[line.agent_id] = per_agent.get(line.agent_id, 0) + line.amount_cents
+        per_tier[line.tier] = per_tier.get(line.tier, 0) + line.amount_cents
+    db.flush()
+
+    total = sum(per_agent.values())
+    if total <= 0:
+        return None
+    entries: list[tuple] = [(accounts.commission_expense(db), +total)]
+    for agent_id, amount in sorted(per_agent.items()):
+        entries.append((accounts.commission_for_user(db, db.get(User, agent_id)), -amount))
+    txn = ledger.post(
+        db, kind="commission.accrue", entries=entries, actor=actor,
+        memo=f"Bola commissions · draw #{draw.id} v{run.version}",
+        ref_type="bola_draw", ref_id=draw.id,
+        idempotency_key=f"bola-commission:{draw.id}:{run.version}",
+        meta={"run_id": run.id, "basis": basis, "per_tier": per_tier, "game": "bola"},
+    )
+    audit.record(db, actor, "bola.commission.split", entity_type="bola_draw", entity_id=draw.id,
+                 after={"version": run.version, "basis": basis,
+                        "tickets": len({l.ticket_id for l in lines}), "total_cents": total,
+                        **{f"{t}_cents": v for t, v in per_tier.items()}, "txn": txn.uuid})
+    return txn
+
+
+def mark_bola_reversed(db: Session, run_id: int) -> int:
+    rows = list(db.scalars(select(BolaCommission).where(
+        BolaCommission.run_id == run_id,
+        BolaCommission.status != CommissionStatus.REVERSED)).all())
+    for row in rows:
+        row.status = CommissionStatus.REVERSED
+    db.flush()
+    return len(rows)
+
+
+def list_bola_for(db: Session, actor: User, *, status: CommissionStatus | None = None,
+                  limit: int = 200, offset: int = 0) -> list[BolaCommission]:
+    stmt = select(BolaCommission).where(BolaCommission.agent_id == actor.id)
+    if status:
+        stmt = stmt.where(BolaCommission.status == status)
+    return list(db.scalars(stmt.order_by(BolaCommission.id.desc())
+                           .limit(min(limit, 1000)).offset(max(offset, 0))).all())
+
+
 # ---------------------------------------------------------------------------
 # Cut management (Master / Admin)
 # ---------------------------------------------------------------------------
@@ -352,6 +432,9 @@ def cut_rows(db: Session, actor: User, store: SettingsStore) -> list[dict]:
 def totals_for(db: Session, agent: User) -> dict:
     earned = int(db.scalar(select(func.coalesce(func.sum(Commission.amount_cents), 0)).where(
         Commission.agent_id == agent.id, Commission.status != CommissionStatus.REVERSED)) or 0)
+    earned += int(db.scalar(select(func.coalesce(func.sum(BolaCommission.amount_cents), 0)).where(
+        BolaCommission.agent_id == agent.id,
+        BolaCommission.status != CommissionStatus.REVERSED)) or 0)
     payable = accounts.commission_for_user(db, agent)
     return {
         "unclaimed": payable.balance_cents,
@@ -373,6 +456,9 @@ def claim_to_wallet(db: Session, actor: User, *, amount_cents: int | None = None
     rows = list(db.scalars(select(Commission).where(
         Commission.agent_id == actor.id, Commission.status == CommissionStatus.UNCLAIMED
     ).order_by(Commission.id)).all())
+    rows += list(db.scalars(select(BolaCommission).where(
+        BolaCommission.agent_id == actor.id, BolaCommission.status == CommissionStatus.UNCLAIMED
+    ).order_by(BolaCommission.id)).all())
     remaining = amount
     now = dt.datetime.now(dt.timezone.utc)
     for row in rows:

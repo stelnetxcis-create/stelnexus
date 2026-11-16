@@ -11,6 +11,7 @@ from app.db.models import (
     KIND_TYPE,
     Account,
     AccountKind,
+    BolaDraw,
     Fight,
     Player,
     User,
@@ -98,6 +99,22 @@ def pool_for_fight(db: Session, fight: Fight) -> Account:
         )
     if fight.pool_account_id != account.id:
         fight.pool_account_id = account.id
+        db.flush()
+    return account
+
+
+def pool_for_draw(db: Session, draw: BolaDraw) -> Account:
+    """Escrow holding the stakes of one number-game draw. Ordinary liability account: the ledger's
+    integrity check covers it with no special casing."""
+    code = f"pool:draw:{draw.id}"
+    account = get_by_code(db, code)
+    if account is None:
+        account = _create(
+            db, code, AccountKind.BOLA_POOL,
+            f"Bola pool · {draw.draw_date} slot {draw.slot}", owner_draw_id=draw.id,
+        )
+    if draw.pool_account_id != account.id:
+        draw.pool_account_id = account.id
         db.flush()
     return account
 

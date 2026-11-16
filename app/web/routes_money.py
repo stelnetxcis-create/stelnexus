@@ -15,8 +15,14 @@ router = APIRouter()
 async def commissions_page(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.COMMISSIONS_VIEW)
     status = request.query_params.get("status")
-    rows = commissions.list_for(ctx.db, ctx.user,
-                                status=CommissionStatus(status) if status in ("unclaimed", "claimed", "reversed") else None)
+    wanted = CommissionStatus(status) if status in ("unclaimed", "claimed", "reversed") else None
+    sabong = commissions.list_for(ctx.db, ctx.user, status=wanted)
+    for row in sabong:
+        row.game_label = f"#{row.ticket.fight.number}"
+    bola = commissions.list_bola_for(ctx.db, ctx.user, status=wanted)
+    for row in bola:
+        row.game_label = f"Bola #{row.draw_id}"
+    rows = sorted([*sabong, *bola], key=lambda r: r.created_at, reverse=True)
     return render(ctx, "commissions.html", active="commissions", rows=rows,
                   totals=commissions.totals_for(ctx.db, ctx.user),
                   defaults={"volume": int(ctx.store.get("commission.cavo_cut_bps")),

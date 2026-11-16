@@ -6,6 +6,9 @@
     python -m app.cli seed-demo          # dev only: sample agents, an online player, an event
     python -m app.cli seed-locations     # dev only: 5 sample Batangas venues with pictures
     python -m app.cli gen-keys           # prints SECRET_KEY and PII_KEY values
+    python -m app.cli bola-generate --days 2          # create the number-game draws from schedules
+    python -m app.cli bola-tick                       # cron, every minute: open/lock draws on time
+    python -m app.cli bola-convert-cuts --rates r.csv # legacy % -> Volume/SOP bps (prints; --apply writes)
 """
 from __future__ import annotations
 
@@ -149,6 +152,71 @@ def encrypt_pii(_args) -> None:
     print(f"Encrypted {done} stored value(s).")
 
 
+def convert_cut(com: float, sop: float, pool: float) -> tuple[int, int]:
+    """Legacy per-Cavo rates ("% of sales") -> StelNexus (Volume bps of the pool, SOP bps of the
+    Cavo's cut). Assumes SOP is paid OUT of the Cavo's cut (plan D3). Raises ValueError if the
+    pair cannot be expressed (no commission but a SOP, SOP above the commission, pool too small)."""
+    if pool <= 0:
+        raise ValueError("pool must be above 0")
+    if com <= 0:
+        raise ValueError("commission is 0 -> unset in the old panel; needs your ruling")
+    if com > pool:
+        raise ValueError(f"commission {com} is above the pool {pool}; raise --pool")
+    if sop > com:
+        raise ValueError(f"SOP {sop} is larger than the commission {com}; cannot be paid out of it")
+    return round(com / pool * 10000), round(sop / com * 10000)
+
+
+def bola_generate(args) -> None:
+    from app.services import bola
+    with session_scope() as db:
+        store = SettingsStore(db)
+        start = dt.date.fromisoformat(args.date) if args.date else None
+        out = bola.generate_draws(db, None, settings=store, date=start, days=args.days)
+        print(f"Created {len(out['created'])} draw(s), skipped {out['skipped']} that already existed.")
+
+
+def bola_tick(_args) -> None:
+    from app.services import bola
+    with session_scope() as db:
+        out = bola.tick(db, SettingsStore(db))
+        print(f"Opened {out['opened']}, locked {out['locked']}.")
+
+
+def bola_convert_cuts(args) -> None:
+    """CSV with header: username,com_percentage,sop_perc   (old values, e.g. 0.25 and 0.10)."""
+    import csv
+    pool = float(args.pool)
+    rows, bad = [], []
+    with open(args.rates, newline="") as fh:
+        for rec in csv.DictReader(fh):
+            name = (rec.get("username") or "").strip()
+            try:
+                vol, sop = convert_cut(float(rec["com_percentage"]), float(rec["sop_perc"]), pool)
+                rows.append((name, float(rec["com_percentage"]), float(rec["sop_perc"]), vol, sop))
+            except (ValueError, KeyError) as exc:
+                bad.append((name, str(exc)))
+    print(f"pool = {pool:.2f} of sales   (bola.commission.pool_bps should be {round(pool * 10000)})")
+    print(f"{'username':<16}{'old com':>9}{'old sop':>9}{'volume_bps':>12}{'sop_bps':>9}")
+    for name, com, sop, vol, sbps in rows:
+        print(f"{name:<16}{com:>9.2f}{sop:>9.2f}{vol:>12}{sbps:>9}")
+    for name, why in bad:
+        print(f"SKIPPED {name}: {why}")
+    if not args.apply:
+        print("\nDry run. Re-run with --apply to write these to the Cuts of existing Cavos.")
+        return
+    with session_scope() as db:
+        done = 0
+        for name, _com, _sop, vol, sbps in rows:
+            cavo = db.scalar(select(User).where(User.username == name, User.role == Role.CAVO))
+            if cavo is None:
+                print(f"NOT FOUND (no such Cavo): {name}")
+                continue
+            cavo.cut_bps, cavo.sop_bps = vol, sbps
+            done += 1
+        print(f"Updated {done} Cavo(s).")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="app.cli")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -174,6 +242,16 @@ def main() -> None:
     sl.set_defaults(fn=seed_locations)
     sub.add_parser("gen-keys").set_defaults(fn=gen_keys)
     sub.add_parser("encrypt-pii").set_defaults(fn=encrypt_pii)
+    bg = sub.add_parser("bola-generate")
+    bg.add_argument("--date", help="YYYY-MM-DD (default: today, Manila)")
+    bg.add_argument("--days", type=int, default=1)
+    bg.set_defaults(fn=bola_generate)
+    sub.add_parser("bola-tick").set_defaults(fn=bola_tick)
+    bc = sub.add_parser("bola-convert-cuts")
+    bc.add_argument("--rates", required=True, help="CSV: username,com_percentage,sop_perc")
+    bc.add_argument("--pool", default="0.30", help="share of sales set aside (default 0.30)")
+    bc.add_argument("--apply", action="store_true")
+    bc.set_defaults(fn=bola_convert_cuts)
     args = parser.parse_args()
     try:
         args.fn(args)

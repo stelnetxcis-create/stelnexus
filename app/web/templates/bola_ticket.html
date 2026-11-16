@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Ticket {{ ticket.code }} · {{ brand }}{% endblock %}
+{% block heading %}Ticket {{ ticket.code }}{% endblock %}
+{% block actions %}
+<button class="btn btn-primary" type="button" onclick="window.print()">Print</button>
+<a class="btn" href="/bola/draws/{{ draw.id }}">Back to draw</a>
+{% endblock %}
+{% block content %}
+<div class="ticket-body">
+  <article class="ticket" aria-label="Number game ticket {{ ticket.code }}">
+    <h2>{{ header or brand }}</h2>
+    <div class="t-sub">{{ draw.location.name }} · {{ draw.draw_date }} · slot {{ draw.slot }}</div>
+    <div class="t-sub">Draw {{ local(draw.scheduled_at) | datetime('%H:%M') }}</div>
+    <div class="t-sep"></div>
+    <div class="t-big">{{ ticket.numbers | join(' · ') }}</div>
+    <div class="t-row"><span>Type</span><span>{{ ticket.kind.value }} ({{ ticket.line_count }} line{{ 's' if ticket.line_count != 1 }})</span></div>
+    <div class="t-row"><span>Tumbok / line</span><span>{{ ticket.tumbok_cents | money }}</span></div>
+    <div class="t-row"><span>Sahod / line</span><span>{{ ticket.sahod_cents | money }}</span></div>
+    <div class="t-row"><span>Total</span><strong>{{ ticket.stake_cents | money }}</strong></div>
+    <div class="t-row"><span>Pays</span><span>{{ '%g' | format(multiplier) }}x per stake</span></div>
+    <div class="t-row"><span>Placed</span><span>{{ ticket.placed_at | datetime }}</span></div>
+    <div class="t-sep"></div>
+    {% for l in lines %}<div class="t-row"><span>{{ l.first }}–{{ l.second }}</span><span>{{ l.tumbok_cents | money }} / {{ l.sahod_cents | money }}</span></div>{% endfor %}
+    {% if ticket.status.value != 'active' %}
+    <div class="t-sep"></div>
+    <div class="t-row"><span>Status</span><strong>{{ ticket.status.value | upper }}</strong></div>
+    {% if ticket.payout_cents %}<div class="t-row"><span>{{ 'Refund' if ticket.status.value == 'refunded' else 'Payout' }}</span><strong>{{ ticket.payout_cents | money }}</strong></div>{% endif %}
+    {% endif %}
+    <div class="t-sep"></div>
+    <div class="t-qr">{{ qr | safe }}</div>
+    <div class="t-code">{{ ticket.code }}</div>
+    <div class="t-sub">Winnings are credited to the player's wallet automatically.</div>
+    {% if footer %}<div class="t-sub">{{ footer }}</div>{% endif %}
+  </article>
+
+  {% if ticket.status.value == 'active' and can_cancel %}
+  <form method="post" action="/bola/bets/{{ ticket.id }}/cancel" class="card no-print" style="max-width:280px" data-confirm="Cancel this ticket and refund the stake?">
+    {{ ui.csrf(csrf_token) }}
+    <div class="card-body">
+      {{ ui.field('Reason for cancelling', 'reason', required=true, attrs='minlength=3 maxlength=255') }}
+      <button class="btn btn-danger btn-block" type="submit">Cancel ticket</button>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

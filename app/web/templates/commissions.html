@@ -46,7 +46,7 @@
         <tr>
           <td>{{ ui.badge(row.tier) }}</td>
           <td class="small">{{ row.ticket.player.full_name if row.ticket.player else 'walk-in' }}</td>
-          <td class="num">#{{ row.ticket.fight.number }}</td>
+          <td class="num">{{ row.game_label }}</td>
           <td class="mono small">{{ row.ticket.code }}</td>
           <td class="right num">{{ row.base_cents | money }}</td>
           <td class="right num">{{ '%.2f%%' | format(row.rate_bps / 100) }}</td>

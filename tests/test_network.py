@@ -171,7 +171,8 @@ def test_permissions_master_is_admin_minus_admin_panel():
                   # staff chat: Admin, and Pawns it was granted to
                   Perm.CHAT_USE,
                   # Master never enters or changes a result
-                  Perm.FIGHTS_DECLARE, Perm.FIGHTS_REDECLARE}
+                  Perm.FIGHTS_DECLARE, Perm.FIGHTS_REDECLARE,
+                  Perm.BOLA_DECLARE, Perm.BOLA_REDECLARE}
     assert permissions_for(Role.ADMIN) - permissions_for(Role.MASTER) == admin_only
     assert Perm.EVENTS_CREATE in permissions_for(Role.MASTER)
     for role in (Role.CAVO, Role.KUBRADOR, Role.DECLARATOR, Role.PAWN):

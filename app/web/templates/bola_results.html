@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Bola results · {{ brand }}{% endblock %}
+{% block heading %}Bola results{% endblock %}
+{% block actions %}<a class="btn btn-sm" href="/bola">Back to draws</a>{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-head"><h2>Result history</h2>
+    <div class="table-tools">
+      <a class="chip" href="/bola/results">All areas</a>
+      {% for a in areas %}<a class="chip" href="/bola/results?location_id={{ a.id }}">{{ a.name }}</a>{% endfor %}
+    </div></div>
+  <div class="card-body tight">
+    {% if rows %}
+    <div class="table-wrap"><table class="table" data-table data-page-size="25"><thead><tr><th>Date</th><th>Area</th><th>Slot</th><th>Result (tumbok / sahod)</th><th></th></tr></thead><tbody>
+    {% for d in rows %}
+      <tr><td class="small nowrap">{{ d.draw_date }}</td><td>{{ d.location.name }}</td><td class="num">{{ d.slot }}</td>
+          <td class="num"><strong>{{ d.result_label }}</strong></td><td class="right"><a class="btn btn-sm" href="/bola/draws/{{ d.id }}">View</a></td></tr>
+    {% endfor %}
+    </tbody></table></div>
+    {% else %}{{ ui.empty('No results yet.') }}{% endif %}
+  </div>
+</div>
+{% endblock %}

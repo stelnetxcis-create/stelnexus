@@ -112,6 +112,48 @@ DEFS: tuple[SettingDef, ...] = (
     SettingDef("commission.cap_of_house_cut_bps", "Cap: share of house win", "bps", 10000, "Commissions",
                "Total commission per game can never exceed this share of the house win. 10000 = 100%.", 0, 10000),
     SettingDef("commission.pay_on_refund", "Pay commission on refunded bets", "bool", False, "Commissions"),
+    # ---- bola: the two-number draw game (Tumbok-Sahod) ---------------------
+    # Ships DARK. Only switch bola.enabled on once the operator has confirmed it is authorised
+    # to run a numbers game (PCSO / PAGCOR / a licensed operator). Nothing here implies any
+    # government affiliation: branding comes from brand.name / ticket.header.
+    SettingDef("bola.enabled", "Number game (Bola) enabled", "bool", False, "Bola",
+               "Master switch. Off hides the game everywhere and refuses every bet. Turn it on only "
+               "after confirming you are licensed/authorised to run a numbers game."),
+    SettingDef("bola.max_number", "Highest ball", "int", 40, "Bola",
+               "Numbers run from 1 to this. The legacy game used 40.", 2, 90),
+    SettingDef("bola.allow_duplicate_balls", "The two balls may be the same number", "bool", False, "Bola",
+               "Off (default) = the two balls are distinct, so there are 40 x 39 = 1,560 ordered "
+               "outcomes and a bet like 5,5 is refused. On changes the true odds."),
+    SettingDef("bola.payout_multiplier_x100", "Payout multiplier", "int", 80000, "Bola",
+               "80000 = 800.00x on both tumbok and sahod. At 40 distinct numbers the return to "
+               "player is 800/1560 = 51.3%; disclose it to players.", 100, 500000),
+    SettingDef("bola.min_line_stake_cents", "Minimum stake per line side", "money", 100, "Bola",
+               "Each of tumbok / sahod is either 0 or at least this. 100 = PHP 1.", 1, 10**9),
+    SettingDef("bola.limit_per_line_cents", "Limit per combination", "money", 150000, "Bola",
+               "Sum of all stakes on the same ordered pair in one draw (the legacy rule, now actually "
+               "enforced). 150000 = PHP 1,500. 0 = off.", 0, 10**11),
+    SettingDef("bola.max_liability_per_outcome_cents", "Liability cap per outcome", "money", 0, "Bola",
+               "Most one drawn outcome may owe: multiplier x (tumbok on (x,y) + sahod on (y,x)). "
+               "A bet that would push an outcome past this is refused. 0 = off.", 0, 10**13),
+    SettingDef("bola.max_liability_per_draw_cents", "Liability cap per draw", "money", 0, "Bola",
+               "Same cap applied to the worst outcome of the whole draw. 0 = off.", 0, 10**13),
+    SettingDef("bola.cutoff_minutes", "Betting cut-off (minutes before draw)", "int", 10, "Bola",
+               "Bets are refused from this many minutes before the draw time. Enforced by timestamp "
+               "inside the bet transaction, so it does not depend on the scheduler.", 0, 1440),
+    SettingDef("bola.open_hours_before", "Open betting this long before the draw", "int", 12, "Bola",
+               "Used by bola-tick / Generate draws to flip a scheduled draw to OPEN.", 0, 168),
+    SettingDef("bola.cancel_window_seconds", "Bola ticket cancel window (seconds)", "int", 300, "Bola",
+               "Agents may cancel within this window and only before the cut-off. Master/Admin any "
+               "time before the cut-off.", 0, 86400),
+    SettingDef("bola.commission.basis", "Bola commission basis", "choice", "turnover", "Bola",
+               "turnover = a share of every settled stake (recommended for a fixed-multiplier game). "
+               "netwin = a share of the house's net take on the draw, apportioned by stake.",
+               choices=("turnover", "netwin")),
+    SettingDef("bola.commission.pool_bps", "Bola pool: share of the basis", "bps", 3000, "Bola",
+               "How much of each stake is set aside for the network. 3000 = 30%. The Cavo's Volume % "
+               "and the Kubrador's SOP % are then taken out of this pool (Cuts page).", 0, 10000),
+    SettingDef("bola.show_odds_to_players", "Show the multiplier and odds on the bet slip", "bool", True, "Bola",
+               "Responsible-play disclosure: the payout multiplier and the chance per ordered pair."),
     # ---- wallet / transfers ----------------------------------------------
     SettingDef("wallet.min_transfer_cents", "Minimum credit transfer", "money", 1000, "Credit", "Centavos.", 100, 10**9),
     SettingDef("wallet.max_transfer_cents", "Maximum credit transfer", "money", 50000000, "Credit", "Centavos.", 100, 10**11),
@@ -142,6 +184,8 @@ DEFS: tuple[SettingDef, ...] = (
                "Agents may cancel a ticket within this window, and only before the fight locks.", 0, 86400),
     SettingDef("live.board_enabled", "Public live board (/live)", "bool", True, "Events",
                "Shows fight number, betting open/closed, totals and odds to anyone with the link."),
+    SettingDef("live.show_bola", "Show the number game on the live board", "bool", True, "Events",
+               "Adds a second panel: last result per area and the next draw time. Never any stakes."),
     # ---- security ---------------------------------------------------------
     SettingDef("security.session_idle_minutes", "Idle session timeout (minutes)", "int", 30, "Security", "", 5, 480),
     SettingDef("security.max_login_attempts", "Failed logins before lockout", "int", 5, "Security", "", 3, 20),

@@ -22,6 +22,7 @@ from app.core.security import USERNAME_RE, hash_password, mask, password_problem
 from app.core.settings_registry import SettingsStore
 from app.db.models import (
     Account,
+    BolaTicket,
     Player,
     PlayerKind,
     Status,
@@ -149,12 +150,21 @@ def wallet(db: Session, player: Player) -> Account:
 
 
 def staked_today(db: Session, player: Player) -> int:
+    """Today's stakes across **both** games, so the daily limit cannot be dodged by switching
+    from sabong to the number game (the legacy panel had no limit at all)."""
     start = dt.datetime.now(dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    return int(db.scalar(
+    live = [TicketStatus.ACTIVE, TicketStatus.SETTLED]
+    sabong = int(db.scalar(
         select(func.coalesce(func.sum(Ticket.stake_cents), 0))
         .where(Ticket.player_id == player.id, Ticket.placed_at >= start,
-               Ticket.status.in_([TicketStatus.ACTIVE, TicketStatus.SETTLED]))
+               Ticket.status.in_(live))
     ) or 0)
+    bola = int(db.scalar(
+        select(func.coalesce(func.sum(BolaTicket.stake_cents), 0))
+        .where(BolaTicket.player_id == player.id, BolaTicket.placed_at >= start,
+               BolaTicket.status.in_(live))
+    ) or 0)
+    return sabong + bola
 
 
 def assert_can_bet(db: Session, player: Player, stake_cents: int, settings: SettingsStore) -> None:

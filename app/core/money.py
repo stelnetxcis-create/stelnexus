@@ -64,6 +64,20 @@ def odds_of(amount_cents: int, odds_bps: int) -> int:
     return (int(amount_cents) * int(odds_bps)) // 10000
 
 
+def payout_of(amount_cents: int, multiplier_x100: int) -> int:
+    """Floor(amount * multiplier) for a **fixed-multiplier number game**.
+
+    ``multiplier_x100``: 80000 = 800.00x. The bola (Tumbok-Sahod) game pays 800x, which is far
+    above the 100.00x ceiling `odds_of` enforces for sabong, so it gets its own helper instead of
+    widening that one (sabong maths must stay exactly as it is).
+
+    Maximum 5,000.00x. Integer in, integer out: same inputs always give the same centavos.
+    """
+    if multiplier_x100 < 0 or multiplier_x100 > 500_000:
+        raise MoneyError("multiplier must be between 0 and 5000.00x")
+    return (int(amount_cents) * int(multiplier_x100)) // 100
+
+
 def ratio(numerator: int, denominator: int, places: int = 2) -> Decimal:
     if denominator <= 0:
         return Decimal(0)

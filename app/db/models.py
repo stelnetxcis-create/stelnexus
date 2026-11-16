@@ -28,6 +28,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Time,
     UniqueConstraint,
     func,
     true,
@@ -128,6 +129,7 @@ class AccountKind(StrEnum):
     COMMISSION_PAYABLE = "commission_payable"
     STATION_CASH = "station_cash"           # RETIRED: historical ledger accounts only
     FIGHT_POOL = "fight_pool"               # escrow holding stakes of one fight
+    BOLA_POOL = "bola_pool"                 # escrow holding stakes of one number-game draw
     HOUSE_REVENUE = "house_revenue"         # plasada
     COMMISSION_EXPENSE = "commission_expense"
     ROUNDING = "rounding"                   # integer-division remainder
@@ -147,6 +149,7 @@ KIND_TYPE: dict[AccountKind, AccountType] = {
     AccountKind.COMMISSION_PAYABLE: AccountType.LIABILITY,
     AccountKind.STATION_CASH: AccountType.ASSET,
     AccountKind.FIGHT_POOL: AccountType.LIABILITY,
+    AccountKind.BOLA_POOL: AccountType.LIABILITY,
     AccountKind.HOUSE_REVENUE: AccountType.REVENUE,
     AccountKind.COMMISSION_EXPENSE: AccountType.EXPENSE,
     AccountKind.ROUNDING: AccountType.REVENUE,
@@ -394,6 +397,7 @@ class Account(TimestampMixin, Base):
     owner_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
     owner_player_id: Mapped[int | None] = mapped_column(ForeignKey("players.id", ondelete="RESTRICT"), index=True)
     owner_fight_id: Mapped[int | None] = mapped_column(ForeignKey("fights.id", ondelete="RESTRICT"))
+    owner_draw_id: Mapped[int | None] = mapped_column(ForeignKey("bola_draws.id", ondelete="RESTRICT"))
     balance_cents: Mapped[int] = mapped_column(Money, default=0, nullable=False)
     allow_negative: Mapped[bool] = mapped_column(Boolean, default=False)
     version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -780,6 +784,304 @@ class ReferralCode(Base):
         if self.revoked_at:
             return "revoked"
         return "expired" if self.expires_at <= now else "active"
+
+
+# ---------------------------------------------------------------------------
+# Bola: the two-number draw game (Tumbok-Sahod), ported from the legacy panel
+# ---------------------------------------------------------------------------
+# A parallel module, deliberately NOT bolted onto Event / Fight / Ticket:
+#   * tickets.side has CHECK (meron|wala|draw) and fight_id is NOT NULL;
+#   * commissions.ticket_id / fight_id / run_id are all NOT NULL FKs;
+#   * SQLite cannot relax a NOT NULL or a CHECK without a hand-written table rebuild.
+# New tables need no migration at all (Base.metadata.create_all runs on every start), so the
+# sabong schema, its data and its tests are untouched. Everything shared -- wallet, ledger,
+# agent tree, audit, settings, RBAC, player safeguards -- is reused as-is.
+
+
+class BolaKind(StrEnum):
+    """Ticket type = how many pair lines the ticket expands into (old tbl_bet.type)."""
+    PAIR = "pair"          # 2 numbers -> 1 line   (old type '2', button "Tumbok Sahod")
+    CASAS_3 = "casas3"     # 3 numbers -> 3 lines  (old type '3')
+    CASAS_6 = "casas6"     # 4 numbers -> 6 lines  (old type '6')
+    CASAS_10 = "casas10"   # 5 numbers -> 10 lines (old type '10')
+
+    @property
+    def label(self) -> str:
+        return {"pair": "Tumbok–Sahod", "casas3": "3 Casas", "casas6": "6 Casas",
+                "casas10": "10 Casas"}[self.value]
+
+
+# How many numbers each kind takes. Lines are C(n, 2): 1, 3, 6, 10.
+KIND_NUMBERS: dict[BolaKind, int] = {
+    BolaKind.PAIR: 2, BolaKind.CASAS_3: 3, BolaKind.CASAS_6: 4, BolaKind.CASAS_10: 5,
+}
+KIND_LINES: dict[BolaKind, int] = {k: n * (n - 1) // 2 for k, n in KIND_NUMBERS.items()}
+# Legacy DB type code -> kind, for the optional archive import.
+LEGACY_TYPE_KIND: dict[str, BolaKind] = {
+    "2": BolaKind.PAIR, "3": BolaKind.CASAS_3, "6": BolaKind.CASAS_6, "10": BolaKind.CASAS_10,
+}
+BOLA_MAX_BALL = 90   # hard ceiling of the CHECK; the working maximum is bola.max_number (40)
+
+
+class DrawStatus(StrEnum):
+    SCHEDULED = "scheduled"   # exists, not yet open for bets
+    OPEN = "open"
+    LOCKED = "locked"         # past cut-off or closed by hand
+    SETTLED = "settled"
+    VOID = "void"             # called off, every stake refunded
+
+
+class BolaSchedule(TimestampMixin, Base):
+    """One draw time of one area (old tbl_area.ball_1 / ball_2 / ball_3).
+
+    ``draw_time`` is **Asia/Manila local wall time**; a draw's actual instant is stored in UTC on
+    BolaDraw.scheduled_at. 00:00 in the legacy dump meant "no draw" -- those rows are simply not
+    created (or left inactive).
+    """
+    __tablename__ = "bola_schedules"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), index=True)
+    slot: Mapped[int] = mapped_column(Integer)
+    draw_time: Mapped[dt.time] = mapped_column(Time)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False)
+
+    location: Mapped["Location"] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("location_id", "slot", name="uq_bola_schedule_slot"),
+        CheckConstraint("slot between 1 and 6", name="bola_slot_range"),
+    )
+
+
+class BolaDraw(UUIDMixin, TimestampMixin, Base):
+    """One draw = one area x date x slot (old tbl_event, but scheduled instead of hand-typed)."""
+    __tablename__ = "bola_draws"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="RESTRICT"), index=True)
+    draw_date: Mapped[dt.date] = mapped_column(Date, index=True)
+    slot: Mapped[int] = mapped_column(Integer, default=1)
+    scheduled_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), index=True)
+    cutoff_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), index=True)
+    status: Mapped[DrawStatus] = mapped_column(EnumStr(DrawStatus, 12), default=DrawStatus.SCHEDULED, index=True)
+    ball_first: Mapped[int | None] = mapped_column(Integer)
+    ball_second: Mapped[int | None] = mapped_column(Integer)
+    settlement_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    pool_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id", ondelete="RESTRICT"))
+    locked_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+    declared_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+    declared_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    # Same four attributes as Fight, so services.proofs works for a draw unchanged.
+    proof_file: Mapped[str | None] = mapped_column(String(120))
+    proof_mime: Mapped[str | None] = mapped_column(String(40))
+    proof_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    proof_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+    note: Mapped[str | None] = mapped_column(String(120))
+    legacy: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    location: Mapped["Location"] = relationship()
+    declared_by: Mapped["User | None"] = relationship(foreign_keys=[declared_by_id])
+
+    __table_args__ = (
+        UniqueConstraint("location_id", "draw_date", "slot", name="uq_bola_draw_slot"),
+        CheckConstraint("slot between 1 and 6", name="bola_draw_slot_range"),
+        CheckConstraint(f"ball_first is null or ball_first between 1 and {BOLA_MAX_BALL}", name="bola_first_range"),
+        CheckConstraint(f"ball_second is null or ball_second between 1 and {BOLA_MAX_BALL}", name="bola_second_range"),
+        Index("ix_bola_draws_date_status", "draw_date", "status"),
+    )
+
+    @property
+    def title(self) -> str:
+        return f"{self.location.name if self.location else 'Area'} · slot {self.slot}"
+
+    @property
+    def result_label(self) -> str | None:
+        if self.ball_first is None or self.ball_second is None:
+            return None
+        return f"{self.ball_first} / {self.ball_second}"
+
+
+class BolaTicket(UUIDMixin, TimestampMixin, Base):
+    """One sold ticket (old tbl_bet). Always belongs to a verified player: no walk-ins."""
+    __tablename__ = "bola_tickets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(16), unique=True, index=True)
+    draw_id: Mapped[int] = mapped_column(ForeignKey("bola_draws.id", ondelete="RESTRICT"), index=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id", ondelete="RESTRICT"), index=True)
+    agent_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
+    kind: Mapped[BolaKind] = mapped_column(EnumStr(BolaKind, 12), index=True)
+    numbers: Mapped[list] = mapped_column(JsonType)          # in the order typed
+    tumbok_cents: Mapped[int] = mapped_column(Money, default=0, nullable=False)   # per line
+    sahod_cents: Mapped[int] = mapped_column(Money, default=0, nullable=False)    # per line
+    line_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    stake_cents: Mapped[int] = mapped_column(Money, nullable=False)               # (t+s) * lines
+    status: Mapped[TicketStatus] = mapped_column(EnumStr(TicketStatus, 12), default=TicketStatus.ACTIVE, index=True)
+    payout_cents: Mapped[int] = mapped_column(Money, default=0, nullable=False)
+    est_max_payout_cents: Mapped[int] = mapped_column(Money, default=0, nullable=False)
+    stake_txn_id: Mapped[int | None] = mapped_column(ForeignKey("ledger_txns.id", ondelete="RESTRICT"))
+    payout_txn_id: Mapped[int | None] = mapped_column(ForeignKey("ledger_txns.id", ondelete="RESTRICT"))
+    settlement_version: Mapped[int | None] = mapped_column(Integer)
+    settled_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+    canceled_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+    canceled_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    cancel_reason: Mapped[str | None] = mapped_column(String(255))
+    idempotency_key: Mapped[str | None] = mapped_column(String(120), unique=True)
+    placed_ip: Mapped[str | None] = mapped_column(String(64))
+    placed_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow, index=True)
+    # Snapshot of the selling network, so the bet log stays correct if the tree changes later.
+    kubrador: Mapped[str | None] = mapped_column(String(32))
+    cavo: Mapped[str | None] = mapped_column(String(32))
+    note: Mapped[str | None] = mapped_column(String(120))
+    legacy: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    draw: Mapped[BolaDraw] = relationship()
+    player: Mapped["Player"] = relationship()
+    agent: Mapped["User | None"] = relationship(foreign_keys=[agent_id])
+    lines: Mapped[list["BolaLine"]] = relationship(
+        back_populates="ticket", cascade="all, delete-orphan", order_by="BolaLine.id")
+
+    __table_args__ = (
+        CheckConstraint("stake_cents > 0", name="bola_stake_positive"),
+        CheckConstraint("tumbok_cents >= 0 and sahod_cents >= 0", name="bola_sides_nonneg"),
+        CheckConstraint("tumbok_cents + sahod_cents > 0", name="bola_one_side_staked"),
+        CheckConstraint("line_count between 1 and 10", name="bola_line_count_range"),
+        Index("ix_bola_tickets_draw_status", "draw_id", "status"),
+    )
+
+    @property
+    def numbers_label(self) -> str:
+        return ", ".join(str(n) for n in (self.numbers or []))
+
+    @property
+    def per_line_cents(self) -> int:
+        return self.tumbok_cents + self.sahod_cents
+
+
+class BolaLine(Base):
+    """One ordered pair of a ticket (old tbl_bet_combination)."""
+    __tablename__ = "bola_lines"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ticket_id: Mapped[int] = mapped_column(ForeignKey("bola_tickets.id", ondelete="CASCADE"), index=True)
+    draw_id: Mapped[int] = mapped_column(ForeignKey("bola_draws.id", ondelete="RESTRICT"), index=True)
+    first: Mapped[int] = mapped_column(Integer)
+    second: Mapped[int] = mapped_column(Integer)
+    tumbok_cents: Mapped[int] = mapped_column(Money, default=0, nullable=False)
+    sahod_cents: Mapped[int] = mapped_column(Money, default=0, nullable=False)
+
+    ticket: Mapped[BolaTicket] = relationship(back_populates="lines")
+
+    __table_args__ = (
+        CheckConstraint(f"first between 1 and {BOLA_MAX_BALL} and second between 1 and {BOLA_MAX_BALL}",
+                        name="bola_line_range"),
+        Index("ix_bola_lines_pair", "draw_id", "first", "second"),
+    )
+
+    @property
+    def amount_cents(self) -> int:
+        return self.tumbok_cents + self.sahod_cents
+
+
+class BolaExposure(Base):
+    """Running stake total per ordered pair of one draw, maintained inside the bet transaction.
+
+    At most max_number * (max_number - 1) rows (1,560 at 40 numbers). This is what makes the
+    per-combination limit and the liability cap actually work -- the legacy checker read
+    undefined variables and always computed zero.
+    """
+    __tablename__ = "bola_exposure"
+
+    draw_id: Mapped[int] = mapped_column(ForeignKey("bola_draws.id", ondelete="CASCADE"), primary_key=True)
+    first: Mapped[int] = mapped_column(Integer, primary_key=True)
+    second: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tumbok_cents: Mapped[int] = mapped_column(Money, default=0, nullable=False)
+    sahod_cents: Mapped[int] = mapped_column(Money, default=0, nullable=False)
+    line_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("tumbok_cents >= 0 and sahod_cents >= 0 and line_count >= 0",
+                        name="bola_exposure_nonneg"),
+    )
+
+    @property
+    def amount_cents(self) -> int:
+        return self.tumbok_cents + self.sahod_cents
+
+
+class BolaRun(TimestampMixin, Base):
+    """Versioned settlement run: declare / redeclare / recompute / void (same pattern as fights)."""
+    __tablename__ = "bola_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    draw_id: Mapped[int] = mapped_column(ForeignKey("bola_draws.id", ondelete="RESTRICT"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    action: Mapped[str] = mapped_column(String(12))
+    ball_first: Mapped[int | None] = mapped_column(Integer)
+    ball_second: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[RunStatus] = mapped_column(EnumStr(RunStatus, 12), default=RunStatus.PENDING, index=True)
+    reason: Mapped[str] = mapped_column(String(255))
+    requested_by_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
+    approved_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"))
+    reviewed_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+    totals: Mapped[dict | None] = mapped_column(JsonType)
+    reverses_run_id: Mapped[int | None] = mapped_column(ForeignKey("bola_runs.id", ondelete="RESTRICT"))
+    payout_txn_id: Mapped[int | None] = mapped_column(ForeignKey("ledger_txns.id", ondelete="RESTRICT"))
+    commission_txn_id: Mapped[int | None] = mapped_column(ForeignKey("ledger_txns.id", ondelete="RESTRICT"))
+
+    draw: Mapped[BolaDraw] = relationship()
+    requester: Mapped["User"] = relationship(foreign_keys=[requested_by_id])
+
+    __table_args__ = (UniqueConstraint("draw_id", "version", name="uq_bola_run_version"),)
+
+
+class BolaCommission(TimestampMixin, Base):
+    """Mirror of Commission with its own FKs (commissions.ticket_id/fight_id/run_id are NOT NULL)."""
+    __tablename__ = "bola_commissions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
+    player_id: Mapped[int | None] = mapped_column(ForeignKey("players.id", ondelete="SET NULL"), index=True)
+    ticket_id: Mapped[int] = mapped_column(ForeignKey("bola_tickets.id", ondelete="RESTRICT"), index=True)
+    draw_id: Mapped[int] = mapped_column(ForeignKey("bola_draws.id", ondelete="RESTRICT"), index=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("bola_runs.id", ondelete="RESTRICT"), index=True)
+    tier: Mapped[str] = mapped_column(String(16))
+    basis: Mapped[str] = mapped_column(String(16))
+    rate_bps: Mapped[int] = mapped_column(Integer)
+    base_cents: Mapped[int] = mapped_column(Money)
+    amount_cents: Mapped[int] = mapped_column(Money)
+    calc: Mapped[dict | None] = mapped_column(JsonType)
+    status: Mapped[CommissionStatus] = mapped_column(EnumStr(CommissionStatus, 12),
+                                                   default=CommissionStatus.UNCLAIMED, index=True)
+    claimed_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+    claim_txn_id: Mapped[int | None] = mapped_column(ForeignKey("ledger_txns.id", ondelete="RESTRICT"))
+
+    agent: Mapped["User"] = relationship()
+    ticket: Mapped[BolaTicket] = relationship()
+    draw: Mapped[BolaDraw] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("ticket_id", "agent_id", "run_id", name="uq_bola_commission_per_run"),
+        CheckConstraint("amount_cents >= 0", name="bola_commission_nonneg"),
+        Index("ix_bola_commissions_agent_status", "agent_id", "status"),
+    )
+
+
+class BolaExpense(TimestampMixin, Base):
+    """Manual per-draw expense. Informational: feeds the draw's net income, moves no ledger money."""
+    __tablename__ = "bola_expenses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    draw_id: Mapped[int] = mapped_column(ForeignKey("bola_draws.id", ondelete="CASCADE"), index=True)
+    label: Mapped[str] = mapped_column(String(80))
+    amount_cents: Mapped[int] = mapped_column(Money)
+    note: Mapped[str | None] = mapped_column(String(255))
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    draw: Mapped[BolaDraw] = relationship()
+
+    __table_args__ = (CheckConstraint("amount_cents > 0", name="bola_expense_positive"),)
 
 
 __all__ = [n for n in dir() if isinstance(getattr(n, "__mro__", None), tuple)]

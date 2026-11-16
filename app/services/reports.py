@@ -67,7 +67,26 @@ def cashflow(db: Session) -> dict:
         "house_revenue": _kind_balance(db, AccountKind.HOUSE_REVENUE) + _kind_balance(db, AccountKind.ROUNDING),
         "commission_expense": _kind_balance(db, AccountKind.COMMISSION_EXPENSE),
         "pool_escrow": _kind_balance(db, AccountKind.FIGHT_POOL),
+        "bola_pool_escrow": _kind_balance(db, AccountKind.BOLA_POOL),
+        "bola": bola_totals(db),
     }
+
+
+def bola_totals(db: Session) -> dict:
+    """Number-game (Bola) P&L, kept separate from sabong so each game reads on its own."""
+    from app.db.models import BolaCommission, BolaTicket, CommissionStatus
+    live = [TicketStatus.ACTIVE, TicketStatus.SETTLED]
+    staked = int(db.scalar(select(func.coalesce(func.sum(BolaTicket.stake_cents), 0))
+                           .where(BolaTicket.status.in_(live))) or 0)
+    settled_stake = int(db.scalar(select(func.coalesce(func.sum(BolaTicket.stake_cents), 0))
+                                  .where(BolaTicket.status == TicketStatus.SETTLED)) or 0)
+    paid = int(db.scalar(select(func.coalesce(func.sum(BolaTicket.payout_cents), 0))
+                         .where(BolaTicket.status == TicketStatus.SETTLED)) or 0)
+    commission = int(db.scalar(select(func.coalesce(func.sum(BolaCommission.amount_cents), 0))
+                               .where(BolaCommission.status != CommissionStatus.REVERSED)) or 0)
+    return {"staked": staked, "settled_stake": settled_stake, "paid_out": paid,
+            "house_take": settled_stake - paid, "commission": commission,
+            "net": settled_stake - paid - commission}
 
 
 def dashboard(db: Session, actor: User) -> dict:

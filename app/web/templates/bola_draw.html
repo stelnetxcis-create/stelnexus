@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Bola draw · {{ brand }}{% endblock %}
+{% block heading %}{{ draw.location.name }} · slot {{ draw.slot }}{% endblock %}
+{% block actions %}<a class="btn btn-sm" href="/bola">All draws</a>{% endblock %}
+{% block content %}
+
+<div class="grid grid-3">
+  {{ ui.stat('Status', draw.status.value | upper, draw.draw_date ~ ' · draw ' ~ (local(draw.scheduled_at) | datetime('%H:%M')) ~ ' · cut-off ' ~ (local(draw.cutoff_at) | datetime('%H:%M'))) }}
+  {{ ui.stat('Result', draw.result_label or '—', 'tumbok / sahod', 'blue') }}
+  {% if exposure %}{{ ui.stat('Staked', exposure.staked_cents | money, exposure.line_count ~ ' lines', 'dark') }}{% endif %}
+</div>
+
+{% if not enabled %}<div class="card"><div class="card-body small">The number game is switched off, so no bets can be placed.</div></div>{% endif %}
+
+{# ----------------------------------------------------------- bet slip #}
+{% if can_place and bettable and enabled and not hide_totals %}
+<div class="card">
+  <div class="card-head"><h2>Bet slip</h2></div>
+  <div class="card-body">
+    {% if odds.show %}
+    <p class="small muted">Each ₱1 staked pays ₱{{ '%g' | format(odds.multiplier) }} if it hits. There are {{ '{:,}'.format(odds.outcomes) }} possible ordered results, so any one pair comes in about 1 time in {{ '{:,}'.format(odds.outcomes) }}. Average return to the player is about {{ odds.rtp }}%.</p>
+    {% endif %}
+    <form method="post" action="/bola/bets/place" data-bola-slip data-preview="/bola/draws/{{ draw.id }}/preview">
+      {{ ui.csrf(csrf_token) }}{{ ui.idem() }}
+      <input type="hidden" name="draw_id" value="{{ draw.id }}">
+      <div class="inline-form">
+        <label class="field"><span>Player <em>*</em></span>
+          <select name="player_id" required><option value="">— choose a player —</option>
+            {% for p in my_players %}<option value="{{ p.id }}">{{ p.full_name }} ({{ p.username or p.card_number }})</option>{% endfor %}</select></label>
+        <label class="field"><span>Ticket type</span>
+          <select name="kind">{% for value, label in kinds %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></label>
+      </div>
+      <div class="inline-form">
+        {% for i in range(1, 6) %}
+        <label class="field"><span>Number {{ i }}</span><input data-num type="number" name="n{{ i }}" min="1" max="{{ odds.max_number }}" inputmode="numeric"></label>
+        {% endfor %}
+      </div>
+      <div class="inline-form">
+        {{ ui.field('Tumbok ₱ (per line)', 'tumbok', 'number', '', false, attrs='min=0 step=1 inputmode=decimal') }}
+        {{ ui.field('Sahod ₱ (per line)', 'sahod', 'number', '', false, attrs='min=0 step=1 inputmode=decimal') }}
+        {{ ui.field('Note (optional)', 'note', 'text', '', false, attrs='maxlength=60') }}
+      </div>
+      <div data-bola-preview class="small muted"></div>
+      <div class="table-actions">
+        <button class="btn btn-brand" type="submit">Place bet</button>
+        <button class="btn" type="submit" name="print" value="1">Place bet and print</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{# ----------------------------------------------------------- operations #}
+{% if can_manage or can_declare or can_redeclare %}
+<div class="card">
+  <div class="card-head"><h2>Operations</h2></div>
+  <div class="card-body">
+    {% if can_manage and draw.status.value in ('scheduled', 'locked') %}
+    <form method="post" action="/bola/draws/{{ draw.id }}/open" style="display:inline">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm">Open betting</button></form>
+    {% endif %}
+    {% if can_manage and draw.status.value == 'open' %}
+    <form method="post" action="/bola/draws/{{ draw.id }}/lock" style="display:inline">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm">Close betting</button></form>
+    {% endif %}
+
+    {% if can_declare and draw.status.value in ('open', 'locked') %}
+    <div class="hr"></div>
+    <form method="post" action="/bola/draws/{{ draw.id }}/declare" class="inline-form" data-confirm="Declare this result? Winnings are paid immediately.">
+      {{ ui.csrf(csrf_token) }}
+      {{ ui.field('First ball (tumbok)', 'ball_first', 'number', '', true, attrs='min=1 max=' ~ odds.max_number) }}
+      {{ ui.field('Second ball (sahod)', 'ball_second', 'number', '', true, attrs='min=1 max=' ~ odds.max_number) }}
+      {{ ui.field('Reason (only if declaring before the draw time)', 'reason', 'text', '', false, attrs='maxlength=255') }}
+      <button class="btn btn-brand" type="submit">Declare result</button>
+    </form>
+    {% endif %}
+
+    {% if can_redeclare and draw.status.value == 'settled' %}
+    <div class="hr"></div>
+    <form method="post" action="/bola/draws/{{ draw.id }}/correct" class="inline-form">
+      {{ ui.csrf(csrf_token) }}
+      <label class="field"><span>Correction</span><select name="action"><option value="redeclare">Redeclare (new balls)</option><option value="recompute">Recompute (same balls)</option></select></label>
+      {{ ui.field('First ball', 'ball_first', 'number', '', false, attrs='min=1 max=' ~ odds.max_number) }}
+      {{ ui.field('Second ball', 'ball_second', 'number', '', false, attrs='min=1 max=' ~ odds.max_number) }}
+      {{ ui.field('Reason', 'reason', 'text', '', true, attrs='minlength=5 maxlength=255') }}
+      <button class="btn" type="submit">Request correction</button>
+    </form>
+    {% endif %}
+
+    {% if can_manage and draw.status.value != 'void' %}
+    <div class="hr"></div>
+    <form method="post" action="/bola/draws/{{ draw.id }}/void" class="inline-form" data-confirm="Void this draw and refund every stake?">
+      {{ ui.csrf(csrf_token) }}
+      {{ ui.field('Reason to void', 'reason', 'text', '', true, attrs='minlength=5 maxlength=255') }}
+      <button class="btn btn-danger" type="submit">Void draw</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{# ----------------------------------------------------------- corrections #}
+{% if runs and not hide_totals %}
+<div class="card">
+  <div class="card-head"><h2>Settlement history</h2></div>
+  <div class="card-body tight"><div class="table-wrap"><table class="table"><thead><tr><th>v</th><th>Action</th><th>Balls</th><th>Status</th><th>Reason</th><th></th></tr></thead><tbody>
+  {% for r in runs %}
+    <tr><td class="num">{{ r.version }}</td><td>{{ r.action }}</td><td class="num">{{ r.ball_first or '—' }} / {{ r.ball_second or '—' }}</td>
+      <td>{{ ui.status_badge(r.status) }}</td><td class="small">{{ r.reason }}</td>
+      <td class="right">{% if can_approve and r.status.value == 'pending' and r.requested_by_id != user.id %}
+        <form method="post" action="/bola/runs/{{ r.id }}/approve" style="display:inline">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm btn-brand">Approve</button></form>
+        <form method="post" action="/bola/runs/{{ r.id }}/reject" style="display:inline">{{ ui.csrf(csrf_token) }}<input type="hidden" name="note" value="rejected"><button class="btn btn-sm">Reject</button></form>
+      {% endif %}</td></tr>
+  {% endfor %}
+  </tbody></table></div></div>
+</div>
+{% endif %}
+
+{# ----------------------------------------------------------- risk screen #}
+{% if exposure %}
+<div class="card">
+  <div class="card-head"><h2>Exposure</h2></div>
+  <div class="card-body">
+    <dl class="kv">
+      <dt>Worst outcome</dt><dd>{% if exposure.worst.liability_cents %}{{ exposure.worst.first }}–{{ exposure.worst.second }} would owe {{ exposure.worst.liability_cents | money }}{% else %}none yet{% endif %}</dd>
+      <dt>Per-outcome cap</dt><dd>{{ exposure.outcome_cap_cents | money if exposure.outcome_cap_cents else 'off' }}</dd>
+      <dt>Per-draw cap</dt><dd>{{ exposure.draw_cap_cents | money if exposure.draw_cap_cents else 'off' }}</dd>
+      {% if exposure.headroom_cents is not none %}<dt>Headroom</dt><dd>{{ exposure.headroom_cents | money }}</dd>{% endif %}
+    </dl>
+    {% if heat %}
+    <div class="table-wrap"><table class="table"><thead><tr><th>Pair</th><th class="right">Tumbok</th><th class="right">Sahod</th><th class="right">If it comes in</th></tr></thead><tbody>
+    {% for c in heat %}<tr><td class="num">{{ c.first }}–{{ c.second }}</td><td class="right num">{{ c.tumbok | money }}</td><td class="right num">{{ c.sahod | money }}</td><td class="right num">{{ c.liability | money }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{# ----------------------------------------------------------- tickets #}
+{% if tickets is not none %}
+<div class="card">
+  <div class="card-head"><h2>Tickets</h2></div>
+  <div class="card-body tight">
+    {% if tickets %}
+    <div class="table-wrap"><table class="table" data-table data-page-size="25"><thead><tr><th>Code</th><th>Type</th><th>Numbers</th><th class="right">Stake</th><th class="right">Payout</th><th>Status</th><th>Agent</th></tr></thead><tbody>
+    {% for t in tickets %}
+      <tr><td class="mono small"><a href="/bola/tickets/{{ t.id }}">{{ t.code }}</a></td><td class="small">{{ t.kind.value }}</td>
+        <td class="num">{{ t.numbers | join(', ') }}</td><td class="right num">{{ t.stake_cents | money }}</td>
+        <td class="right num">{{ t.payout_cents | money if t.payout_cents else '—' }}</td><td>{{ ui.status_badge(t.status) }}</td>
+        <td class="small">{{ t.kubrador or t.cavo or '—' }}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+    {% else %}{{ ui.empty('No tickets on this draw yet.') }}{% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script src="/static/js/bola.js" defer></script>{% endblock %}

@@ -46,6 +46,15 @@ class Perm(str, Enum):
     BETS_VIEW = "bets.view"
     BETS_PLACE = "bets.place"
     BETS_CANCEL = "bets.cancel"
+    # Bola: the two-number draw game (Tumbok-Sahod). Parallel to the sabong permissions.
+    BOLA_VIEW = "bola.view"              # draws, results, own tickets
+    BOLA_PLACE = "bola.place"            # place a bet for a player in your network
+    BOLA_CANCEL = "bola.cancel"          # cancel a ticket inside the window
+    BOLA_MANAGE = "bola.manage"          # create / open / lock / void draws, edit schedules
+    BOLA_DECLARE = "bola.declare"        # enter the two balls
+    BOLA_REDECLARE = "bola.redeclare"    # request a correction
+    BOLA_APPROVE = "bola.approve"        # approve a correction (never your own)
+    BOLA_EXPOSURE = "bola.exposure"      # stakes, exposure heat-map and draw totals
     COMMISSIONS_VIEW = "commissions.view"
     COMMISSIONS_CLAIM = "commissions.claim"
     CASHFLOW_VIEW = "cashflow.view"
@@ -79,6 +88,7 @@ _WALLET_PERMS = {Perm.WALLET_VIEW, Perm.WALLET_TRANSFER, Perm.REQUESTS_VIEW, Per
 _AGENT_PERMS = {
     Perm.DASHBOARD,
     Perm.EVENTS_VIEW, Perm.FIGHTS_VIEW, Perm.BETS_VIEW, Perm.BETS_PLACE, Perm.BETS_CANCEL,
+    Perm.BOLA_VIEW, Perm.BOLA_PLACE, Perm.BOLA_CANCEL,
     Perm.COMMISSIONS_VIEW, Perm.COMMISSIONS_CLAIM,
 } | _WALLET_PERMS
 
@@ -98,13 +108,14 @@ _ADMIN_ONLY = {
 }
 # Master runs operations but never enters or changes results: declaring is for the Admin, Pawns
 # and Declarators only (Master is a high-privilege operator, not a result source).
-_NO_DECLARE = {Perm.FIGHTS_DECLARE, Perm.FIGHTS_REDECLARE}
+_NO_DECLARE = {Perm.FIGHTS_DECLARE, Perm.FIGHTS_REDECLARE, Perm.BOLA_DECLARE, Perm.BOLA_REDECLARE}
 _OPERATOR = set(Perm) - _ADMIN_ONLY - _NO_DECLARE
 # Kept for callers that ask "what is hidden from Master".
 _HIDDEN_ONLY = _ADMIN_ONLY
 
 # Declarator: result entry only. No balance, no bets, no money, no totals.
-_DECLARATOR_PERMS = {Perm.EVENTS_VIEW, Perm.FIGHTS_VIEW, Perm.FIGHTS_LOCK, Perm.FIGHTS_DECLARE}
+_DECLARATOR_PERMS = {Perm.EVENTS_VIEW, Perm.FIGHTS_VIEW, Perm.FIGHTS_LOCK, Perm.FIGHTS_DECLARE,
+                     Perm.BOLA_VIEW, Perm.BOLA_DECLARE, Perm.BOLA_REDECLARE}
 
 ROLE_PERMS: dict[Role, set[Perm]] = {
     Role.ADMIN: set(Perm),
@@ -169,6 +180,15 @@ def _build_grants() -> tuple[Grant, ...]:
               frozenset({Perm.REPORTS_VIEW})),
         Grant("totals:view", "See stakes, pools and payouts", "Declarators never see these.", "Reports",
               frozenset()),
+        Grant("bola:view", "See the number game (Bola)", "Draws, schedules and results.", "Bola",
+              frozenset({Perm.BOLA_VIEW})),
+        Grant("bola:declare", "Declare number-game results",
+              "Enter the two balls and request a correction. Never approves their own.", "Bola",
+              frozenset({Perm.BOLA_VIEW, Perm.BOLA_DECLARE, Perm.BOLA_REDECLARE}),
+              implies=("bola:view",)),
+        Grant("bola:totals", "See number-game stakes and exposure",
+              "Implies 'See stakes, pools and payouts', so the account stops being totals-blind.",
+              "Bola", frozenset({Perm.BOLA_EXPOSURE}), implies=("bola:view", "totals:view")),
         Grant("chat", "Use the staff chat", "", "Staff",
               frozenset({Perm.CHAT_USE})),
     ]
