@@ -1,22 +1,133 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
-{% block title %}Staff Chat · {{ brand }}{% endblock %}
-{% block heading %}Staff Chat{% endblock %}
+{% block title %}Livestream Chat (experimental) · {{ brand }}{% endblock %}
+{% block heading %}Livestream Chat{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/livestream.css?v=1">{% endblock %}
+{% block actions %}<span class="chip chip-exp" title="This room is experimental: delivery is short-poll, presence is best-effort">Experimental</span>{% endblock %}
 {% block content %}
-<div class="card">
-  <div class="card-head"><h2>Admin &amp; master</h2><span class="muted small">refreshes every few seconds</span></div>
-  <div class="card-body">
-    <div class="chat-log" data-chat-log data-me="{{ user.username }}" data-last="{{ messages[-1].id if messages else 0 }}" aria-live="polite">
-      {% for m in messages %}
-      <div class="chat-msg {{ 'mine' if m.user == user.username }}"><small>{{ m.user }} · {{ m.role }} · {{ m.at }}</small><div>{{ m.body }}</div></div>
-      {% endfor %}
+<div class="ls" data-ls
+     data-me="{{ user.username }}"
+     data-last="{{ messages[-1].id if messages else 0 }}">
+
+  <section class="ls-stage card">
+    <header class="ls-air">
+      <span class="ls-onair"><i class="ls-pulse"></i>ON AIR</span>
+      <div class="ls-air-title">
+        <h2>Livestream Chat</h2>
+        <span class="ls-sub">Operations desk · {{ brand }}</span>
+      </div>
+      <div class="ls-air-tools">
+        <span class="ls-conn" data-ls-conn data-state="live"><i></i><span data-ls-conn-text>Live</span></span>
+        <button class="ls-sound" type="button" data-ls-sound aria-pressed="true" title="Mute or unmute every sound in this room">
+          <svg class="ico" data-ls-sound-on><use href="#i-bell"/></svg>
+          <svg class="ico" data-ls-sound-off hidden><use href="#i-ban"/></svg>
+          <span data-ls-sound-text>Sound on</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="ls-ticker" data-ls-ticker>
+      <span class="ls-ticker-tag">WIRE</span>
+      <div class="ls-ticker-track">
+        {% if on_air.ticker %}
+          {% for t in on_air.ticker %}
+          <span class="ls-wire ls-wire-{{ t.tone }}"><b>{{ t.kind }}</b> {{ t.label }} <em>{{ t.value }}</em> <small>{{ t.at }}</small></span>
+          {% endfor %}
+        {% else %}
+          <span class="ls-wire ls-wire-slate"><b>WIRE</b> No results declared yet today.</span>
+        {% endif %}
+      </div>
     </div>
-    <form class="chat-form" method="post" action="/chat/send" data-chat-form>
+
+    <div class="ls-log" data-ls-log aria-live="polite" aria-label="Chat messages">
+      <div class="ls-day"><span>Today</span></div>
+      {% for m in messages %}
+      <article class="ls-msg {{ 'mine' if m.user == user.username }} ls-tone-{{ m.tone }}" data-id="{{ m.id }}" data-day="{{ m.day }}">
+        <span class="ls-avatar">{{ m.initial }}</span>
+        <div class="ls-bubble">
+          <header><b>{{ m.user }}</b><span class="ls-role">{{ m.role }}</span><time>{{ m.at }}</time></header>
+          <p>{{ m.body }}</p>
+        </div>
+      </article>
+      {% endfor %}
+      {% if not messages %}
+      <div class="ls-empty" data-ls-empty>
+        <svg class="ico"><use href="#i-chat"/></svg>
+        <strong>The room is quiet</strong>
+        <span>Say something to the desk. Messages are kept, signed with your account, and visible only to accounts that hold the livestream chat permission.</span>
+      </div>
+      {% endif %}
+    </div>
+
+    <button class="ls-jump" type="button" data-ls-jump hidden>
+      <svg class="ico"><use href="#i-download"/></svg><span data-ls-jump-text>Jump to latest</span>
+    </button>
+
+    <div class="ls-typing" data-ls-typing hidden>
+      <span class="ls-dots"><i></i><i></i><i></i></span><span data-ls-typing-text></span>
+    </div>
+
+    <form class="ls-composer" method="post" action="/chat/send" data-ls-form>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <input name="body" maxlength="300" autocomplete="off" placeholder="Message…" aria-label="Message" required>
-      <button class="btn btn-primary" type="submit">Send</button>
+      <div class="ls-quick">
+        {% for phrase in ['Betting is open', 'Cut-off in 10 minutes', 'Result declared', 'Check the exposure', 'Copy that'] %}
+        <button class="ls-phrase" type="button" data-ls-phrase="{{ phrase }}">{{ phrase }}</button>
+        {% endfor %}
+      </div>
+      <div class="ls-input">
+        <span class="ls-avatar ls-avatar-me">{{ user.username[:1] | upper }}</span>
+        <input name="body" maxlength="300" autocomplete="off" placeholder="Message the desk…" aria-label="Message" data-ls-field required>
+        <span class="ls-count" data-ls-count>0/300</span>
+        <button class="btn btn-primary ls-send" type="submit">Send<svg class="ico"><use href="#i-out"/></svg></button>
+      </div>
+      <p class="ls-hint"><kbd>Enter</kbd> sends · 300 characters · every message is stored with your account name</p>
     </form>
-  </div>
+  </section>
+
+  <aside class="ls-rail">
+    <div class="card ls-card">
+      <div class="card-head"><h2>In the room</h2><span class="ls-count-pill" data-ls-room-count>{{ room | length }}</span></div>
+      <div class="card-body ls-room" data-ls-room>
+        {% for p in room %}
+        <div class="ls-person ls-tone-{{ p.tone }}">
+          <span class="ls-avatar">{{ p.initial }}</span>
+          <div><b>{{ p.user }}{% if p.me %} <em>you</em>{% endif %}</b><small>{{ p.role }} · seen {{ p.seen }}</small></div>
+          <i class="ls-here"></i>
+        </div>
+        {% endfor %}
+        {% if not room %}<p class="muted small">Nobody else has been here in the last few minutes.</p>{% endif %}
+      </div>
+    </div>
+
+    <div class="card ls-card">
+      <div class="card-head"><h2>On air now</h2></div>
+      <div class="card-body ls-now" data-ls-now>
+        <div class="ls-now-row"><span>Open fights</span><b data-ls-fights>{{ on_air.open_fights }}</b></div>
+        {% if on_air.next_draw %}
+        <a class="ls-next" href="/bola/draws/{{ on_air.next_draw.id }}" data-ls-next data-iso="{{ on_air.next_draw.iso }}">
+          <small>Next number draw</small>
+          <strong>{{ on_air.next_draw.area }} · {{ on_air.next_draw.at }}</strong>
+          <span class="ls-countdown" data-ls-countdown>—</span>
+        </a>
+        {% else %}
+        <div class="ls-now-row"><span>Number game</span><b class="muted">no draw queued</b></div>
+        {% endif %}
+        <p class="muted small">Counts only. Stakes, pools and payouts stay on their own pages.</p>
+      </div>
+    </div>
+
+    <div class="card ls-card ls-expcard">
+      <div class="card-head"><h2>What “experimental” means</h2></div>
+      <div class="card-body">
+        <ul class="ls-notes">
+          <li><b>Short-poll delivery.</b> New messages arrive within about four seconds; this is not a websocket feed yet.</li>
+          <li><b>Best-effort presence.</b> The room list and the typing dots come from live sessions and in-process memory, so they can lag or reset.</li>
+          <li><b>Everything else is production.</b> Messages are stored, permission-checked (<code>chat.use</code>), CSRF-protected and rate-limited like the rest of the console.</li>
+        </ul>
+        <p class="muted small">Granted per account in Admin Panel → Pawns → <b>Livestream chat</b>. The Admin always has it; Master never does.</p>
+      </div>
+    </div>
+  </aside>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/js/chat.js" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/js/chat.js?v=3" defer></script>{% endblock %}

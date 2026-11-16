@@ -71,15 +71,45 @@ def test_bet_declare_pays_800x_and_books_balance(bw):
 
 
 def test_commissions_written_and_sum_to_pool(bw):
+    """D4 alternative: with ``bola.commission.pay_master`` on, the whole pool is paid out."""
     w = bw
-    _bet(w, [1, 2], BolaKind.PAIR, 5000, 5000)                     # PHP 100 stake
+    w.store.set("bola.commission.pay_master", "true", w.admin.id)
+    try:
+        _bet(w, [1, 2], BolaKind.PAIR, 5000, 5000)                 # PHP 100 stake
+        bola_settlement.declare(w.db, w.admin, draw_id=w.draw.id, ball_first=30, ball_second=31,
+                                settings=w.store, reason="test: declare before draw time")
+        rows = list(w.db.scalars(select(BolaCommission).where(BolaCommission.draw_id == w.draw.id)))
+        pool = 10_000 * int(w.store.get("bola.commission.pool_bps")) // 10_000
+        assert rows and sum(r.amount_cents for r in rows) == pool
+        assert {r.tier for r in rows} == {"master", "cavo", "kubrador"}
+        assert commissions.totals_for(w.db, w.cavo)["earned"] > 0
+        assert ledger.verify_integrity(w.db)["ok"]
+    finally:
+        w.store.set("bola.commission.pay_master", "false", w.admin.id)
+
+
+def test_master_remainder_stays_with_house_by_default(bw):
+    """Plan D4 default: no Master line; the Master's share of the pool is simply the house's."""
+    w = bw
+    assert w.store.get("bola.commission.pay_master") is False
+    _bet(w, [1, 2], BolaKind.PAIR, 5000, 5000)
     bola_settlement.declare(w.db, w.admin, draw_id=w.draw.id, ball_first=30, ball_second=31,
                             settings=w.store, reason="test: declare before draw time")
     rows = list(w.db.scalars(select(BolaCommission).where(BolaCommission.draw_id == w.draw.id)))
     pool = 10_000 * int(w.store.get("bola.commission.pool_bps")) // 10_000
-    assert rows and sum(r.amount_cents for r in rows) == pool
-    assert commissions.totals_for(w.db, w.cavo)["earned"] > 0
+    split = commissions.split_pool(pool, cavo_bps=commissions.effective_cavo_bps(w.cavo, w.store),
+                                   sop_bps=commissions.effective_sop_bps(w.kub, w.cavo, w.store))
+    assert {r.tier for r in rows} == {"cavo", "kubrador"}
+    assert sum(r.amount_cents for r in rows) == split.cavo + split.kubrador < pool
     assert ledger.verify_integrity(w.db)["ok"]
+
+
+def test_plan_commission_example_on_a_100_peso_stake():
+    """Plan section 9: pool 30%, Cavo volume 8333, SOP 4000 on PHP 100."""
+    s = commissions.split_pool(3000, cavo_bps=8333, sop_bps=4000)
+    assert (s.pool, s.cavo_gross, s.kubrador, s.cavo, s.master) == (3000, 2499, 999, 1500, 501)
+    assert s.paid == s.pool                                        # Master as a commission line
+    assert commissions.split_pool(3000, cavo_bps=8333, sop_bps=4000, has_master=False).paid == 2499
 
 
 def test_per_line_limit_enforced(bw):
@@ -272,16 +302,35 @@ def test_recompute_same_balls_is_idempotent_on_money(bw):
 
 # ------------------------------------------------------------ commissions
 def test_suspended_cavo_earns_nothing_and_share_rolls_up(bw):
+    """The Cavo's share rolls up to the Master when the Master is paid (D4 alternative), and to
+    the house when the Master is not (D4 default). A suspended Cavo never earns either way."""
+    w = bw
+    w.cavo.status = Status.SUSPENDED
+    w.db.flush()
+    pool = 10_000 * int(w.store.get("bola.commission.pool_bps")) // 10_000
+    try:
+        w.store.set("bola.commission.pay_master", "true", w.admin.id)
+        _bet(w, [1, 2], BolaKind.PAIR, 5000, 5000)
+        _declare(w, 30, 31)
+        rows = list(w.db.scalars(select(BolaCommission).where(BolaCommission.draw_id == w.draw.id)))
+        assert rows and all(r.agent_id != w.cavo.id for r in rows)
+        assert {r.tier for r in rows} == {"master"} and sum(r.amount_cents for r in rows) == pool
+    finally:
+        w.store.set("bola.commission.pay_master", "false", w.admin.id)
+        w.cavo.status = Status.ACTIVE
+        w.db.flush()
+
+
+def test_suspended_cavo_with_default_d4_pays_no_commission(bw):
     w = bw
     w.cavo.status = Status.SUSPENDED
     w.db.flush()
     try:
         _bet(w, [1, 2], BolaKind.PAIR, 5000, 5000)
         _declare(w, 30, 31)
-        rows = list(w.db.scalars(select(BolaCommission).where(BolaCommission.draw_id == w.draw.id)))
-        assert rows and all(r.agent_id != w.cavo.id for r in rows)
-        pool = 10_000 * int(w.store.get("bola.commission.pool_bps")) // 10_000
-        assert sum(r.amount_cents for r in rows) <= pool
+        assert not list(w.db.scalars(select(BolaCommission).where(
+            BolaCommission.draw_id == w.draw.id)))
+        assert ledger.verify_integrity(w.db)["ok"]
     finally:
         w.cavo.status = Status.ACTIVE
         w.db.flush()

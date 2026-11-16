@@ -152,6 +152,10 @@ DEFS: tuple[SettingDef, ...] = (
     SettingDef("bola.commission.pool_bps", "Bola pool: share of the basis", "bps", 3000, "Bola",
                "How much of each stake is set aside for the network. 3000 = 30%. The Cavo's Volume % "
                "and the Kubrador's SOP % are then taken out of this pool (Cuts page).", 0, 10000),
+    SettingDef("bola.commission.pay_master", "Pay the Master a Bola commission line", "bool", False, "Bola",
+               "Plan decision D4. Off (default): the Master's remainder of the pool stays with the "
+               "house. On: it is paid to the Master as a commission line, as in sabong, so the "
+               "whole pool is paid out."),
     SettingDef("bola.show_odds_to_players", "Show the multiplier and odds on the bet slip", "bool", True, "Bola",
                "Responsible-play disclosure: the payout multiplier and the chance per ordered pair."),
     # ---- wallet / transfers ----------------------------------------------

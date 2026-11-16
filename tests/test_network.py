@@ -172,7 +172,7 @@ def test_permissions_master_is_admin_minus_admin_panel(monkeypatch):
                   Perm.LOCATIONS_VIEW, Perm.LOCATIONS_MANAGE,
                   # house money is dev-only
                   Perm.CASHFLOW_VIEW, Perm.REPORTS_VIEW,
-                  # staff chat: Admin, and Pawns it was granted to
+                  # livestream chat: Admin, and Pawns it was granted to
                   Perm.CHAT_USE,
                   # Master never enters or changes a result
                   Perm.FIGHTS_DECLARE, Perm.FIGHTS_REDECLARE,
@@ -226,7 +226,7 @@ def test_web_master_sees_ops_not_hidden_pages(chain):
     main = c.get("/agents").text.split("<main")[1].split("</main>")[0]
     assert '<td class="mono">admin</td>' not in main and w.cavo.username in main
     assert c.post(f"/agents/{w.admin.id}/update", data={"full_name": "x"}).status_code == 403
-    assert c.get("/chat").status_code == 403            # staff chat is not for Master
+    assert c.get("/chat").status_code == 403            # livestream chat is not for Master
     assert 'href="/chat"' not in c.get("/dashboard").text
 
 

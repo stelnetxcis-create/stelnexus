@@ -694,6 +694,12 @@ def place_bola_bet(
 
     assert_enabled(settings)
     draw = _lock_draw(db, draw_id)
+    if idempotency_key:
+        # A duplicate that was waiting on the draw lock: the first request has committed by now,
+        # so hand back its ticket instead of tripping the unique key (a double tap is not an error).
+        existing = db.scalar(select(BolaTicket).where(BolaTicket.idempotency_key == idempotency_key))
+        if existing is not None:
+            return existing
     now = utcnow()
     if draw.status != DrawStatus.OPEN:
         raise LockedState(f"Betting for this draw is {draw.status}.")

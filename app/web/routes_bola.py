@@ -219,6 +219,91 @@ async def bola_betlogs(request: Request, ctx: Ctx = Depends(require_ctx)):
                   filters={"q": p.get("q", ""), "status": status or "", "draw_id": p.get("draw_id", "")})
 
 
+@router.get("/bola/cancelled")
+async def bola_cancelled(request: Request, ctx: Ctx = Depends(require_ctx)):
+    """Every cancelled ticket in the viewer's network: who cancelled it, when and why."""
+    _need_view(ctx)
+    if hides_totals(ctx.user):
+        raise Forbidden("Your role cannot see tickets.")
+    from sqlalchemy import select
+    from app.db.models import User
+    rows = bola.list_tickets(ctx.db, ctx.user, canceled_only=True,
+                             search=request.query_params.get("q", "")[:40] or None, limit=300)
+    ids = {t.canceled_by_id for t in rows if t.canceled_by_id}
+    users = {u.id: u for u in ctx.db.scalars(select(User).where(User.id.in_(ids))).all()} if ids else {}
+    names = {i: ("System" if u.is_hidden else u.username) for i, u in users.items()}
+    return render(ctx, "bola_cancelled.html", active="bola_cancelled", rows=rows, names=names,
+                  q=request.query_params.get("q", ""), local=bola.local)
+
+
+# ------------------------------------------------------------------ agent statements
+def _statement_range(p) -> tuple[dt.date, dt.date]:
+    """?start=&end= as Manila dates; both default to today; at most a year; start <= end."""
+    today = dt.datetime.now(dt.timezone.utc).astimezone(bola.MANILA).date()
+
+    def one(key: str) -> dt.date:
+        try:
+            return dt.date.fromisoformat(p[key]) if p.get(key) else today
+        except ValueError:
+            return today
+    start, end = one("start"), one("end")
+    if start > end:
+        start, end = end, start
+    return max(start, end - dt.timedelta(days=366)), end
+
+
+def _need_statement(ctx: Ctx) -> None:
+    _need_view(ctx)
+    if hides_totals(ctx.user):
+        raise Forbidden("Your role cannot see totals.")
+
+
+@router.get("/bola/agents")
+async def bola_agent_statements(request: Request, ctx: Ctx = Depends(require_ctx)):
+    _need_statement(ctx)
+    start, end = _statement_range(request.query_params)
+    return render(ctx, "bola_agents.html", active="bola_agents",
+                  stmt=reports.bola_agent_statement(ctx.db, ctx.user, start=start, end=end))
+
+
+@router.get("/bola/agents.csv")
+async def bola_agent_statements_csv(request: Request, ctx: Ctx = Depends(require_ctx)):
+    from app.web.routes_extra import _safe
+    _need_statement(ctx)
+    start, end = _statement_range(request.query_params)
+    stmt = reports.bola_agent_statement(ctx.db, ctx.user, start=start, end=end)
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(["Bola agent statement", start.isoformat(), end.isoformat()])
+    writer.writerow(["Agent", "Role", "Tickets", "Staked", "Cancelled", "Cancelled amount",
+                     "Players won", "Paid to players", "Commission", "Unclaimed", "Claimed"])
+    for r in stmt["rows"]:
+        writer.writerow([_safe(r["name"]), r["role"], r["tickets"], f"{r['staked'] / 100:.2f}",
+                         r["canceled"], f"{r['canceled_cents'] / 100:.2f}", r["winners"],
+                         f"{r['paid'] / 100:.2f}", f"{r['commission'] / 100:.2f}",
+                         f"{r['unclaimed'] / 100:.2f}", f"{r['claimed'] / 100:.2f}"])
+    t = stmt["totals"]
+    writer.writerow(["Total", "", t["tickets"], f"{t['staked'] / 100:.2f}", t["canceled"],
+                     f"{t['canceled_cents'] / 100:.2f}", t["winners"], f"{t['paid'] / 100:.2f}",
+                     f"{t['commission'] / 100:.2f}", f"{t['unclaimed'] / 100:.2f}",
+                     f"{t['claimed'] / 100:.2f}"])
+    return Response(out.getvalue(), media_type="text/csv; charset=utf-8", headers={
+        "Content-Disposition": f'attachment; filename="bola-agents-{start}-{end}.csv"',
+        "Cache-Control": "no-store"})
+
+
+@router.get("/bola/agents/{agent_id}")
+async def bola_agent_statement_page(agent_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
+    from app.core.rbac import assert_user_in_scope
+    _need_statement(ctx)
+    agent = assert_user_in_scope(ctx.db, ctx.user, agent_id)
+    start, end = _statement_range(request.query_params)
+    stmt = reports.bola_agent_statement(ctx.db, ctx.user, start=start, end=end, agent_id=agent_id)
+    return render(ctx, "bola_agent.html", active="bola_agents", agent=agent, stmt=stmt,
+                  draws=reports.bola_agent_draws(ctx.db, ctx.user, agent_id, start=start, end=end),
+                  local=bola.local)
+
+
 # ------------------------------------------------------------------ reports
 def _need_exposure(ctx: Ctx) -> None:
     """Money figures: Master/Admin (BOLA_EXPOSURE), never a Declarator."""

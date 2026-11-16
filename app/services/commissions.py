@@ -147,7 +147,7 @@ def _active(user: User | None) -> bool:
 
 def compute_lines(
     db: Session, tickets: list[Ticket], *, basis: str, house_gross: int, total_staked: int,
-    settings: SettingsStore, pool_key: str = "commission.pool_bps",
+    settings: SettingsStore, pool_key: str = "commission.pool_bps", pay_master: bool = True,
 ) -> list[CommissionLine]:
     if not settings.get("commission.enabled"):
         return []
@@ -176,7 +176,7 @@ def compute_lines(
         sop_bps = effective_sop_bps(kubrador, cavo, settings)
         split = split_pool(pool, cavo_bps=cavo_bps, sop_bps=sop_bps,
                            has_cavo=_active(cavo), has_kubrador=_active(kubrador),
-                           has_master=_active(master))
+                           has_master=_active(master) and pay_master)
         calc = {
             "formula": "pool=basis*pool%; cavo_gross=pool*volume%; kubrador=cavo_gross*sop%; "
                        "cavo=cavo_gross-kubrador; master=pool-cavo_gross",
@@ -261,8 +261,8 @@ def mark_reversed(db: Session, run_id: int) -> int:
 # ---------------------------------------------------------------------------
 # Same waterfall as sabong (split_pool / effective_* are reused unchanged); only the pool share
 # comes from ``bola.commission.pool_bps`` and the rows live in ``bola_commissions``.
-# Defaults (plan D3/D4): SOP is paid OUT of the Cavo's cut, and the Master's remainder is a real
-# commission line like in sabong. Change D4 here if the Master share should stay with the house.
+# Plan D3: SOP is paid OUT of the Cavo's cut. Plan D4: by default the Master's remainder of the
+# pool stays with the house; ``bola.commission.pay_master`` turns it into a commission line.
 
 def compute_bola_lines(
     db: Session, tickets: list, *, basis: str, house_gross: int, total_staked: int,
@@ -271,7 +271,8 @@ def compute_bola_lines(
     """Commission lines for a settled Bola draw. ``tickets`` are BolaTicket rows."""
     return compute_lines(db, tickets, basis=basis, house_gross=house_gross,
                          total_staked=total_staked, settings=settings,
-                         pool_key="bola.commission.pool_bps")
+                         pool_key="bola.commission.pool_bps",
+                         pay_master=bool(settings.get("bola.commission.pay_master")))
 
 
 def persist_bola(

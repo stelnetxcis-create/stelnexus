@@ -34,7 +34,7 @@ It handles real-money flows (GCash / bank cash-in and cash-out), so it must be d
 - **Audit and integrity.** Every sensitive action is written to an audit log, the ledger has an integrity check, and audit-log tables are guarded against edits.
 - **Live board.** A public read-only board at `/live` (toggle with the `live.board_enabled` setting).
 - **Reports.** Game history, event summaries, event expenses, report archives with CSV export, and per-player history.
-- **Staff chat.** For the Admin and for Pawns that have been granted the `chat` permission.
+- **Livestream chat (experimental).** A live operations room for the Admin and for Pawns granted the `chat` permission: stored messages, who is in the room, a results wire and the next draw countdown. Delivery is short-poll (about four seconds) and the typing indicator is best-effort in-process presence; everything else (permissions, CSRF, storage) is production behaviour. One visible switch mutes the message sounds.
 
 ## Tech stack
 
@@ -157,7 +157,7 @@ Run as `python -m app.cli <command>`.
 | `cavo` | Mid-level agent. Can invite Kubradors and holds credit |
 | `kubrador` | Lowest agent level. Can invite player accounts under them |
 | `declarator` | Declares results. Never sees stakes, pools or payouts. Has no balance |
-| `pawn` | Created by the Admin only. Can declare results by default; the Admin ticks any extra Admin Panel sections it may see or change (for example locations, cuts, audit, players, online users, totals, staff chat). No balance, cannot bet or transfer |
+| `pawn` | Created by the Admin only. Can declare results by default; the Admin ticks any extra Admin Panel sections it may see or change (for example locations, cuts, audit, players, online users, totals, livestream chat). No balance, cannot bet or transfer |
 | Player | Not a login role in the staff sense. Bets from credit under an agent |
 
 **Invites.** The invitee's role is fixed by the issuer: a Master code creates a Cavo, a Cavo code creates a Kubrador, a Kubrador code creates a player. Codes are single-use and time-limited. The Admin can issue any type and choose who the new account reports to.
@@ -235,7 +235,20 @@ The two-number draw game (Tumbok-Sahod, numbers 1 to 40, pays 800x by default). 
    `stelnexus-bola-tick` runs every minute; `stelnexus-bola-generate` creates the next two days of draws at 00:05 Manila time. Betting does not depend on the tick: every bet checks the clock itself. Both do nothing while `bola.enabled` is false.
 3. Run `python -m app.cli bola-preflight` (also run by `scripts/security_check.sh`). While the game is off or dev-only it passes. For a **live** launch (`BOLA_DEV_ONLY=false`, `bola.enabled=true`) it fails unless: `BOLA_LIVE_ACK=1` is set, both liability caps are above zero, the odds are shown to players, and the ticket header carries no "PCSO", "OFFICIAL" or "PAGCOR" wording.
 
-**Before real money:** confirm you are authorised to run this kind of game (see Legal and compliance), run a play-money period, and load-test on PostgreSQL. Money-handling code should be reviewed by someone other than its author.
+4. **Master's share (plan D4).** By default the Master's remainder of the commission pool stays with the house. Set `bola.commission.pay_master` (Admin Panel, Bola group) to pay it to the Master as a commission line instead.
+
+**Reports and statements.** `/bola/reports` (daily, monthly, per-draw CSV), `/bola/agents` (per-agent sales, cancellations, winnings paid and commission, with CSV) and `/bola/cancelled` (every cancelled ticket and why). Each agent sees only their own network.
+
+**Load and race test.** `scripts/bola_loadtest.py` runs 500 concurrent bets on one draw and the cap, line-limit, idempotency and cancel races against a scratch PostgreSQL database (it refuses SQLite):
+
+```
+DATABASE_URL=postgresql+psycopg://user:pass@127.0.0.1:5432/scratch SECRET_KEY=... ENV=dev \
+  DB_POOL_SIZE=40 python scripts/bola_loadtest.py
+```
+
+The same run is available to pytest with `BOLA_PG_URL=<scratch url> python -m pytest tests/test_bola_postgres.py`. Never point either at a real database.
+
+**Before real money:** confirm you are authorised to run this kind of game (see Legal and compliance), run a play-money period, and have the money paths (bets, settlement, commissions, cancel and refund) reviewed by someone other than their author.
 
 ## Production deployment
 

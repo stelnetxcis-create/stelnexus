@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Bola statement · {{ agent.username }} · {{ brand }}{% endblock %}
+{% block heading %}Bola statement · {{ 'System' if agent.is_hidden else agent.username }}{% endblock %}
+{% block actions %}<a class="btn btn-sm" href="/bola/agents?start={{ stmt.start }}&amp;end={{ stmt.end }}">All agents</a>{% endblock %}
+{% block content %}
+{% set t = stmt.totals %}
+<div class="card">
+  <div class="card-head"><h2>{{ stmt.start }}{% if stmt.end != stmt.start %} to {{ stmt.end }}{% endif %}</h2>
+    <form method="get" class="inline-form" style="display:inline-flex;gap:6px;flex-wrap:wrap">
+      <input type="date" name="start" value="{{ stmt.start }}" aria-label="From date">
+      <input type="date" name="end" value="{{ stmt.end }}" aria-label="To date">
+      <button class="btn btn-sm" type="submit">Show</button>
+    </form></div>
+  <div class="card-body tight">
+    <div class="grid grid-4" style="padding:12px">
+      {{ ui.stat('Tickets sold', t.tickets, t.canceled ~ ' cancelled') }}
+      {{ ui.stat('Staked', t.staked | money, 'live tickets') }}
+      {{ ui.stat('Paid to players', t.paid | money, t.winners ~ ' winning tickets', 'blue') }}
+      {{ ui.stat('Commission earned', t.commission | money, t.claimed | money ~ ' claimed', 'green') }}
+    </div>
+    {% if draws %}
+    <div class="table-wrap"><table class="table"><thead><tr>
+      <th>Area</th><th>Date</th><th>Draw</th><th>Result</th><th class="right">Tickets</th><th class="right">Staked</th>
+      <th class="right">Cancelled</th><th class="right">Paid to players</th><th class="right">Commission</th></tr></thead><tbody>
+    {% for r in draws %}
+      <tr>
+        <td>{{ r.draw.location.name }}</td><td class="small nowrap">{{ r.draw.draw_date }}</td>
+        <td class="small nowrap"><a href="/bola/draws/{{ r.draw.id }}">#{{ r.draw.id }} · {{ local(r.draw.scheduled_at) | datetime('%H:%M') }}</a></td>
+        <td class="num">{{ r.draw.result_label or '—' }}</td>
+        <td class="right num">{{ r.tickets }}</td><td class="right num">{{ r.staked | money }}</td>
+        <td class="right num">{{ r.canceled }}</td><td class="right num">{{ r.paid | money }}</td>
+        <td class="right num">{{ r.commission | money }}</td>
+      </tr>
+    {% endfor %}
+    </tbody></table></div>
+    {% else %}{{ ui.empty('No Bola activity for this account in the range.') }}{% endif %}
+  </div>
+</div>
+{% endblock %}

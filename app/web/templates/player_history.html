@@ -81,7 +81,7 @@
       {% for e in entries %}
         <tr>
           <td class="small nowrap">{{ e.created_at | datetime }}</td>
-          <td>{{ e.txn.kind }}</td>
+          <td>{{ e.txn.kind | ledger_label }}</td>
           <td class="small">{{ e.txn.memo }}</td>
           <td class="right num">{{ e.amount_cents | money }}</td>
           <td class="right num">{{ e.balance_after_cents | money }}</td>

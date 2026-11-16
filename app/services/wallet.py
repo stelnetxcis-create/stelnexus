@@ -30,6 +30,10 @@ KIND_LABELS: dict[str, str] = {
     "commission.convert": "Commission → credit",
     "bet.stake": "Bet placed",
     "fight.settle": "Winnings / refund",
+    # Number game (Bola). A cancelled ticket shows as "Reversal · Bola bet placed" (see label_for).
+    "bola.stake": "Bola bet placed",
+    "bola.settle": "Bola winnings",
+    "bola.refund": "Bola refund",
 }
 PERIODS = {"all": None, "today": 1, "7d": 7, "30d": 30}
 FLOWS = ("all", "in", "out")

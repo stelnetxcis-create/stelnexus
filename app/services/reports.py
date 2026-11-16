@@ -194,6 +194,133 @@ def bola_monthly(db: Session, year: int, month: int) -> dict:
             "rows": rows, "totals": _bola_sum(rows)}
 
 
+def _bola_agent_scope(db: Session, actor: User, agent_id: int | None) -> set[int] | None:
+    """Which seller/earner ids a statement may cover. None = the whole network (operator tier)."""
+    from app.core.rbac import assert_user_in_scope, has_global_scope, scope_ids
+    if agent_id is not None:
+        assert_user_in_scope(db, actor, agent_id)
+        return {agent_id}
+    return None if has_global_scope(actor) else scope_ids(db, actor)
+
+
+def bola_agent_statement(db: Session, actor: User, *, start: dt.date, end: dt.date,
+                         agent_id: int | None = None) -> dict:
+    """Per-agent sales and commission statement (the old teller_report / ingresotocabo, rebuilt).
+
+    There is no cash to remit: every stake already moved through the player's wallet. A row shows
+    what the agent *sold* (tickets keyed by the seller), what those tickets paid the players, and
+    what the agent *earned* in commission (rows keyed by the earner, so a Cavo's line includes the
+    share taken from its Kubradors' tickets). Legacy imports and reversed commissions are left out.
+    The hidden Admin never appears for anyone else.
+    """
+    from app.db.models import BolaCommission, BolaDraw, BolaTicket
+    scope = _bola_agent_scope(db, actor, agent_id)
+    in_range = (BolaDraw.draw_date >= start, BolaDraw.draw_date <= end)
+
+    tickets = (select(BolaTicket.agent_id, BolaTicket.status, func.count(BolaTicket.id),
+                      func.coalesce(func.sum(BolaTicket.stake_cents), 0),
+                      func.coalesce(func.sum(BolaTicket.payout_cents), 0))
+               .join(BolaDraw, BolaDraw.id == BolaTicket.draw_id)
+               .where(*in_range, BolaTicket.legacy.is_(False), BolaTicket.agent_id.is_not(None)))
+    if scope is not None:
+        tickets = tickets.where(BolaTicket.agent_id.in_(scope))
+    rows: dict[int, dict] = {}
+
+    def row(uid: int) -> dict:
+        return rows.setdefault(uid, {"id": uid, "tickets": 0, "staked": 0, "canceled": 0,
+                                     "canceled_cents": 0, "paid": 0, "winners": 0, "commission": 0,
+                                     "unclaimed": 0, "claimed": 0})
+
+    for uid, status, count, stake, payout in db.execute(tickets.group_by(
+            BolaTicket.agent_id, BolaTicket.status)).all():
+        r = row(uid)
+        if status in (TicketStatus.ACTIVE, TicketStatus.SETTLED):
+            r["tickets"] += int(count)
+            r["staked"] += int(stake)
+        if status == TicketStatus.CANCELED:
+            r["canceled"] += int(count)
+            r["canceled_cents"] += int(stake)
+        if status == TicketStatus.SETTLED:
+            r["paid"] += int(payout)
+    winners = (select(BolaTicket.agent_id, func.count(BolaTicket.id))
+               .join(BolaDraw, BolaDraw.id == BolaTicket.draw_id)
+               .where(*in_range, BolaTicket.legacy.is_(False), BolaTicket.agent_id.is_not(None),
+                      BolaTicket.status == TicketStatus.SETTLED, BolaTicket.payout_cents > 0))
+    if scope is not None:
+        winners = winners.where(BolaTicket.agent_id.in_(scope))
+    for uid, count in db.execute(winners.group_by(BolaTicket.agent_id)).all():
+        row(uid)["winners"] = int(count)
+
+    earned = (select(BolaCommission.agent_id, BolaCommission.status,
+                     func.coalesce(func.sum(BolaCommission.amount_cents), 0))
+              .join(BolaDraw, BolaDraw.id == BolaCommission.draw_id)
+              .where(*in_range, BolaCommission.status != CommissionStatus.REVERSED))
+    if scope is not None:
+        earned = earned.where(BolaCommission.agent_id.in_(scope))
+    for uid, status, amount in db.execute(earned.group_by(
+            BolaCommission.agent_id, BolaCommission.status)).all():
+        r = row(uid)
+        r["commission"] += int(amount)
+        if status == CommissionStatus.CLAIMED:
+            r["claimed"] += int(amount)
+        else:
+            r["unclaimed"] += int(amount)
+
+    users = {u.id: u for u in db.scalars(select(User).where(User.id.in_(list(rows)))).all()} if rows else {}
+    out = []
+    for uid, r in rows.items():
+        user = users.get(uid)
+        if user is None or (user.is_hidden and actor.role != Role.ADMIN):
+            continue
+        out.append({**r, "name": "System" if user.is_hidden else user.username,
+                    "full_name": user.full_name, "role": str(user.role)})
+    out.sort(key=lambda r: (-r["staked"], r["name"]))
+    keys = ("tickets", "staked", "canceled", "canceled_cents", "paid", "winners",
+            "commission", "unclaimed", "claimed")
+    return {"start": start, "end": end, "rows": out,
+            "totals": {k: sum(r[k] for r in out) for k in keys}}
+
+
+def bola_agent_draws(db: Session, actor: User, agent_id: int, *, start: dt.date,
+                     end: dt.date) -> list[dict]:
+    """One agent, one row per draw in the range: what they sold, what it paid, what they earned."""
+    from app.db.models import BolaCommission, BolaDraw, BolaTicket
+    _bola_agent_scope(db, actor, agent_id)                  # raises if outside the actor's network
+    in_range = (BolaDraw.draw_date >= start, BolaDraw.draw_date <= end)
+    per: dict[int, dict] = {}
+
+    def row(draw_id: int) -> dict:
+        return per.setdefault(draw_id, {"tickets": 0, "staked": 0, "canceled": 0, "paid": 0,
+                                        "commission": 0})
+
+    for draw_id, status, count, stake, payout in db.execute(
+            select(BolaTicket.draw_id, BolaTicket.status, func.count(BolaTicket.id),
+                   func.coalesce(func.sum(BolaTicket.stake_cents), 0),
+                   func.coalesce(func.sum(BolaTicket.payout_cents), 0))
+            .join(BolaDraw, BolaDraw.id == BolaTicket.draw_id)
+            .where(*in_range, BolaTicket.legacy.is_(False), BolaTicket.agent_id == agent_id)
+            .group_by(BolaTicket.draw_id, BolaTicket.status)).all():
+        r = row(draw_id)
+        if status in (TicketStatus.ACTIVE, TicketStatus.SETTLED):
+            r["tickets"] += int(count)
+            r["staked"] += int(stake)
+        if status == TicketStatus.CANCELED:
+            r["canceled"] += int(count)
+        if status == TicketStatus.SETTLED:
+            r["paid"] += int(payout)
+    for draw_id, amount in db.execute(
+            select(BolaCommission.draw_id, func.coalesce(func.sum(BolaCommission.amount_cents), 0))
+            .join(BolaDraw, BolaDraw.id == BolaCommission.draw_id)
+            .where(*in_range, BolaCommission.agent_id == agent_id,
+                   BolaCommission.status != CommissionStatus.REVERSED)
+            .group_by(BolaCommission.draw_id)).all():
+        row(draw_id)["commission"] += int(amount)
+    draws = {d.id: d for d in db.scalars(select(BolaDraw).where(BolaDraw.id.in_(list(per)))).all()} if per else {}
+    out = [{"draw": draws[i], **r} for i, r in per.items() if i in draws]
+    out.sort(key=lambda r: (r["draw"].scheduled_at, r["draw"].id))
+    return out
+
+
 def bola_dashboard(db: Session, actor, settings) -> dict:
     """The dashboard's Bola card. Agents see their own network's stake, never house money."""
     from app.core.rbac import has_global_scope, scope_ids

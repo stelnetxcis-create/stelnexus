@@ -1,4 +1,4 @@
-"""Admin/Pawn create Cavo & Kubrador directly, the Games lobby, result pictures, staff chat scope,
+"""Admin/Pawn create Cavo & Kubrador directly, the Games lobby, result pictures, livestream chat scope,
 history location, and who may declare."""
 import base64
 import datetime as dt
@@ -135,8 +135,8 @@ def test_users_page_create_form_web(chain):
     assert w.db.get(User, w.cavo.id).full_name == "C"                    # create is granted, edit is not
 
 
-# ------------------------------------------------ staff chat: Admin and granted Pawns only
-def test_staff_chat_is_admin_and_granted_pawns_only(chain):
+# ------------------------------- livestream chat: Admin and granted Pawns only
+def test_livestream_chat_is_admin_and_granted_pawns_only(chain):
     w = chain
     plain = _pawn(w, name="nc")
     chat = _pawn(w, "chat", name="yc")

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Bola agent statements · {{ brand }}{% endblock %}
+{% block heading %}Bola agent statements{% endblock %}
+{% block actions %}<a class="btn btn-sm" href="/bola/agents.csv?start={{ stmt.start }}&amp;end={{ stmt.end }}">CSV</a>{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-head"><h2>Sales and commission · {{ stmt.start }}{% if stmt.end != stmt.start %} to {{ stmt.end }}{% endif %}</h2>
+    <form method="get" action="/bola/agents" class="inline-form" style="display:inline-flex;gap:6px;flex-wrap:wrap">
+      <input type="date" name="start" value="{{ stmt.start }}" aria-label="From date">
+      <input type="date" name="end" value="{{ stmt.end }}" aria-label="To date">
+      <button class="btn btn-sm" type="submit">Show</button>
+    </form></div>
+  <div class="card-body tight">
+    <div class="grid grid-4" style="padding:12px">
+      {{ ui.stat('Tickets', stmt.totals.tickets, stmt.totals.canceled ~ ' cancelled') }}
+      {{ ui.stat('Staked', stmt.totals.staked | money, 'live tickets sold') }}
+      {{ ui.stat('Paid to players', stmt.totals.paid | money, stmt.totals.winners ~ ' winning tickets', 'blue') }}
+      {{ ui.stat('Commission', stmt.totals.commission | money, stmt.totals.unclaimed | money ~ ' unclaimed', 'green') }}
+    </div>
+    {% if stmt.rows %}
+    <div class="table-wrap"><table class="table"><thead><tr>
+      <th>Agent</th><th>Role</th><th class="right">Tickets</th><th class="right">Staked</th>
+      <th class="right">Cancelled</th><th class="right">Paid to players</th>
+      <th class="right">Commission</th><th class="right">Unclaimed</th><th></th></tr></thead><tbody>
+    {% for r in stmt.rows %}
+      <tr>
+        <td>{{ r.name }}{% if r.full_name %} <span class="muted small">{{ r.full_name }}</span>{% endif %}</td>
+        <td class="small">{{ r.role }}</td>
+        <td class="right num">{{ r.tickets }}</td><td class="right num">{{ r.staked | money }}</td>
+        <td class="right num">{{ r.canceled }}</td><td class="right num">{{ r.paid | money }}</td>
+        <td class="right num">{{ r.commission | money }}</td><td class="right num">{{ r.unclaimed | money }}</td>
+        <td class="right nowrap"><a class="btn btn-sm" href="/bola/agents/{{ r.id }}?start={{ stmt.start }}&amp;end={{ stmt.end }}">Statement</a></td>
+      </tr>
+    {% endfor %}
+    </tbody></table></div>
+    {% else %}{{ ui.empty('No Bola sales or commission in this range.') }}{% endif %}
+    <p class="muted small" style="padding:0 12px 12px">There is no cash to remit: every stake moves through the player's credit. Commission is shown for the account that earned it, so a Cavo's figure includes its share of its Kubradors' tickets.</p>
+  </div>
+</div>
+{% endblock %}

@@ -124,7 +124,8 @@ _ADMIN_ONLY = {
     # House money is dev-only: the cashflow page, house totals on the dashboard, event P&L and the
     # report archives. A Pawn can still be granted them one by one ("cashflow:view", "reports:view").
     Perm.CASHFLOW_VIEW, Perm.REPORTS_VIEW,
-    # Staff chat is for the Admin, and for a Pawn the Admin switched it on for. Not Master.
+    # Livestream chat (experimental) is for the Admin, and for a Pawn the Admin switched it on
+    # for. Not Master.
     Perm.CHAT_USE,
 }
 # Master runs operations but never enters or changes results: declaring is for the Admin, Pawns
@@ -210,7 +211,8 @@ def _build_grants() -> tuple[Grant, ...]:
         Grant("bola:totals", "See number-game stakes and exposure",
               "Implies 'See stakes, pools and payouts', so the account stops being totals-blind.",
               "Bola", frozenset({Perm.BOLA_EXPOSURE}), implies=("bola:view", "totals:view")),
-        Grant("chat", "Use the staff chat", "", "Staff",
+        Grant("chat", "Use the livestream chat (experimental)",
+              "The live operations room: messages, who is in the room and what is on air.", "Livestream",
               frozenset({Perm.CHAT_USE})),
     ]
     return tuple(out)

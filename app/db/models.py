@@ -699,7 +699,7 @@ class EventExpense(TimestampMixin, Base):
 
 
 class ChatMessage(Base):
-    """Staff chat box (admin <-> master)."""
+    """Livestream chat (experimental) message. Stored and signed, never anonymous."""
     __tablename__ = "chat_messages"
 
     id: Mapped[int] = mapped_column(primary_key=True)

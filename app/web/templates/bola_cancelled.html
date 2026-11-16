@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Bola cancelled · {{ brand }}{% endblock %}
+{% block heading %}Bola cancelled tickets{% endblock %}
+{% block actions %}<a class="btn btn-sm" href="/bola/betlogs">All tickets</a>{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-head"><h2>Cancel log</h2>
+    <form method="get" class="inline-form">
+      <label class="field"><span>Search</span><input name="q" value="{{ q }}" placeholder="code, agent, note"></label>
+      <button class="btn btn-sm" type="submit">Filter</button>
+    </form>
+    <span class="muted small">{{ rows | length }} cancelled · every cancel refunds the stake</span></div>
+  <div class="card-body tight">
+    {% if rows %}
+    <div class="table-wrap"><table class="table" data-table data-page-size="30">
+      <thead><tr><th>Player</th><th>Code</th><th>Draw</th><th>Numbers</th><th class="right">Refunded</th><th>Cancelled</th><th>By</th><th>Reason</th></tr></thead>
+      <tbody>
+      {% for t in rows %}
+        <tr>
+          <td>{{ t.player.full_name if t.player else '—' }}</td>
+          <td class="mono small"><a href="/bola/tickets/{{ t.id }}">{{ t.code }}</a></td>
+          <td><a href="/bola/draws/{{ t.draw_id }}">#{{ t.draw_id }}</a></td>
+          <td class="num">{{ t.numbers | join(', ') }}</td>
+          <td class="right num">{{ t.stake_cents | money }}</td>
+          <td class="small nowrap">{{ t.canceled_at | datetime }}</td>
+          <td class="small">{{ names.get(t.canceled_by_id, '—') }}</td>
+          <td class="small">{{ t.cancel_reason or '—' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}{{ ui.empty('No cancelled Bola tickets.') }}{% endif %}
+  </div>
+</div>
+{% endblock %}

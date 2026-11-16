@@ -1,35 +1,35 @@
 # Bola progress handoff
 
-Full suite: 188 passed (run `python -m pytest -q`). Feature is dark: `bola.enabled=false` by default.
+Full suite: 205 passed, 1 skipped (`python -m pytest -q`; the skip is the Postgres run, see below).
+Feature is dark: `bola.enabled=false` by default, and `BOLA_DEV_ONLY=true` hides it from every role but the Admin.
+This file supersedes `STELNEXUS_NUMBER_GAME_PROGRESS.md` (written earlier; it still lists items that are now done).
 
 ## Done
-- Phases 1-3 (earlier): foundations, `services/bola.py`, `services/bola_settlement.py`.
-- Phase 4 commissions: `compute_bola_lines`, `persist_bola`, `mark_bola_reversed`, `list_bola_for`;
-  `totals_for` / `claim_to_wallet` include Bola. Defaults: D3 SOP out of Cavo's cut, D4 Master remainder is a commission line.
-- Commissions page lists Bola rows (Game column) ; `reports.bola_totals` + Bola cards on /cashflow.
-- CLI: `bola-generate`, `bola-tick`, `bola-convert-cuts --rates file.csv [--pool 0.30] [--apply]`.
-- Web (Phase 5, core): `app/web/routes_bola.py` registered in main.py; templates `bola_lobby/draw/ticket/results/betlogs.html`;
-  `static/js/bola.js` (live slip preview); sidebar "Number game" group. Routes: lobby, results, draw page + preview JSON,
-  place/cancel, ticket + QR, bet logs, create/generate/open/lock/void draw, declare, correct, approve/reject.
-- Tests: `tests/test_bola.py` (34 tests): section 9 cases, CLI converter, web end-to-end over HTTP.
+- Plan phases 1-6 (foundations, draws and bets, settlement, commissions, web + API, scheduling and ops):
+  deploy timers, `bola-preflight` in `scripts/security_check.sh`, README section.
+- This session:
+  - Livestream chat (experimental) rename finished (leftover "staff room" wording and the grant section).
+  - `/bola/cancelled` and `/bola/agents` (+ `.csv`, `/bola/agents/{id}`): the sidebar linked to them before they existed.
+    Scoped to the viewer's network; Declarator/Pawn without totals are refused; hidden Admin shows as "System".
+  - Friendly ledger labels (`bola.stake` / `bola.settle` / `bola.refund`; cancels read "Reversal · Bola bet placed"),
+    also in the staff player history.
+  - D4 is now a setting: `bola.commission.pay_master`, default OFF = plan default (Master share stays with the house).
+    The earlier code paid the Master a commission line; turn the setting on to get that back.
+  - D7 closed: players are not logins, so agents bet for players, same as sabong.
+  - `scripts/bola_loadtest.py` (+ `tests/test_bola_postgres.py`): ran on PostgreSQL 16. 500 concurrent bets: exposure equals
+    the live lines, ledger balanced; two-thread cap and per-line boundaries: exactly one winner in 20/20 rounds each;
+    cancels racing bets stay consistent. Disabling the draw lock makes both boundary checks fail, so the tests do bite.
+  - Bug found and fixed by that run: concurrent requests with the same idempotency key got a raw IntegrityError
+    (money was safe: one ticket, one charge). `place_bola_bet` now re-checks the key after taking the draw lock and
+    returns the first ticket.
+- Pawn proof (`fight.pawn_proof_required`) was already applied in the Bola declare route; only `proofs.required_for`
+  has a test, the route refusal itself is untested.
 
-## Findings worth knowing
-- Liability-cap boundary: a cap is "maximum allowed" (reaching it is fine). Plan text said 124 passes / 125 fails; code allows 125.
-- A draw where the house loses money pays NO commission (cap is applied to house gross). Intended per plan, but confirm.
-- Ticket header uses setting `ticket.header`; no "PCSO"/"OFFICIAL" anywhere (plan 0.1).
-
-## Done since session 2
-Admin schedules UI, JSON API, dashboard card, `/live` panel, daily/monthly reports + CSV, number grid,
-`bola-import-legacy`, expenses UI, result photo on draws, dev-only gate (`BOLA_DEV_ONLY`), systemd timers in
-`deploy/`, `bola-preflight` (run by `scripts/security_check.sh`), README section.
-Full plan-by-plan status: `STELNEXUS_NUMBER_GAME_PROGRESS.md`.
-
-## TODO (in order)
-1. Rulings needed: D4 (Master remainder: commission line today, plan default was house); no commission on a
-   losing draw; liability-cap boundary (reaching the cap passes); legacy `cavo3` has SOP but no commission rate.
-2. Per-agent Bola report / agent statement.
-3. Friendly wallet-history labels for `bola.stake`, `bola.settle`, `bola.refund`.
-4. Apply `fight.pawn_proof_required` to Bola declares (only matters once the dev gate is lifted).
-5. Confirm whether players should bet for themselves (D7).
-6. Load test (500 concurrent bets, Postgres) incl. the "two threads at the cap boundary" test.
-7. Staged enablement (play-money first), then the legal gate (plan 0.1) before real money.
+## Still open
+1. Rulings: (a) no commission on a house-losing draw (plan calls it intended); (b) liability-cap boundary: reaching the cap
+   passes (plan text implied otherwise); (c) legacy `cavo3` has a SOP rate but no commission rate.
+2. The sabong `betting.place_bet` has the same check-before-lock idempotency pattern. Not touched; worth the same re-check.
+3. Independent review of the money paths before real money (a self-review is not that).
+4. Play-money period, then the legal gate (plan 0.1). Not code tasks.
+5. Run `scripts/bola_loadtest.py` against your own PostgreSQL / hardware before launch (numbers here came from a sandbox:
+   about 48 bets/s with 32 workers on one draw, all of them serialised by the draw lock by design).

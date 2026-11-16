@@ -46,6 +46,12 @@ templates.env.globals.update(
 templates.env.filters["money"] = fmt
 templates.env.filters["datetime"] = lambda v, p="%Y-%m-%d %H:%M": v.strftime(p) if v else "—"
 templates.env.filters["date"] = lambda v: v.strftime("%Y-%m-%d") if v else "—"
+def _ledger_label(kind: str) -> str:
+    from app.services.wallet import label_for      # lazy: services import web helpers elsewhere
+    return label_for(kind or "")
+
+
+templates.env.filters["ledger_label"] = _ledger_label
 
 
 @dataclass

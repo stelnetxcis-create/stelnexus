@@ -15,6 +15,7 @@
 <link rel="apple-touch-icon" href="/static/icons/icon-180.png">
 <link rel="stylesheet" href="/static/css/app.css">
 <link rel="stylesheet" href="/static/css/luxe.css?v=fix3">
+{% block head %}{% endblock %}
 <script src="/static/js/nav-init.js"></script>
 </head>
 <body>
@@ -75,6 +76,8 @@
         ('Number game', [
           ('bola', '/bola', 'i-target', 'Bola', 'bola.view'),
           ('bola_logs', '/bola/betlogs', 'i-list', 'Bola Tickets', 'bola.place'),
+          ('bola_cancelled', '/bola/cancelled', 'i-ban', 'Bola Cancelled', 'bola.view'),
+          ('bola_agents', '/bola/agents', 'i-users', 'Agent Statements', 'bola.view'),
           ('bola_reports', '/bola/reports', 'i-coins', 'Bola Reports', 'bola.exposure')]),
         ('Network', [
           ('agents', '/agents', 'i-users', 'Users', 'agents.view'),
@@ -82,7 +85,7 @@
           ('referrals', '/referrals', 'i-key', 'Referral Codes', 'referrals.manage'),
           ('commissions', '/commissions', 'i-coins', 'Commission', 'commissions.view')]),
         ('Staff', [
-          ('chat', '/chat', 'i-chat', 'Staff Chat', 'chat.use'),
+          ('chat', '/chat', 'i-chat', 'Livestream Chat', 'chat.use'),
           ('admin', '/admin', 'i-sliders', 'Admin Panel', 'panel.view')])
       ] %}
       {% for title, items in groups %}
@@ -92,6 +95,7 @@
         {% for key, href, icon, label, perm in shown %}
         <a class="nav-link {{ 'is-active' if active == key }}" href="{{ href }}" title="{{ label }}">
           <svg class="ico"><use href="#{{ icon }}"/></svg><span>{{ label }}</span>
+          {% if key == 'chat' %}<em class="nav-exp" title="Experimental">exp</em>{% endif %}
         </a>
         {% endfor %}
         {% endif %}
