@@ -21,7 +21,7 @@ from app.core import audit
 from app.core.config import get_settings
 from app.core.errors import ValidationError
 from app.core.settings_registry import SettingsStore
-from app.db.models import Fight, Role, User
+from app.db.models import BolaDraw, Fight, Role, User
 
 _cfg = get_settings()
 
@@ -70,9 +70,11 @@ def _dir() -> Path:
     return path
 
 
-def attach(db: Session, actor: User, fight: Fight, proof: Proof) -> None:
-    """Store the picture and point the game at it. A replaced picture stays on disk as evidence."""
-    name = f"g{fight.id}-{secrets.token_hex(12)}.{proof.ext}"
+def attach(db: Session, actor: User, fight: Fight | BolaDraw, proof: Proof) -> None:
+    """Store the picture and point the game (or number-game draw) at it.
+    A replaced picture stays on disk as evidence."""
+    is_draw = isinstance(fight, BolaDraw)
+    name = f"{'b' if is_draw else 'g'}{fight.id}-{secrets.token_hex(12)}.{proof.ext}"
     (_dir() / name).write_bytes(proof.data)
     before = fight.proof_file
     fight.proof_file = name
@@ -80,11 +82,12 @@ def attach(db: Session, actor: User, fight: Fight, proof: Proof) -> None:
     fight.proof_by_id = actor.id
     fight.proof_at = dt.datetime.now(dt.timezone.utc)
     db.flush()
-    audit.record(db, actor, "fight.proof", entity_type="fight", entity_id=fight.id,
+    audit.record(db, actor, "bola.proof" if is_draw else "fight.proof",
+                 entity_type="bola_draw" if is_draw else "fight", entity_id=fight.id,
                  before={"file": before}, after={"file": name, "bytes": len(proof.data)})
 
 
-def path_of(fight: Fight) -> Path | None:
+def path_of(fight: Fight | BolaDraw) -> Path | None:
     """Where the game's picture is on disk (None if it has none or the file is gone)."""
     if not fight.proof_file:
         return None

@@ -72,6 +72,24 @@
 {% endif %}
 </div>
 
+{% if bola_card %}
+<div class="card" id="bola-card">
+  <div class="card-head"><h2>Number game (Bola){% if bola_dev_only() %} <small class="muted">· dev only</small>{% endif %}</h2>
+    <a class="btn btn-sm btn-ghost" href="/bola">Open →</a></div>
+  <div class="card-body">
+    {% if not bola_card.enabled %}<p class="small muted">Switched off (<code>bola.enabled</code>). Draws are visible but nobody can bet.</p>{% endif %}
+    <div class="grid grid-4">
+      {{ ui.stat('Draws today', bola_card.total, bola_card.settled ~ ' settled') }}
+      {{ ui.stat('Open for bets', bola_card.open, 'right now', 'green') }}
+      {{ ui.stat('Awaiting result', bola_card.awaiting, 'betting closed', 'amber' if bola_card.awaiting else '') }}
+      {{ ui.stat('Staked today', bola_card.stake_today | money, 'live tickets', 'gold') }}
+    </div>
+    {% if bola_card.next %}<p class="small muted" style="margin-top:10px">Next draw: {{ bola_card.next.location.name }} · slot {{ bola_card.next.slot }} ·
+      {{ bola_local(bola_card.next.scheduled_at) | datetime('%a %H:%M') }} (Manila)</p>{% endif %}
+  </div>
+</div>
+{% endif %}
+
 {% if pending and 'fights.approve' in perms %}
 <div class="card" id="corrections">
   <div class="card-head"><h2>Corrections awaiting a second approver</h2>{{ ui.badge(pending|length ~ ' pending', 'amber') }}</div>

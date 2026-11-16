@@ -1,0 +1,11 @@
+# /etc/systemd/system/stelnexus-bola-tick.timer
+[Unit]
+Description=Run the StelNexus number game tick every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=5s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

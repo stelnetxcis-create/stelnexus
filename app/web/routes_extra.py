@@ -29,7 +29,8 @@ async def live_board(request: Request, db: Session = Depends(get_db)):
     if not ctx.store.get("live.board_enabled"):
         raise NotFound("The live board is switched off.")
     board = reports.live_board(db, ctx.store)
-    response = render(ctx, "live.html", board=board)
+    from app.services import bola as _bola
+    response = render(ctx, "live.html", board=board, local=_bola.local)
     response.headers["Cache-Control"] = "no-store"
     return response
 

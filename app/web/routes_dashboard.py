@@ -6,6 +6,7 @@ from app.core.rbac import Perm
 from sqlalchemy import func, select
 from app.core.rbac import downline_ids, scope_ids
 from app.db.models import Player, RunStatus, SettlementRun
+from app.services import bola as _bola
 from app.services import agents as agents_svc
 from app.services import reports, settlement, events
 from app.web.deps import Ctx, render, require_ctx
@@ -41,6 +42,10 @@ async def dashboard(ctx: Ctx = Depends(require_ctx)):
                               "href": "/dashboard#corrections", "tone": "amber"})
         attention.append({"label": "Locked games waiting for a result", "count": stats["locked_fights"],
                           "href": "/change_name", "tone": "red"})
+    bola_card = reports.bola_dashboard(ctx.db, ctx.user, ctx.store) if ctx.can(Perm.BOLA_VIEW) else None
+    if bola_card and ctx.user.is_top and ctx.can(Perm.BOLA_APPROVE) and bola_card["pending_corrections"]:
+        attention.append({"label": "Bola corrections awaiting approval",
+                          "count": bola_card["pending_corrections"], "href": "/bola", "tone": "amber"})
     return render(ctx, "dashboard.html", active="dashboard", stats=stats, show_money=show_money,
                   pending=pending, recent_events=recent_events, top_agents=top_agents, mine=mine,
-                  attention=attention)
+                  attention=attention, bola_card=bola_card, bola_local=_bola.local)

@@ -9,6 +9,7 @@
     python -m app.cli bola-generate --days 2          # create the number-game draws from schedules
     python -m app.cli bola-tick                       # cron, every minute: open/lock draws on time
     python -m app.cli bola-convert-cuts --rates r.csv # legacy % -> Volume/SOP bps (prints; --apply writes)
+    python -m app.cli bola-import-legacy --sql online_bukis.sql   # dry run; add --apply to write
 """
 from __future__ import annotations
 
@@ -171,15 +172,40 @@ def bola_generate(args) -> None:
     from app.services import bola
     with session_scope() as db:
         store = SettingsStore(db)
+        if not store.get("bola.enabled"):
+            print("Number game is switched off (bola.enabled=false): nothing to do.")
+            return
         start = dt.date.fromisoformat(args.date) if args.date else None
         out = bola.generate_draws(db, None, settings=store, date=start, days=args.days)
         print(f"Created {len(out['created'])} draw(s), skipped {out['skipped']} that already existed.")
 
 
+def bola_preflight(_args) -> None:
+    """Exit 1 when the number game is in a state that is unsafe to deploy (see bola.preflight)."""
+    import os
+    from app.core.rbac import bola_dev_only
+    from app.services import bola
+    with session_scope() as db:
+        store = SettingsStore(db)
+        active = sum(1 for row in bola.schedules(db) if row.is_active)
+        results = bola.preflight(store, dev_only=bola_dev_only(),
+                                 live_ack=os.environ.get("BOLA_LIVE_ACK") == "1",
+                                 active_schedules=active)
+    marks = {"ok": "OK  ", "warn": "WARN", "fail": "FAIL"}
+    for level, message in results:
+        print(f"[{marks[level]}] bola: {message}")
+    if any(level == "fail" for level, _ in results):
+        sys.exit(1)
+
+
 def bola_tick(_args) -> None:
     from app.services import bola
     with session_scope() as db:
-        out = bola.tick(db, SettingsStore(db))
+        store = SettingsStore(db)
+        if not store.get("bola.enabled"):
+            print("Number game is switched off (bola.enabled=false): nothing to do.")
+            return
+        out = bola.tick(db, store)
         print(f"Opened {out['opened']}, locked {out['locked']}.")
 
 
@@ -217,6 +243,23 @@ def bola_convert_cuts(args) -> None:
         print(f"Updated {done} Cavo(s).")
 
 
+def bola_import_legacy(args) -> None:
+    """Areas, draw times, the line limit and past results from the old dump. Dry run unless --apply."""
+    from app.services import bola_legacy
+    plan = bola_legacy.read_plan(args.sql)
+    print(plan.summary())
+    if not args.apply:
+        print("\nDry run. Nothing was written. Re-run with --apply to create the above.")
+        return
+    with session_scope() as db:
+        actor = db.scalar(select(User).where(User.role == Role.ADMIN).order_by(User.id))
+        if actor is None:
+            sys.exit("Error: create the Admin account first (create-admin).")
+        made = bola_legacy.apply_plan(db, actor, plan, SettingsStore(db))
+    print(f"\nCreated {made['areas']} area(s), {made['schedules']} draw time(s), {made['draws']} past draw(s). "
+          "Passwords, credits, users and tickets are never imported.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="app.cli")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -247,11 +290,16 @@ def main() -> None:
     bg.add_argument("--days", type=int, default=1)
     bg.set_defaults(fn=bola_generate)
     sub.add_parser("bola-tick").set_defaults(fn=bola_tick)
+    sub.add_parser("bola-preflight").set_defaults(fn=bola_preflight)
     bc = sub.add_parser("bola-convert-cuts")
     bc.add_argument("--rates", required=True, help="CSV: username,com_percentage,sop_perc")
     bc.add_argument("--pool", default="0.30", help="share of sales set aside (default 0.30)")
     bc.add_argument("--apply", action="store_true")
     bc.set_defaults(fn=bola_convert_cuts)
+    bi = sub.add_parser("bola-import-legacy")
+    bi.add_argument("--sql", required=True, help="the old panel's MySQL dump (online_bukis.sql)")
+    bi.add_argument("--apply", action="store_true", help="write; without it this only prints the plan")
+    bi.set_defaults(fn=bola_import_legacy)
     args = parser.parse_args()
     try:
         args.fn(args)

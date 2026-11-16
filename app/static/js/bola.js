@@ -9,10 +9,57 @@
   const peso = (c) => '\u20B1' + (c / 100).toLocaleString('en-PH', { minimumFractionDigits: 2 });
   let timer = null;
 
+  const host = form.querySelector('[data-bola-grid]');
+  const balls = [];
+
   function boxes() { return Array.from(form.querySelectorAll('[data-num]')); }
+  function picked() {
+    return boxes().map((b) => parseInt(b.value, 10)).filter((n) => Number.isInteger(n) && n > 0);
+  }
+  function paint() {
+    const on = new Set(picked());
+    balls.forEach((b) => b.setAttribute('aria-pressed', on.has(+b.dataset.n) ? 'true' : 'false'));
+  }
+  function setPicked(list) {
+    boxes().forEach((el, i) => { el.value = list[i] !== undefined ? String(list[i]) : ''; });
+    paint();
+    refresh();
+  }
+  function buildGrid() {
+    if (!host) return;
+    const max = parseInt(host.dataset.max, 10) || 40;
+    for (let n = 1; n <= max; n += 1) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'bola-ball';
+      b.dataset.n = String(n);
+      b.textContent = String(n);
+      b.setAttribute('aria-pressed', 'false');
+      b.setAttribute('aria-label', 'Number ' + n);
+      balls.push(b);
+      host.appendChild(b);
+    }
+    const note = document.createElement('div');
+    note.className = 'bola-grid-note';
+    host.appendChild(note);
+    host.addEventListener('click', (ev) => {
+      const b = ev.target.closest('.bola-ball');
+      if (!b) return;
+      const n = +b.dataset.n;
+      const cur = picked();
+      const at = cur.indexOf(n);
+      const limit = COUNT[kind.value] || 2;
+      if (at >= 0) cur.splice(at, 1);
+      else if (cur.length < limit) cur.push(n);
+      else { note.textContent = 'This ticket type takes ' + limit + ' numbers. Tap one to remove it first.'; return; }
+      note.textContent = '';
+      setPicked(cur);
+    });
+  }
   function sync() {
     const n = COUNT[kind.value] || 2;
     boxes().forEach((el, i) => { el.closest('label').hidden = i >= n; if (i >= n) el.value = ''; });
+    paint();
     refresh();
   }
   function refresh() {
@@ -40,7 +87,8 @@
       } catch (e) { out.textContent = ''; }
     }, 250);
   }
-  form.addEventListener('input', refresh);
+  form.addEventListener('input', () => { paint(); refresh(); });
   kind.addEventListener('change', sync);
+  buildGrid();
   sync();
 })();

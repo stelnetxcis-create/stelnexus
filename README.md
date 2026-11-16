@@ -16,6 +16,7 @@ It handles real-money flows (GCash / bank cash-in and cash-out), so it must be d
 - [Money model](#money-model)
 - [Betting and settlement](#betting-and-settlement)
 - [Commissions (cuts)](#commissions-cuts)
+- [Number game (Bola)](#number-game-bola)
 - [HTTP API](#http-api)
 - [Testing](#testing)
 - [Production deployment](#production-deployment)
@@ -120,6 +121,8 @@ Settings are read from environment variables or `.env`. Settings that are lists 
 | `TRUSTED_PROXIES` | JSON list of proxy IPs whose forwarded headers are trusted, for example `["127.0.0.1"]` |
 | `FRAME_ANCESTORS` | CSP frame-ancestors value, for example `'self'` |
 | `DEBUG` | Must be `false` in production |
+| `BOLA_DEV_ONLY` | Default `true`: only the hidden Admin account can see or reach the number game. Set `false` only when it ships |
+| `BOLA_LIVE_ACK` | Not read by the app. Set to `1` when running `bola-preflight` to confirm the legal gate for a live launch |
 | `UPLOAD_DIR` | Where result pictures and payment proofs are stored (default `var/uploads`) |
 | `BACKUP_DIR` | Used by `deploy/backup.sh` (default `/var/backups/stelnexus`) |
 
@@ -139,6 +142,11 @@ Run as `python -m app.cli <command>`.
 | `seed-demo` | Loads demo data (`ENV=dev` only) |
 | `gen-keys` | Generates `SECRET_KEY` and `PII_KEY` values |
 | `encrypt-pii` | Encrypts existing plaintext player data after `PII_KEY` is set |
+| `bola-generate [--date D] [--days N]` | Creates number-game draws from the active schedules (skips existing ones; no-op while `bola.enabled` is false) |
+| `bola-tick` | Opens and locks draws by the clock, for display (no-op while `bola.enabled` is false) |
+| `bola-preflight` | Pre-deploy safety check for the number game; exits 1 on a failure |
+| `bola-convert-cuts --rates FILE [--pool P] [--apply]` | Converts old per-Cavo percentages to StelNexus cuts (prints a table; writes only with `--apply`) |
+| `bola-import-legacy --sql FILE [--apply]` | Reads the old panel's SQL dump (prints the plan; writes only with `--apply`) |
 
 ## Roles and permissions
 
@@ -204,6 +212,31 @@ python -m pytest -q
 
 Tests use their own temporary SQLite database and never touch `dev.db`.
 
+## Number game (Bola)
+
+The two-number draw game (Tumbok-Sahod, numbers 1 to 40, pays 800x by default). It shares the wallet, ledger, agent tree, audit log and settings with the sabong game, in its own `bola_*` tables.
+
+**It ships dark.** Two independent locks:
+
+1. `BOLA_DEV_ONLY=true` (environment, default): only the hidden Admin account can see or reach the game. No role grant can lift this. The public `/live` board and the Admin Panel variables for it also stay hidden.
+2. `bola.enabled=false` (Admin Panel variables, default): the master switch.
+
+**Setup**
+
+1. Add draw times per area at `/admin/bola/schedules` (Admin only; times are Asia/Manila).
+2. Install the two timers so draws appear and open or lock by themselves:
+
+   ```
+   cp deploy/stelnexus-bola-*.service deploy/stelnexus-bola-*.timer /etc/systemd/system/
+   systemctl daemon-reload
+   systemctl enable --now stelnexus-bola-tick.timer stelnexus-bola-generate.timer
+   ```
+
+   `stelnexus-bola-tick` runs every minute; `stelnexus-bola-generate` creates the next two days of draws at 00:05 Manila time. Betting does not depend on the tick: every bet checks the clock itself. Both do nothing while `bola.enabled` is false.
+3. Run `python -m app.cli bola-preflight` (also run by `scripts/security_check.sh`). While the game is off or dev-only it passes. For a **live** launch (`BOLA_DEV_ONLY=false`, `bola.enabled=true`) it fails unless: `BOLA_LIVE_ACK=1` is set, both liability caps are above zero, the odds are shown to players, and the ticket header carries no "PCSO", "OFFICIAL" or "PAGCOR" wording.
+
+**Before real money:** confirm you are authorised to run this kind of game (see Legal and compliance), run a play-money period, and load-test on PostgreSQL. Money-handling code should be reviewed by someone other than its author.
+
 ## Production deployment
 
 1. Provision PostgreSQL and create a database and user.
@@ -213,6 +246,7 @@ Tests use their own temporary SQLite database and never touch `dev.db`.
 5. Install `deploy/stelnexus.service` as a systemd unit (adjust the user and paths). It binds to `127.0.0.1:8000` and runs **one worker**, because the rate limiter keeps state in process memory.
 6. Put Caddy (or nginx) in front for HTTPS. `deploy/Caddyfile` is a working example: replace the domain, then run `caddy run --config deploy/Caddyfile`.
 7. Run `scripts/security_check.sh` before every deploy.
+8. Optional, only if you use the number game: install the two `stelnexus-bola-*` timers (see Number game above).
 
 ## Backups
 

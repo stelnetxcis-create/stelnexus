@@ -2,7 +2,10 @@
 {% import "_macros.html" as ui %}
 {% block title %}Bola draw · {{ brand }}{% endblock %}
 {% block heading %}{{ draw.location.name }} · slot {{ draw.slot }}{% endblock %}
-{% block actions %}<a class="btn btn-sm" href="/bola">All draws</a>{% endblock %}
+{% block actions %}
+{% if can_report %}<a class="btn btn-sm" href="/bola/draws/{{ draw.id }}/report.csv">Report CSV</a><a class="btn btn-sm" href="/bola/reports?date={{ draw.draw_date }}">Reports</a>{% endif %}
+<a class="btn btn-sm" href="/bola">All draws</a>
+{% endblock %}
 {% block content %}
 
 <div class="grid grid-3">
@@ -31,6 +34,7 @@
         <label class="field"><span>Ticket type</span>
           <select name="kind">{% for value, label in kinds %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></label>
       </div>
+      <div class="bola-grid" data-bola-grid data-max="{{ odds.max_number }}" role="group" aria-label="Tap the numbers to play"></div>
       <div class="inline-form">
         {% for i in range(1, 6) %}
         <label class="field"><span>Number {{ i }}</span><input data-num type="number" name="n{{ i }}" min="1" max="{{ odds.max_number }}" inputmode="numeric"></label>
@@ -65,8 +69,10 @@
 
     {% if can_declare and draw.status.value in ('open', 'locked') %}
     <div class="hr"></div>
-    <form method="post" action="/bola/draws/{{ draw.id }}/declare" class="inline-form" data-confirm="Declare this result? Winnings are paid immediately.">
+    <form method="post" action="/bola/draws/{{ draw.id }}/declare" class="inline-form" enctype="multipart/form-data" data-confirm="Declare this result? Winnings are paid immediately.">
       {{ ui.csrf(csrf_token) }}
+      <label class="field"><span>Picture of the result <small class="muted">(optional)</small></span>
+        <input type="file" name="proof" accept="image/jpeg,image/png,image/webp"></label>
       {{ ui.field('First ball (tumbok)', 'ball_first', 'number', '', true, attrs='min=1 max=' ~ odds.max_number) }}
       {{ ui.field('Second ball (sahod)', 'ball_second', 'number', '', true, attrs='min=1 max=' ~ odds.max_number) }}
       {{ ui.field('Reason (only if declaring before the draw time)', 'reason', 'text', '', false, attrs='maxlength=255') }}
@@ -92,6 +98,23 @@
       {{ ui.csrf(csrf_token) }}
       {{ ui.field('Reason to void', 'reason', 'text', '', true, attrs='minlength=5 maxlength=255') }}
       <button class="btn btn-danger" type="submit">Void draw</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{# ----------------------------------------------------------- result picture #}
+{% if draw.proof_file or ((can_declare or can_redeclare) and draw.status.value == 'settled') %}
+<div class="card">
+  <div class="card-head"><h2>Result picture</h2>{% if draw.proof_file %}<span class="muted small">added by {{ who(draw.proof_by) }} · {{ draw.proof_at | datetime }} UTC</span>{% endif %}</div>
+  <div class="card-body">
+    {% if draw.proof_file %}<a href="/bola/draws/{{ draw.id }}/proof" target="_blank" rel="noopener"><img class="proof-img" src="/bola/draws/{{ draw.id }}/proof" alt="Picture of the result of this draw"></a>{% endif %}
+    {% if can_declare or can_redeclare %}
+    <form method="post" action="/bola/draws/{{ draw.id }}/proof" enctype="multipart/form-data" class="inline-form">
+      {{ ui.csrf(csrf_token) }}
+      <label class="field"><span>{{ 'Replace picture' if draw.proof_file else 'Add a picture' }}</span><input type="file" name="proof" accept="image/jpeg,image/png,image/webp" required></label>
+      <button class="btn" type="submit">Save picture</button>
     </form>
     {% endif %}
   </div>
@@ -135,18 +158,48 @@
 </div>
 {% endif %}
 
+{# ----------------------------------------------------------- expenses #}
+{% if expenses is not none %}
+<div class="card" id="expenses">
+  <div class="card-head"><h2>Draw expenses</h2>{% if expenses %}{{ ui.badge((expenses | sum(attribute='amount_cents')) | money, 'amber') }}{% endif %}</div>
+  <div class="card-body">
+    {% if expenses %}
+    <div class="table-wrap"><table class="table"><thead><tr><th>Item</th><th>Note</th><th class="right">Amount</th>{% if can_manage %}<th></th>{% endif %}</tr></thead><tbody>
+    {% for e in expenses %}
+      <tr><td>{{ e.label }}</td><td class="small">{{ e.note or '—' }}</td><td class="right num">{{ e.amount_cents | money }}</td>
+        {% if can_manage %}<td class="right"><form method="post" action="/bola/expenses/{{ e.id }}/delete" style="display:inline" data-confirm="Remove this expense?">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm">Remove</button></form></td>{% endif %}</tr>
+    {% endfor %}
+    </tbody></table></div>
+    {% else %}{{ ui.empty('No expenses recorded for this draw.') }}{% endif %}
+    {% if can_manage %}
+    <form method="post" action="/bola/draws/{{ draw.id }}/expenses" class="inline-form">
+      {{ ui.csrf(csrf_token) }}
+      {{ ui.field('Item', 'label', 'text', '', true, attrs='maxlength=80') }}
+      {{ ui.field('Amount ₱', 'amount', 'number', '', true, attrs='min=0.01 step=0.01 inputmode=decimal') }}
+      {{ ui.field('Note (optional)', 'note', 'text', '', false, attrs='maxlength=120') }}
+      <button class="btn" type="submit">Add expense</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 {# ----------------------------------------------------------- tickets #}
 {% if tickets is not none %}
 <div class="card">
   <div class="card-head"><h2>Tickets</h2></div>
   <div class="card-body tight">
     {% if tickets %}
-    <div class="table-wrap"><table class="table" data-table data-page-size="25"><thead><tr><th>Code</th><th>Type</th><th>Numbers</th><th class="right">Stake</th><th class="right">Payout</th><th>Status</th><th>Agent</th></tr></thead><tbody>
+    <div class="table-wrap"><table class="table" data-table data-page-size="25"><thead><tr><th>Code</th><th>Type</th><th>Numbers</th><th class="right">Stake</th><th class="right">Payout</th><th>Status</th><th>Agent</th>{% if can_cancel %}<th></th>{% endif %}</tr></thead><tbody>
     {% for t in tickets %}
       <tr><td class="mono small"><a href="/bola/tickets/{{ t.id }}">{{ t.code }}</a></td><td class="small">{{ t.kind.value }}</td>
         <td class="num">{{ t.numbers | join(', ') }}</td><td class="right num">{{ t.stake_cents | money }}</td>
         <td class="right num">{{ t.payout_cents | money if t.payout_cents else '—' }}</td><td>{{ ui.status_badge(t.status) }}</td>
-        <td class="small">{{ t.kubrador or t.cavo or '—' }}</td></tr>
+        <td class="small">{{ t.kubrador or t.cavo or '—' }}</td>
+        {% if can_cancel %}<td class="right">{% if t.status.value == 'active' and draw.status.value == 'open' %}
+          <form method="post" action="/bola/bets/{{ t.id }}/cancel" class="inline-form" style="display:inline-flex;gap:4px" data-confirm="Cancel ticket {{ t.code }} and refund the stake?">
+            {{ ui.csrf(csrf_token) }}<input type="text" name="reason" value="Cancelled at the desk" minlength="3" maxlength="120" aria-label="Reason" style="width:150px">
+            <button class="btn btn-sm" type="submit">Cancel</button></form>{% endif %}</td>{% endif %}</tr>
     {% endfor %}
     </tbody></table></div>
     {% else %}{{ ui.empty('No tickets on this draw yet.') }}{% endif %}

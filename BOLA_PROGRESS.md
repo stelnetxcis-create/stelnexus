@@ -1,6 +1,6 @@
-# Bola progress handoff (end of session 2)
+# Bola progress handoff
 
-Full suite: 145 passed. Feature is dark: `bola.enabled=false` by default.
+Full suite: 188 passed (run `python -m pytest -q`). Feature is dark: `bola.enabled=false` by default.
 
 ## Done
 - Phases 1-3 (earlier): foundations, `services/bola.py`, `services/bola_settlement.py`.
@@ -18,12 +18,18 @@ Full suite: 145 passed. Feature is dark: `bola.enabled=false` by default.
 - A draw where the house loses money pays NO commission (cap is applied to house gross). Intended per plan, but confirm.
 - Ticket header uses setting `ticket.header`; no "PCSO"/"OFFICIAL" anywhere (plan 0.1).
 
+## Done since session 2
+Admin schedules UI, JSON API, dashboard card, `/live` panel, daily/monthly reports + CSV, number grid,
+`bola-import-legacy`, expenses UI, result photo on draws, dev-only gate (`BOLA_DEV_ONLY`), systemd timers in
+`deploy/`, `bola-preflight` (run by `scripts/security_check.sh`), README section.
+Full plan-by-plan status: `STELNEXUS_NUMBER_GAME_PROGRESS.md`.
+
 ## TODO (in order)
-1. Admin UI for `BolaSchedule` (draw times per area): `/admin/bola/schedules` (service `bola.upsert_schedule` already exists).
-2. JSON API `/api/v1/bola/...` (plan 4.3) in `app/api/v1/routes.py`.
-3. Dashboard card + `/live` panel (`live.show_bola`), and daily/monthly Bola reports + CSV (`/bola/draws/{id}/report.csv`).
-4. Number-grid tap UI on the slip (currently plain number inputs).
-5. `bola-import-legacy` CLI (parse online_bukis.sql, --dry-run / --apply), `BolaExpense` UI.
-6. `proofs.attach` generic for BolaDraw (result photo).
-7. Deploy: systemd timer / cron for `bola-tick` and `bola-generate --days 2`; `scripts/security_check.sh` check that bola.enabled is deliberate.
-8. Load test (500 concurrent bets, Postgres), staged enablement. Confirm legal gate (plan 0.1) before real money.
+1. Rulings needed: D4 (Master remainder: commission line today, plan default was house); no commission on a
+   losing draw; liability-cap boundary (reaching the cap passes); legacy `cavo3` has SOP but no commission rate.
+2. Per-agent Bola report / agent statement.
+3. Friendly wallet-history labels for `bola.stake`, `bola.settle`, `bola.refund`.
+4. Apply `fight.pawn_proof_required` to Bola declares (only matters once the dev gate is lifted).
+5. Confirm whether players should bet for themselves (D7).
+6. Load test (500 concurrent bets, Postgres) incl. the "two threads at the cap boundary" test.
+7. Staged enablement (play-money first), then the legal gate (plan 0.1) before real money.

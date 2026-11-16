@@ -1,0 +1,18 @@
+# /etc/systemd/system/stelnexus-bola-tick.service  (adjust User, paths)
+# Flips number-game draws SCHEDULED -> OPEN -> LOCKED for display. Betting never depends on this:
+# the bet itself checks the clock. Does nothing while bola.enabled is false.
+[Unit]
+Description=StelNexus number game: open/lock draws
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=stelnexus
+WorkingDirectory=/opt/stelnexus
+EnvironmentFile=/opt/stelnexus/.env
+ExecStart=/opt/stelnexus/.venv/bin/python -m app.cli bola-tick
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/stelnexus/var

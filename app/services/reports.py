@@ -89,6 +89,166 @@ def bola_totals(db: Session) -> dict:
             "net": settled_stake - paid - commission}
 
 
+# ---------------------------------------------------------------------------
+# Bola reports: per draw, daily, monthly. All figures come from the bola tables
+# (which are themselves written only by ledger-backed services), never from floats.
+# ---------------------------------------------------------------------------
+
+_BOLA_ROLLUP_KEYS = ("tickets", "winners", "staked", "settled_stake", "paid",
+                     "commission", "expenses")
+
+
+def _bola_rollup(db: Session, draws: list) -> dict[int, dict]:
+    """One aggregate pass over the tickets / commissions / expenses of these draws."""
+    from app.db.models import BolaCommission, BolaExpense, BolaTicket
+    ids = [d.id for d in draws]
+    out = {i: {k: 0 for k in _BOLA_ROLLUP_KEYS} for i in ids}
+    if not ids:
+        return out
+    for draw_id, status, count, stake, payout in db.execute(
+            select(BolaTicket.draw_id, BolaTicket.status, func.count(BolaTicket.id),
+                   func.coalesce(func.sum(BolaTicket.stake_cents), 0),
+                   func.coalesce(func.sum(BolaTicket.payout_cents), 0))
+            .where(BolaTicket.draw_id.in_(ids))
+            .group_by(BolaTicket.draw_id, BolaTicket.status)).all():
+        row = out[draw_id]
+        if status in (TicketStatus.ACTIVE, TicketStatus.SETTLED):
+            row["tickets"] += int(count)
+            row["staked"] += int(stake)
+        if status == TicketStatus.SETTLED:
+            row["settled_stake"] += int(stake)
+            row["paid"] += int(payout)
+    for draw_id, count in db.execute(
+            select(BolaTicket.draw_id, func.count(BolaTicket.id))
+            .where(BolaTicket.draw_id.in_(ids), BolaTicket.status == TicketStatus.SETTLED,
+                   BolaTicket.payout_cents > 0)
+            .group_by(BolaTicket.draw_id)).all():
+        out[draw_id]["winners"] = int(count)
+    for draw_id, amount in db.execute(
+            select(BolaCommission.draw_id, func.coalesce(func.sum(BolaCommission.amount_cents), 0))
+            .where(BolaCommission.draw_id.in_(ids),
+                   BolaCommission.status != CommissionStatus.REVERSED)
+            .group_by(BolaCommission.draw_id)).all():
+        out[draw_id]["commission"] = int(amount)
+    for draw_id, amount in db.execute(
+            select(BolaExpense.draw_id, func.coalesce(func.sum(BolaExpense.amount_cents), 0))
+            .where(BolaExpense.draw_id.in_(ids))
+            .group_by(BolaExpense.draw_id)).all():
+        out[draw_id]["expenses"] = int(amount)
+    for row in out.values():
+        row["house"] = row["settled_stake"] - row["paid"]
+        row["net"] = row["house"] - row["commission"] - row["expenses"]
+    return out
+
+
+def _bola_sum(rows: list[dict]) -> dict:
+    keys = _BOLA_ROLLUP_KEYS + ("house", "net")
+    return {k: sum(int(r.get(k, 0)) for r in rows) for k in keys}
+
+
+def bola_draw_report(db: Session, draw, settings) -> dict:
+    """Per-draw P&L plus the risk picture: the old report_details.php, rebuilt."""
+    from app.db.models import BolaCommission
+    from app.services import bola
+    figures = _bola_rollup(db, [draw])[draw.id]
+    by_tier = {str(tier): int(amount) for tier, amount in db.execute(
+        select(BolaCommission.tier, func.coalesce(func.sum(BolaCommission.amount_cents), 0))
+        .where(BolaCommission.draw_id == draw.id,
+               BolaCommission.status != CommissionStatus.REVERSED)
+        .group_by(BolaCommission.tier)).all()}
+    return {**figures, "by_tier": by_tier,
+            "worst": bola.worst_outcome(db, draw.id, settings),
+            "expense_rows": bola.list_expenses(db, draw.id)}
+
+
+def bola_daily(db: Session, day) -> dict:
+    """One date, one row per draw (area x slot), plus the day's totals."""
+    from app.db.models import BolaDraw
+    draws = list(db.scalars(select(BolaDraw).where(BolaDraw.draw_date == day)
+                            .order_by(BolaDraw.scheduled_at, BolaDraw.id)).all())
+    rollup = _bola_rollup(db, draws)
+    rows = [{"draw": d, **rollup[d.id]} for d in draws]
+    return {"day": day, "rows": rows, "totals": _bola_sum(rows)}
+
+
+def bola_monthly(db: Session, year: int, month: int) -> dict:
+    """One row per day of the month (the old monthly report capped at 3 draws a day;
+    this one covers every slot of every area)."""
+    from app.db.models import BolaDraw
+    start = dt.date(year, month, 1)
+    end = dt.date(year + 1, 1, 1) if month == 12 else dt.date(year, month + 1, 1)
+    draws = list(db.scalars(select(BolaDraw)
+                            .where(BolaDraw.draw_date >= start, BolaDraw.draw_date < end)
+                            .order_by(BolaDraw.draw_date)).all())
+    rollup = _bola_rollup(db, draws)
+    by_day: dict[str, dict] = {}
+    for draw in draws:
+        key = draw.draw_date.isoformat()
+        row = by_day.setdefault(key, {"day": key, "draws": 0,
+                                      **{k: 0 for k in _BOLA_ROLLUP_KEYS + ("house", "net")}})
+        row["draws"] += 1
+        for k in _BOLA_ROLLUP_KEYS + ("house", "net"):
+            row[k] += rollup[draw.id][k]
+    rows = [by_day[k] for k in sorted(by_day)]
+    return {"month": f"{year:04d}-{month:02d}", "start": start, "end": end,
+            "rows": rows, "totals": _bola_sum(rows)}
+
+
+def bola_dashboard(db: Session, actor, settings) -> dict:
+    """The dashboard's Bola card. Agents see their own network's stake, never house money."""
+    from app.core.rbac import has_global_scope, scope_ids
+    from app.db.models import BolaDraw, BolaRun, BolaTicket, DrawStatus
+    from app.services import bola
+    day = dt.datetime.now(dt.timezone.utc).astimezone(bola.MANILA).date()
+    draws = list(db.scalars(select(BolaDraw).where(BolaDraw.draw_date == day)).all())
+    stake_stmt = select(func.coalesce(func.sum(BolaTicket.stake_cents), 0)).where(
+        BolaTicket.draw_id.in_([d.id for d in draws] or [0]),
+        BolaTicket.status != TicketStatus.CANCELED)
+    if not has_global_scope(actor):
+        stake_stmt = stake_stmt.where(BolaTicket.agent_id.in_(scope_ids(db, actor)))
+    return {
+        "enabled": bool(settings.get("bola.enabled")),
+        "open": sum(1 for d in draws if bola.bettable(d)),
+        "awaiting": sum(1 for d in draws if d.status == DrawStatus.LOCKED),
+        "settled": sum(1 for d in draws if d.status == DrawStatus.SETTLED),
+        "total": len(draws),
+        "stake_today": int(db.scalar(stake_stmt) or 0),
+        "next": bola.next_draw(db),
+        "pending_corrections": int(db.scalar(select(func.count(BolaRun.id))
+                                             .where(BolaRun.status == RunStatus.PENDING)) or 0),
+    }
+
+def bola_board(db: Session, settings) -> dict | None:
+    """The public /live number-game panel: last result and next draw per area. No stakes,
+    no names of players or agents. None when either switch is off."""
+    from app.core.rbac import bola_dev_only
+    if bola_dev_only():
+        return None            # the public board is never a dev surface
+    if not (settings.get("live.show_bola") and settings.get("bola.enabled")):
+        return None
+    from app.db.models import DrawStatus
+    from app.services import bola
+    areas: dict[int, dict] = {}
+    for draw in bola.results(db, limit=200):
+        if not draw.location.is_active:
+            continue           # a deactivated area is gone from the public board
+        row = areas.setdefault(draw.location_id, {"name": draw.location.name, "last": None, "next": None})
+        if row["last"] is None:
+            row["last"] = draw
+    for draw in bola.list_draws(db, upcoming=True, limit=200):
+        if not draw.location.is_active:
+            continue
+        row = areas.setdefault(draw.location_id, {"name": draw.location.name, "last": None, "next": None})
+        if row["next"] is None and draw.status in (DrawStatus.SCHEDULED, DrawStatus.OPEN, DrawStatus.LOCKED):
+            row["next"] = draw
+    boards = sorted((r for r in areas.values() if r["last"] or r["next"]),
+                    key=lambda r: r["name"])[:12]
+    if not boards:
+        return None
+    return {"areas": boards, "multiplier": bola.multiplier(settings) / 100,
+            "bettable": bola.bettable}
+
+
 def dashboard(db: Session, actor: User) -> dict:
     today = dt.datetime.now(dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     open_fights = int(db.scalar(select(func.count(Fight.id)).where(
@@ -236,7 +396,7 @@ def live_board(db: Session, settings) -> dict:
     event = db.scalar(select(Event).where(Event.status == EventStatus.OPEN)
                       .order_by(Event.event_date.desc(), Event.id.desc()))
     board: dict = {"event": event, "fight": None, "min_odds_bps": int(settings.get("payout.min_odds_bps")),
-                   "recent": []}
+                   "recent": [], "bola": bola_board(db, settings)}
     if event is None:
         return board
     fights = events.fights_of(db, event.id)

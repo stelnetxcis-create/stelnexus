@@ -882,6 +882,7 @@ class BolaDraw(UUIDMixin, TimestampMixin, Base):
 
     location: Mapped["Location"] = relationship()
     declared_by: Mapped["User | None"] = relationship(foreign_keys=[declared_by_id])
+    proof_by: Mapped["User | None"] = relationship(foreign_keys=[proof_by_id])
 
     __table_args__ = (
         UniqueConstraint("location_id", "draw_date", "slot", name="uq_bola_draw_slot"),

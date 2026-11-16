@@ -17,11 +17,11 @@ from sqlalchemy import func, select
 
 from app.core import audit
 from app.core.errors import NotFound
-from app.core.rbac import (GRANTS, Perm, normalize_grants, variable_groups_editable,
+from app.core.rbac import (GRANTS, Perm, normalize_grants, offered_grants, variable_groups_editable,
                            variable_groups_visible)
 from app.core.settings_registry import BY_KEY, DEFS, GROUPS
 from app.db.models import AuditLog, Event, EventStatus, Location, Role, Status, User
-from app.services import agents, locations, presence, reports
+from app.services import agents, bola, locations, presence, reports
 from app.web.deps import Ctx, flash_redirect, form_data, render, require_ctx
 
 router = APIRouter()
@@ -31,6 +31,7 @@ SECTIONS = (
     ("overview", "/admin", "Overview", Perm.PANEL_VIEW),
     ("variables", "/admin/variables", "Variables", Perm.SETTINGS_VIEW),
     ("locations", "/admin/locations", "Locations", Perm.LOCATIONS_VIEW),
+    ("bola", "/admin/bola/schedules", "Bola draw times", Perm.BOLA_MANAGE),
     ("cuts", "/admin/cuts", "Cuts", Perm.CUTS_VIEW),
     ("pawns", "/admin/pawns", "Pawns", Perm.PAWNS_MANAGE),
     ("audit", "/admin/audit", "Audit trail", Perm.AUDIT_VIEW),
@@ -169,13 +170,53 @@ async def locations_delete(location_id: int, ctx: Ctx = Depends(require_ctx)):
     return flash_redirect("/admin/locations", "Location deleted.")
 
 
+# --------------------------------------------------------------------------- bola draw times
+# The old tbl_area.ball_1/2/3: up to six draw slots per area, in Manila local time.
+# Master and Admin hold BOLA_MANAGE, so both can edit schedules here.
+
+@router.get("/admin/bola/schedules")
+async def bola_schedules_page(ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.BOLA_MANAGE)
+    rows = bola.schedules(ctx.db)
+    by_area: dict[int, list] = {}
+    for row in rows:
+        by_area.setdefault(row.location_id, []).append(row)
+    return panel(ctx, "bola", "admin_bola_schedules.html",
+                 areas=locations.list_locations(ctx.db), by_area=by_area,
+                 enabled=bool(ctx.store.get("bola.enabled")),
+                 cutoff_minutes=int(ctx.store.get("bola.cutoff_minutes")))
+
+
+@router.post("/admin/bola/schedules/save")
+async def bola_schedules_save(request: Request, ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.BOLA_MANAGE)
+    data = await form_data(request)
+    try:
+        location_id, slot = int(data.get("location_id") or 0), int(data.get("slot") or 0)
+    except (TypeError, ValueError) as exc:
+        from app.core.errors import ValidationError
+        raise ValidationError("Choose an area and a slot number.") from exc
+    row = bola.upsert_schedule(
+        ctx.db, ctx.user, location_id=location_id, slot=slot,
+        draw_time=data.get("draw_time", ""), is_active=data.get("is_active") == "1")
+    return flash_redirect("/admin/bola/schedules",
+                          f"Slot {row.slot} saved for {row.location.name}.")
+
+
+@router.post("/admin/bola/schedules/{schedule_id}/delete")
+async def bola_schedules_delete(schedule_id: int, ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.BOLA_MANAGE)
+    bola.delete_schedule(ctx.db, ctx.user, schedule_id)
+    return flash_redirect("/admin/bola/schedules", "Draw time removed. Existing draws are kept.")
+
+
 # --------------------------------------------------------------------------- pawns (Admin only)
 
 @router.get("/admin/pawns")
 async def pawns_page(ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.PAWNS_MANAGE)
     sections: dict[str, list] = {}
-    for grant in GRANTS:
+    for grant in offered_grants():
         sections.setdefault(grant.section, []).append(grant)
     return panel(ctx, "pawns", "admin_pawns.html", pawns=agents.list_pawns(ctx.db), sections=sections,
                  min_len=int(ctx.store.get("security.password_min_length")))

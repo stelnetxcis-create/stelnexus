@@ -161,7 +161,11 @@ def test_role_creation_rules(chain):
 
 
 # ------------------------------------------------------------- hidden layer
-def test_permissions_master_is_admin_minus_admin_panel():
+def test_permissions_master_is_admin_minus_admin_panel(monkeypatch):
+    # The number game is dev-only by default (Master holds no Bola perm at all); lift that gate
+    # here so this test checks the role matrix, not the gate. The gate has its own tests.
+    from app.core.config import get_settings
+    monkeypatch.setattr(get_settings(), "BOLA_DEV_ONLY", False)
     admin_only = {Perm.SETTINGS_VIEW, Perm.SETTINGS_MANAGE, Perm.AUDIT_VIEW, Perm.HIDDEN_VIEW,
                   Perm.CUTS_VIEW, Perm.CUTS_MANAGE, Perm.PLAYERS_VIEW, Perm.PLAYERS_CREATE,
                   Perm.PLAYERS_EDIT, Perm.ONLINE_VIEW, Perm.PANEL_VIEW, Perm.PAWNS_MANAGE,

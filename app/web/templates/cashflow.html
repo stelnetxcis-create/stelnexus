@@ -16,7 +16,7 @@
   {{ ui.stat('Game escrow', figures.pool_escrow | money, 'stakes held for unsettled games') }}
 </div>
 
-{% if figures.bola and (figures.bola.staked or figures.bola_pool_escrow) %}
+{% if ctx.can(Perm.BOLA_EXPOSURE) and figures.bola and (figures.bola.staked or figures.bola_pool_escrow) %}
 <div class="grid grid-4">
   {{ ui.stat('Bola staked', figures.bola.staked | money, 'number game, active + settled') }}
   {{ ui.stat('Bola paid out', figures.bola.paid_out | money, 'settled winnings') }}

@@ -17,7 +17,7 @@ from app.core.config import get_settings
 from app.core.errors import AuthError, Forbidden
 from app.core.middleware import CSRF_COOKIE, cookie_header, make_csrf_cookie
 from app.core.money import fmt, pesos
-from app.core.rbac import Perm, permissions_of
+from app.core.rbac import Perm, bola_dev_only, permissions_of
 from app.core.settings_registry import SettingsStore
 from app.db.models import Notification, Role, Status, User
 from app.db.models import Session as SessionRow
@@ -39,7 +39,7 @@ VIEWAS_MAX_AGE = 8 * 3600
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 templates.env.globals.update(
-    fmt=fmt, pesos=pesos, Perm=Perm,
+    fmt=fmt, pesos=pesos, Perm=Perm, bola_dev_only=bola_dev_only,
     datefmt=lambda value, pattern="%Y-%m-%d %H:%M": value.strftime(pattern) if value else "—",
     dayfmt=lambda value: value.strftime("%Y-%m-%d") if value else "—",
 )

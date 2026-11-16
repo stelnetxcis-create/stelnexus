@@ -309,3 +309,11 @@ textarea{min-height:80px;resize:vertical}
 .figure small{display:block;color:var(--ink-3);font-size:11px;margin-top:2px}
 .odds-low{color:#f87171}
 .pool-draw{border-color:#8b5cf6}
+
+/* Bola number grid: tap the balls instead of typing them */
+.bola-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(42px,1fr));gap:6px;margin:8px 0 12px}
+.bola-ball{appearance:none;min-height:42px;border-radius:10px;border:1px solid var(--line-2);background:var(--panel-2);color:var(--ink-2);font:inherit;font-weight:700;font-variant-numeric:tabular-nums;cursor:pointer}
+.bola-ball:hover{background:var(--hover)}
+.bola-ball[aria-pressed="true"]{background:var(--brand);border-color:var(--brand);color:var(--brand-ink)}
+.bola-ball:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.bola-grid-note{grid-column:1/-1;font-size:12px;color:var(--ink-3)}

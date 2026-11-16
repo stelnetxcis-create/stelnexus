@@ -97,6 +97,46 @@ def assert_enabled(settings: SettingsStore) -> None:
         raise LockedState("The number game is switched off.")
 
 
+def preflight(settings: SettingsStore, *, dev_only: bool, live_ack: bool,
+              active_schedules: int) -> list[tuple[str, str]]:
+    """Pre-deploy checks for the number game: [("ok" | "warn" | "fail", message), ...].
+
+    Three states: OFF (nothing to check), DEV-ONLY (Admin sees it, harmless) and LIVE (every
+    role can reach it). LIVE is where a mistake costs money, so it must be acknowledged
+    explicitly, have both liability caps set, show the odds to players, and carry no wording
+    that implies a government affiliation (plan section 0.1).
+    """
+    out: list[tuple[str, str]] = []
+    enabled = bool(settings.get("bola.enabled"))
+    if not enabled:
+        out.append(("ok", "Number game is OFF (bola.enabled=false)."))
+        if not dev_only:
+            out.append(("warn", "BOLA_DEV_ONLY=false: turning bola.enabled on would open the game "
+                                "to every role. Keep BOLA_DEV_ONLY=true until you mean to launch."))
+        return out
+    header = str(settings.get("ticket.header") or "")
+    if any(word in header.upper() for word in ("PCSO", "OFFICIAL", "PAGCOR")):
+        out.append(("fail", f"ticket.header {header!r} implies a government affiliation. Use your own name."))
+    if active_schedules == 0:
+        out.append(("warn", "No active draw times (add them at /admin/bola/schedules): "
+                            "bola-generate will create nothing."))
+    if dev_only:
+        out.append(("ok", "Number game is ON but DEV-ONLY: only the Admin account can reach it."))
+        return out
+    out.append(("warn", "Number game is LIVE for all roles."))
+    if not live_ack:
+        out.append(("fail", "BOLA_LIVE_ACK=1 is not set. Confirm you are authorised to run this game "
+                            "(plan section 0.1), then set BOLA_LIVE_ACK=1 for this check."))
+    if int(settings.get("bola.max_liability_per_outcome_cents")) <= 0:
+        out.append(("fail", "bola.max_liability_per_outcome_cents is 0 (no cap): one outcome could owe "
+                            "more than the house holds."))
+    if int(settings.get("bola.max_liability_per_draw_cents")) <= 0:
+        out.append(("fail", "bola.max_liability_per_draw_cents is 0 (no cap) for the worst outcome of a draw."))
+    if not settings.get("bola.show_odds_to_players"):
+        out.append(("fail", "bola.show_odds_to_players is off: players must be shown the multiplier and odds."))
+    return out
+
+
 def multiplier(settings: SettingsStore) -> int:
     return int(settings.get("bola.payout_multiplier_x100"))
 

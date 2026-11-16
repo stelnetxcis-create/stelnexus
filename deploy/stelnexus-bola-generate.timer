@@ -1,0 +1,12 @@
+# /etc/systemd/system/stelnexus-bola-generate.timer
+# Draw times are Asia/Manila. The timezone suffix needs systemd 235 or newer; on an older
+# systemd drop it and use 16:05 UTC instead.
+[Unit]
+Description=Generate StelNexus number game draws every day at 00:05 Manila time
+
+[Timer]
+OnCalendar=*-*-* 00:05:00 Asia/Manila
+Persistent=true
+
+[Install]
+WantedBy=timers.target

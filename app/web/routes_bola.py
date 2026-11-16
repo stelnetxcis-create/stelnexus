@@ -5,20 +5,34 @@ The whole feature stays dark until the ``bola.enabled`` setting is switched on b
 """
 from __future__ import annotations
 
+import csv
 import datetime as dt
 import io
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
-from app.core.errors import StelError, ValidationError
+from app.core.config import get_settings
+from app.core.errors import Forbidden, NotFound, StelError, ValidationError
 from app.core.money import to_cents
 from app.core.rbac import Perm, hides_totals
 from app.db.models import BolaKind, TicketStatus
-from app.services import bola, bola_settlement, locations, players
+from app.services import bola, bola_settlement, locations, players, proofs, reports
 from app.web.deps import Ctx, flash_redirect, form_data, render, require_ctx
 
 router = APIRouter()
+_cfg = get_settings()
+
+
+async def _form_with_proof(request: Request) -> tuple[dict[str, str], proofs.Proof | None]:
+    """A multipart form: its text fields plus the validated result picture (None if none sent)."""
+    form = await request.form()
+    data = {key: value for key, value in form.items() if isinstance(value, str)}
+    upload = form.get("proof")
+    raw = None
+    if upload is not None and not isinstance(upload, str) and getattr(upload, "filename", ""):
+        raw = await upload.read(_cfg.MAX_UPLOAD_BYTES + 1)
+    return data, proofs.check_upload(raw)
 
 KIND_LABELS = {
     BolaKind.PAIR: "Tumbok-Sahod (2 numbers, 1 line)",
@@ -98,6 +112,10 @@ async def bola_draw(draw_id: int, ctx: Ctx = Depends(require_ctx)):
         heat = sorted(cells, key=lambda c: (-c["liability"], -c["stake"]))[:15]
     if not hide:
         tickets = bola.list_tickets(ctx.db, ctx.user, draw_id=draw.id, limit=300)
+    can_manage = ctx.can(Perm.BOLA_MANAGE)
+    expenses = None
+    if can_manage or (ctx.can(Perm.BOLA_EXPOSURE) and not hide):
+        expenses = bola.list_expenses(ctx.db, draw.id)
     my_players = [] if hide or not ctx.can(Perm.BOLA_PLACE) else players.list_players(
         ctx.db, ctx.user, limit=300)
     return render(
@@ -109,10 +127,11 @@ async def bola_draw(draw_id: int, ctx: Ctx = Depends(require_ctx)):
               "rtp": round(bola.rtp_percent(ctx.store), 1),
               "show": bool(ctx.store.get("bola.show_odds_to_players")),
               "max_number": bola.max_number(ctx.store)},
-        runs=bola_settlement.runs_for(ctx.db, draw.id),
-        can_manage=ctx.can(Perm.BOLA_MANAGE), can_declare=ctx.can(Perm.BOLA_DECLARE),
+        runs=bola_settlement.runs_for(ctx.db, draw.id), expenses=expenses,
+        can_manage=can_manage, can_declare=ctx.can(Perm.BOLA_DECLARE),
         can_redeclare=ctx.can(Perm.BOLA_REDECLARE), can_approve=ctx.can(Perm.BOLA_APPROVE),
         can_place=ctx.can(Perm.BOLA_PLACE), can_cancel=ctx.can(Perm.BOLA_CANCEL),
+        can_report=ctx.can(Perm.BOLA_EXPOSURE) and not hide,
     )
 
 
@@ -196,8 +215,79 @@ async def bola_betlogs(request: Request, ctx: Ctx = Depends(require_ctx)):
         ctx.db, ctx.user, draw_id=_int(p.get("draw_id")) or None, search=p.get("q", "")[:40] or None,
         status=TicketStatus(status) if status in ("active", "canceled", "settled", "refunded") else None,
         limit=300)
-    return render(ctx, "bola_betlogs.html", active="bola", rows=rows,
+    return render(ctx, "bola_betlogs.html", active="bola_logs", rows=rows,
                   filters={"q": p.get("q", ""), "status": status or "", "draw_id": p.get("draw_id", "")})
+
+
+# ------------------------------------------------------------------ reports
+def _need_exposure(ctx: Ctx) -> None:
+    """Money figures: Master/Admin (BOLA_EXPOSURE), never a Declarator."""
+    ctx.need(Perm.BOLA_EXPOSURE)
+    if hides_totals(ctx.user):
+        raise Forbidden("Your role cannot see totals.")
+
+
+@router.get("/bola/reports")
+async def bola_reports_page(request: Request, ctx: Ctx = Depends(require_ctx)):
+    _need_exposure(ctx)
+    p = request.query_params
+    today = dt.datetime.now(dt.timezone.utc).astimezone(bola.MANILA).date()
+    try:
+        day = dt.date.fromisoformat(p["date"]) if p.get("date") else today
+    except ValueError:
+        day = today
+    try:
+        year, month = (int(x) for x in (p.get("month") or today.strftime("%Y-%m")).split("-"))
+        if not (1 <= month <= 12 and 2000 <= year <= 2100):
+            raise ValueError
+    except (ValueError, TypeError):
+        year, month = today.year, today.month
+    return render(ctx, "bola_reports.html", active="bola_reports",
+                  daily=reports.bola_daily(ctx.db, day),
+                  monthly=reports.bola_monthly(ctx.db, year, month),
+                  local=bola.local)
+
+
+@router.get("/bola/draws/{draw_id}/report.csv")
+async def bola_draw_report_csv(draw_id: int, ctx: Ctx = Depends(require_ctx)):
+    from app.web.routes_extra import _safe
+    _need_exposure(ctx)
+    draw = bola.get_draw(ctx.db, draw_id)
+    fig = reports.bola_draw_report(ctx.db, draw, ctx.store)
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(["Draw", draw.id, "Area", _safe(draw.location.name), "Date", draw.draw_date.isoformat(),
+                     "Slot", draw.slot, "Status", draw.status.value])
+    writer.writerow(["Result", draw.result_label or "", "Scheduled (Manila)",
+                     bola.local(draw.scheduled_at).strftime("%Y-%m-%d %H:%M"),
+                     "Cut-off", bola.local(draw.cutoff_at).strftime("%H:%M"),
+                     "Declared", bola.local(draw.declared_at).strftime("%Y-%m-%d %H:%M") if draw.declared_at else ""])
+    writer.writerow([])
+    writer.writerow(["Code", "Type", "Numbers", "Lines", "Tumbok/line", "Sahod/line", "Stake",
+                     "Payout", "Status", "Kubrador", "Cavo", "Player", "Note"])
+    for t in bola.list_tickets(ctx.db, ctx.user, draw_id=draw.id, limit=1000):
+        writer.writerow([t.code, t.kind.value, " ".join(str(n) for n in (t.numbers or [])),
+                         t.line_count, f"{t.tumbok_cents / 100:.2f}", f"{t.sahod_cents / 100:.2f}",
+                         f"{t.stake_cents / 100:.2f}", f"{t.payout_cents / 100:.2f}", t.status.value,
+                         _safe(t.kubrador or ""), _safe(t.cavo or ""),
+                         _safe(t.player.full_name if t.player else ""), _safe(t.note or "")])
+    writer.writerow([])
+    for label, key in (("Tickets", "tickets"), ("Winners", "winners"), ("Total staked", "staked"),
+                       ("Settled stake", "settled_stake"), ("Paid out", "paid"), ("House take", "house"),
+                       ("Commissions", "commission"), ("Expenses", "expenses"), ("Net income", "net")):
+        writer.writerow([label, fig[key] if key in ("tickets", "winners") else f"{fig[key] / 100:.2f}"])
+    for tier, amount in sorted(fig["by_tier"].items()):
+        writer.writerow(["Commission tier", tier, f"{amount / 100:.2f}"])
+    for expense in fig["expense_rows"]:
+        writer.writerow(["Expense", _safe(expense.label), f"{expense.amount_cents / 100:.2f}",
+                         _safe(expense.note or "")])
+    worst = fig["worst"]
+    if worst["liability_cents"]:
+        writer.writerow(["Worst outcome at close", f"{worst['first']}-{worst['second']}",
+                         f"{worst['liability_cents'] / 100:.2f}"])
+    return Response(out.getvalue(), media_type="text/csv; charset=utf-8", headers={
+        "Content-Disposition": f'attachment; filename="bola-draw-{draw.id}-report.csv"',
+        "Cache-Control": "no-store"})
 
 
 # ------------------------------------------------------------------ operations
@@ -246,14 +336,60 @@ async def bola_void(draw_id: int, request: Request, ctx: Ctx = Depends(require_c
     return flash_redirect(f"/bola/draws/{draw_id}", "Draw voided. Every stake was refunded.")
 
 
+# ------------------------------------------------------------------ per-draw expenses
+@router.post("/bola/draws/{draw_id}/expenses")
+async def bola_expense_add(draw_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.BOLA_MANAGE)
+    data = await form_data(request)
+    bola.add_expense(ctx.db, ctx.user, draw_id, label=data.get("label", ""),
+                     amount_cents=to_cents(data.get("amount", "0") or "0"),
+                     note=data.get("note") or None)
+    return flash_redirect(f"/bola/draws/{draw_id}", "Expense recorded.")
+
+
+@router.post("/bola/expenses/{expense_id}/delete")
+async def bola_expense_delete(expense_id: int, ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.BOLA_MANAGE)
+    row = bola.delete_expense(ctx.db, ctx.user, expense_id)
+    return flash_redirect(f"/bola/draws/{row.draw_id}", "Expense removed.")
+
+
 @router.post("/bola/draws/{draw_id}/declare")
 async def bola_declare(draw_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.BOLA_DECLARE)
-    data = await form_data(request)
+    data, proof = await _form_with_proof(request)
+    if proof is None and proofs.required_for(ctx.user, ctx.store):
+        raise ValidationError("Attach a picture of the result: your account must show one.")
     bola_settlement.declare(ctx.db, ctx.user, draw_id=draw_id, ball_first=_int(data.get("ball_first")),
                             ball_second=_int(data.get("ball_second")), settings=ctx.store,
                             reason=data.get("reason") or None)
+    if proof is not None:
+        proofs.attach(ctx.db, ctx.user, bola.get_draw(ctx.db, draw_id), proof)
     return flash_redirect(f"/bola/draws/{draw_id}", "Result declared and settled.")
+
+
+@router.get("/bola/draws/{draw_id}/proof")
+async def bola_proof_image(draw_id: int, ctx: Ctx = Depends(require_ctx)):
+    """The picture attached to a draw's result. Signed-in staff who may see draws only."""
+    _need_view(ctx)
+    draw = bola.get_draw(ctx.db, draw_id)
+    path = proofs.path_of(draw)
+    if path is None:
+        raise NotFound("This draw has no result picture.")
+    return FileResponse(path, media_type=draw.proof_mime or "application/octet-stream")
+
+
+@router.post("/bola/draws/{draw_id}/proof")
+async def bola_proof_attach(draw_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
+    """Add or replace the result picture on a draw (whoever may declare or correct results)."""
+    if not (ctx.can(Perm.BOLA_DECLARE) or ctx.can(Perm.BOLA_REDECLARE)):
+        raise Forbidden("Your role is not allowed to perform this action.")
+    _, proof = await _form_with_proof(request)
+    if proof is None:
+        raise ValidationError("Choose a picture to upload.")
+    draw = bola.get_draw(ctx.db, draw_id)
+    proofs.attach(ctx.db, ctx.user, draw, proof)
+    return flash_redirect(f"/bola/draws/{draw.id}", "Result picture saved.")
 
 
 @router.post("/bola/draws/{draw_id}/correct")

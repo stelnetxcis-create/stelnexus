@@ -74,7 +74,8 @@
           ('cancelT', '/cancelT', 'i-ban', 'Cancel Ticket', 'bets.view')]),
         ('Number game', [
           ('bola', '/bola', 'i-target', 'Bola', 'bola.view'),
-          ('bola_logs', '/bola/betlogs', 'i-list', 'Bola Tickets', 'bola.place')]),
+          ('bola_logs', '/bola/betlogs', 'i-list', 'Bola Tickets', 'bola.place'),
+          ('bola_reports', '/bola/reports', 'i-coins', 'Bola Reports', 'bola.exposure')]),
         ('Network', [
           ('agents', '/agents', 'i-users', 'Users', 'agents.view'),
           ('clp', '/clp', 'i-card', 'Players', 'players.view'),
@@ -87,7 +88,7 @@
       {% for title, items in groups %}
         {% set shown = items | selectattr(4, 'in', perms) | list %}
         {% if shown %}
-        {% if title %}<div class="nav-title">{{ title }}</div>{% endif %}
+        {% if title %}<div class="nav-title">{{ title }}{% if title == 'Number game' and bola_dev_only() %} · dev only{% endif %}</div>{% endif %}
         {% for key, href, icon, label, perm in shown %}
         <a class="nav-link {{ 'is-active' if active == key }}" href="{{ href }}" title="{{ label }}">
           <svg class="ico"><use href="#{{ icon }}"/></svg><span>{{ label }}</span>

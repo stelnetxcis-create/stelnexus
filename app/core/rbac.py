@@ -13,6 +13,7 @@ from enum import Enum
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.errors import Forbidden
 from app.core.settings_registry import GROUPS
 from app.db.models import CHILD_ROLE, TOP_ROLES, Player, Role, Status, User
@@ -79,6 +80,26 @@ class Perm(str, Enum):
     PANEL_VIEW = "panel.view"
     PAWNS_MANAGE = "pawns.manage"          # only the Admin creates Pawns and sets what they may see
     ONLINE_VIEW = "online.view"            # who is signed in right now
+
+
+# ---------------------------------------------------------------------------
+# Dev-only gate for the number game (see Settings.BOLA_DEV_ONLY)
+# ---------------------------------------------------------------------------
+BOLA_PERMS: frozenset[Perm] = frozenset(p for p in Perm if p.value.startswith("bola."))
+BOLA_GROUP = "Bola"          # the Admin Panel variables group
+BOLA_GRANT_SECTION = "Bola"  # the Pawn grants section
+
+
+def bola_dev_only() -> bool:
+    """True while the number game is visible to the developer (Admin) account only."""
+    return bool(get_settings().BOLA_DEV_ONLY)
+
+
+def bola_visible_to(user: User | None) -> bool:
+    """May this account see that the number game exists at all (nav, cards, settings)?"""
+    if user is None:
+        return not bola_dev_only()
+    return (not bola_dev_only()) or user.role == Role.ADMIN
 
 
 # Everyone who holds money gets the wallet hub: load, cash out, transfer, and their own history.
@@ -213,7 +234,11 @@ def normalize_grants(keys) -> list[str]:
 
 def permissions_for(role: Role | str) -> set[Perm]:
     """The role's base permissions (a Pawn's per-account grants are added by permissions_of)."""
-    return set(ROLE_PERMS.get(Role(role), set()))
+    role = Role(role)
+    perms = set(ROLE_PERMS.get(role, set()))
+    if bola_dev_only() and role != Role.ADMIN:
+        perms -= BOLA_PERMS
+    return perms
 
 
 def permissions_of(user: User) -> set[Perm]:
@@ -223,6 +248,8 @@ def permissions_of(user: User) -> set[Perm]:
         grant = GRANT_BY_KEY.get(key)
         if grant is not None:
             perms |= set(grant.perms)
+    if bola_dev_only() and user.role != Role.ADMIN:
+        perms -= BOLA_PERMS   # no role or Pawn grant can lift the gate
     return perms
 
 
@@ -231,8 +258,19 @@ def _groups_with(user: User, suffix: str) -> set[str]:
         return set(GROUPS)
     if user.role == Role.PAWN:
         grants = user.grant_set
-        return {g for g in GROUPS if f"vars:{g}:{suffix}" in grants}
+        found = {g for g in GROUPS if f"vars:{g}:{suffix}" in grants}
+        if bola_dev_only():
+            found.discard(BOLA_GROUP)
+        return found
     return set()
+
+
+def offered_grants() -> tuple[Grant, ...]:
+    """The grants the Admin can tick for a Pawn. Bola grants are hidden while Bola is dev-only."""
+    if not bola_dev_only():
+        return GRANTS
+    return tuple(g for g in GRANTS
+                 if g.section != BOLA_GRANT_SECTION and not g.key.startswith(f"vars:{BOLA_GROUP}:"))
 
 
 def variable_groups_visible(user: User) -> set[str]:

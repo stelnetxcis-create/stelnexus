@@ -40,6 +40,15 @@ def _schema():
         accounts.commission_for_user(db, admin)
 
 
+@pytest.fixture(autouse=True)
+def _fresh_rate_limits():
+    """The whole suite shares one client IP; without this, enough logins across files trip the
+    30-per-5-minutes login limit and a later, unrelated test fails to sign in."""
+    from app.core import ratelimit
+    ratelimit._hits.clear()
+    yield
+
+
 def load_credit(db, admin, store, player, cents):
     """Fund a player the only supported way: GCash load request -> admin approval."""
     req = cashdesk.create_request(db, admin, direction=RequestDirection.IN, amount_cents=cents,

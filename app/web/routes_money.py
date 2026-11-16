@@ -19,7 +19,7 @@ async def commissions_page(request: Request, ctx: Ctx = Depends(require_ctx)):
     sabong = commissions.list_for(ctx.db, ctx.user, status=wanted)
     for row in sabong:
         row.game_label = f"#{row.ticket.fight.number}"
-    bola = commissions.list_bola_for(ctx.db, ctx.user, status=wanted)
+    bola = commissions.list_bola_for(ctx.db, ctx.user, status=wanted) if ctx.can(Perm.BOLA_VIEW) else []
     for row in bola:
         row.game_label = f"Bola #{row.draw_id}"
     rows = sorted([*sabong, *bola], key=lambda r: r.created_at, reverse=True)

@@ -68,6 +68,18 @@
     </div>
   </div>
   {% endif %}
+  {% if board.bola %}
+  <div><h3 class="muted small" style="margin-bottom:6px">NUMBER GAME · pays {{ '%g' | format(board.bola.multiplier) }}x</h3>
+    <div class="live-sides">
+    {% for a in board.bola.areas %}
+      <div class="live-side"><h3>{{ a.name }}</h3>
+        {% if a.last %}<div class="amt">{{ a.last.result_label }}</div><div class="small muted">last draw · {{ a.last.draw_date }} slot {{ a.last.slot }}</div>{% else %}<div class="small muted">no result yet</div>{% endif %}
+        {% if a.next %}<div class="small" style="margin-top:6px">Next {{ local(a.next.scheduled_at) | datetime('%H:%M') }} ·
+          {% if board.bola.bettable(a.next) %}<span class="badge badge-green">BETTING OPEN</span>{% else %}<span class="badge badge-slate">{{ a.next.status.value | upper }}</span>{% endif %}</div>{% endif %}
+      </div>
+    {% endfor %}
+    </div></div>
+  {% endif %}
 </div>
 </body>
 </html>

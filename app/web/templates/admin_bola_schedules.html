@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Bola draw times · {{ brand }}{% endblock %}
+{% block heading %}Admin Panel{% endblock %}
+{% block content %}
+{% include "_panel_nav.html" %}
+<p class="notice">Daily draw times per area (the old <em>Mga Oras ng Bola</em>). Times are <strong>Manila local time</strong>; betting closes {{ cutoff_minutes }} minutes before each draw. A slot set to <strong>00:00</strong> or marked inactive means "no draw" and is skipped by Generate. Changing a time here does not move draws that already exist.</p>
+{% if not enabled %}<div class="alert alert-warning">The number game is switched off (<span class="mono">bola.enabled</span>). Schedules can be prepared now; draws only take bets once it is on.</div>{% endif %}
+
+<div class="card">
+  <div class="card-head"><h2>Add or change a draw time</h2></div>
+  <div class="card-body">
+    <form method="post" action="/admin/bola/schedules/save" class="inline-form">
+      {{ ui.csrf(csrf_token) }}
+      <label class="field"><span>Area <em>*</em></span>
+        <select name="location_id" required><option value="">— choose an area —</option>
+          {% for a in areas %}<option value="{{ a.id }}">{{ a.name }}{{ '' if a.is_active else ' (archived)' }}</option>{% endfor %}</select></label>
+      <label class="field"><span>Slot <em>*</em></span>
+        <select name="slot">{% for i in range(1, 7) %}<option value="{{ i }}">{{ i }}</option>{% endfor %}</select></label>
+      {{ ui.field('Draw time (Manila)', 'draw_time', 'time', '', true) }}
+      <label class="switch"><input type="checkbox" name="is_active" value="1" checked><span>Active</span></label>
+      <button class="btn btn-brand" type="submit">Save draw time</button>
+    </form>
+    <p class="small muted">Saving the same area + slot again updates that slot.</p>
+  </div>
+</div>
+
+{% for a in areas %}
+<div class="card">
+  <div class="card-head"><h2>{{ a.name }}</h2>{% if not a.is_active %}{{ ui.badge('archived', 'slate') }}{% endif %}</div>
+  <div class="card-body tight">
+    {% if by_area.get(a.id) %}
+    <div class="table-wrap"><table class="table"><thead><tr><th>Slot</th><th>Schedule</th><th class="right">Actions</th></tr></thead><tbody>
+    {% for s in by_area.get(a.id) %}
+      <tr>
+        <td class="num">{{ s.slot }}</td>
+        <td>
+          <form method="post" action="/admin/bola/schedules/save" class="inline-form">
+            {{ ui.csrf(csrf_token) }}
+            <input type="hidden" name="location_id" value="{{ a.id }}">
+            <input type="hidden" name="slot" value="{{ s.slot }}">
+            <input type="time" name="draw_time" value="{{ s.draw_time.strftime('%H:%M') }}" required aria-label="Draw time">
+            <label class="switch small"><input type="checkbox" name="is_active" value="1" {{ 'checked' if s.is_active }}><span>Active</span></label>
+            <button class="btn btn-sm" type="submit">Save</button>
+          </form>
+        </td>
+        <td class="right">
+          <form method="post" action="/admin/bola/schedules/{{ s.id }}/delete" style="display:inline" data-confirm="Remove slot {{ s.slot }} for {{ a.name }}? Existing draws are kept.">
+            {{ ui.csrf(csrf_token) }}<button class="btn btn-sm btn-danger" type="submit">Remove</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody></table></div>
+    {% else %}{{ ui.empty('No draw times for this area yet.') }}{% endif %}
+  </div>
+</div>
+{% endfor %}
+
+<div class="card">
+  <div class="card-head"><h2>Generate draws</h2></div>
+  <div class="card-body">
+    <form method="post" action="/bola/draws/generate" class="inline-form">
+      {{ ui.csrf(csrf_token) }}
+      {{ ui.field('Days ahead', 'days', 'number', '1', false, attrs='min=1 max=31') }}
+      <button class="btn btn-brand" type="submit">Generate from schedules</button>
+    </form>
+    <p class="small muted">One draw per active slot per day, starting today (Manila). Running it twice is harmless: existing draws are skipped. On the server, cron runs <span class="mono">bola-generate --days 2</span> nightly and <span class="mono">bola-tick</span> every minute.</p>
+  </div>
+</div>
+{% endblock %}

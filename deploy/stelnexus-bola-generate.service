@@ -1,0 +1,18 @@
+# /etc/systemd/system/stelnexus-bola-generate.service  (adjust User, paths)
+# Creates the next two days of draws from the active schedules. Safe to run repeatedly
+# (existing draws are skipped). Does nothing while bola.enabled is false.
+[Unit]
+Description=StelNexus number game: generate upcoming draws
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=stelnexus
+WorkingDirectory=/opt/stelnexus
+EnvironmentFile=/opt/stelnexus/.env
+ExecStart=/opt/stelnexus/.venv/bin/python -m app.cli bola-generate --days 2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/stelnexus/var
