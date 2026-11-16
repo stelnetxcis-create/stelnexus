@@ -1,94 +1,245 @@
 # StelNexus
 
-Betting operations console (FastAPI + SQLAlchemy). Rewrite of the legacy PHP "OnlineBukis" panel.
+StelNexus is a web console and JSON API for running a managed betting operation. It is built with FastAPI and SQLAlchemy, serves server-rendered HTML pages, and exposes a token-authenticated API for mobile clients.
 
-## Setup
-    pip install -r requirements.txt
-    cp .env.example .env            # then: python -m app.cli gen-keys  -> paste into .env
-    python -m app.cli init-db       # tables + system accounts
-    python -m app.cli create-admin --username admin   # the hidden dev account (prompts for password)
-    python -m app.cli create-master --username boss   # the top visible account
-    python -m app.cli seed-demo     # optional, ENV=dev only
-    uvicorn app.main:app --port 8000
+It handles real-money flows (GCash / bank cash-in and cash-out), so it must be deployed and operated in line with the gambling laws and licensing rules that apply where you run it. See [Legal and compliance](#legal-and-compliance).
 
-For a quick local try without Postgres: `DATABASE_URL=sqlite:///./dev.db COOKIE_SECURE=false COOKIE_SAMESITE=lax`.
+## Contents
 
-## API
-`POST /api/v1/auth/token {"username","password"}` returns a bearer token (or create one at /profile).
-Docs at `/api/docs` when `ENV=dev`. Mutating calls accept an `idempotency_key`.
+- [What it does](#what-it-does)
+- [Tech stack](#tech-stack)
+- [Project layout](#project-layout)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [CLI reference](#cli-reference)
+- [Roles and permissions](#roles-and-permissions)
+- [Money model](#money-model)
+- [Betting and settlement](#betting-and-settlement)
+- [Commissions (cuts)](#commissions-cuts)
+- [HTTP API](#http-api)
+- [Testing](#testing)
+- [Production deployment](#production-deployment)
+- [Backups](#backups)
+- [Security](#security)
+- [Upgrading an existing database](#upgrading-an-existing-database)
+- [Legal and compliance](#legal-and-compliance)
 
-## Production checklist
-`ENV=prod` refuses to start unless SECRET_KEY, TRUSTED_HOSTS, FRAME_ANCESTORS, COOKIE_SAMESITE and COOKIE_SECURE are set safely.
-Set PII_KEY to encrypt player address / GCash numbers.
+## What it does
 
-## Upgrading an existing database
-`python -m app.cli init-db` (or simply starting the app) now runs `app/db/migrate.py`: it adds the new columns/tables and widens two CHECK constraints (`users.role` gets `declarator`, `tickets.side` gets `draw`). It never drops data. Back up `dev.db` / your Postgres first anyway.
+- **Events and games.** Staff create events, each with one or more games (fights). Players bet on a side; a declarator or an authorised pawn declares the result.
+- **Sides.** Meron and Wala are pool sides. Draw is a bettable side at a fixed multiplier. Llamado / Dehado (favourite / underdog) can be set per game, and a game can be restricted to one side.
+- **Online-only wallet.** All money moves through credit. There is no physical cash handling: loads are GCash or bank requests with a reference number and are approved by staff, bets are paid from credit, and winnings are credited automatically at settlement.
+- **Agent network.** Accounts form a tree (Master, Cavo, Kubrador, then players). Invite codes create accounts under the issuer, and commissions are split automatically at settlement.
+- **Audit and integrity.** Every sensitive action is written to an audit log, the ledger has an integrity check, and audit-log tables are guarded against edits.
+- **Live board.** A public read-only board at `/live` (toggle with the `live.board_enabled` setting).
+- **Reports.** Game history, event summaries, event expenses, report archives with CSV export, and per-player history.
+- **Staff chat.** For the Admin and for Pawns that have been granted the `chat` permission.
 
-## Added to match the old OnlineBukis sabong side
-- **Draw** is a bettable side at a fixed multiplier (`payout.draw_odds_bps`, default 8.00x). On a Draw result Draw tickets win and Meron/Wala are refunded; otherwise Draw stakes go to the house.
-- **Minimum odds** (`payout.min_odds_bps`, default 1.40x): a pool fight whose winner would pay less is cancelled and refunded automatically. Set 0 to turn off.
-- **Llamado / Dehado**: set the favourite per game; declare "Llamado wins" / "Dehado wins".
-- **Force bet side** per game (all / Meron only / Wala only).
-- **Emergency withdrawal switch** on Load / Cash Out (also in Settings).
-- **Cancel whole event** (refunds every unsettled game).
-- Per-game figures: Revolving amount, System over, Hidden over.
-- **Public live board** at `/live` (toggle: Settings -> `live.board_enabled`).
-- **Event expenses** (manual, informational), event summary, **Game History**, **Report Archives** with CSV.
-- **Declarator** role: declares results, never sees stakes, pools or payouts.
-- **Staff chat** for the Admin and for Pawns granted `chat`. Not Master.
-- Terminology: Tong, Credit/Load/Remit credit, Cancel ticket, Event / Game.
+## Tech stack
 
-## Tests
-    pip install -r requirements-dev.txt
-    python -m pytest -q
-Tests use their own temporary SQLite file and never touch `dev.db`.
+| Area | Technology |
+| --- | --- |
+| Web framework | FastAPI, Starlette, Uvicorn |
+| Database | SQLAlchemy 2.x. PostgreSQL (psycopg 3) in production, SQLite for local development |
+| Templates | Jinja2, with static CSS / JS under `app/static` |
+| Validation and settings | Pydantic v2, pydantic-settings |
+| Password hashing | Argon2 (argon2-cffi) |
+| Encryption of personal data | `cryptography` (field-level, keyed by `PII_KEY`) |
+| Sessions and tokens | itsdangerous, signed cookies, bearer tokens for the API |
+| QR codes | segno |
+| Tests | pytest, httpx |
+| Deployment | systemd unit and Caddy reverse proxy (examples in `deploy/`) |
 
-## Online-only
-There is no physical cash anywhere in the platform: no tellers, stations/drawers, paper booklets, counter cash-in/out or ticket-claim desk. Money moves one way in and one way out:
+## Project layout
 
-- **In:** a player's load is a GCash or bank request with a reference number, approved by Master/Admin (Cash In/Out page).
-- **Bet:** every bet is paid from the player's credit. There are no walk-in or cash tickets.
-- **Out:** winnings are credited to the player's credit automatically at settlement; cash-outs are approved requests.
+```
+app/
+  main.py              Application factory, middleware, router registration
+  cli.py               Management commands (python -m app.cli ...)
+  api/v1/              JSON API routes (mounted at /api/v1)
+  core/                Config, errors, money helpers, RBAC, middleware, settings registry, audit
+  db/                  Models, session, migrations (migrate.py), audit-log guards
+  services/            Business logic: accounts, wallet, cashdesk, betting, settlement,
+                       commissions, referrals, events, reports, ledger, locations, presence, proofs
+  web/                 HTML routes and Jinja templates (templates/)
+  static/              CSS, JS, images, service worker, web manifest
+deploy/                stelnexus.service, Caddyfile, backup.sh
+scripts/               security_check.sh
+tests/                 pytest suite
+SECURITY.md            Production security checklist
+```
 
-**Upgrading an older database:** starting the app closes any existing `teller` accounts (and revokes their sessions) and relabels the clearing account. Nothing is deleted: old stations, tickets and ledger rows stay readable, so history and the ledger integrity check keep balancing. The `teller` role and the `station_cash` / `cash_on_hand` account kinds remain in the code only so those old rows can still be loaded.
+## Quick start
 
-## Network, cuts and the hidden layer
-**Roles:** `admin` (hidden) · `master` · `cavo` · `kubrador` (+ `declarator`). Players are not users.
+Requirements: Python 3.11 or newer. PostgreSQL is optional for local use.
 
-**Invites** (Referral Codes): the role of the invitee is fixed by the issuer. Master's code makes a Cavo, a Cavo's code makes a Kubrador, a Kubrador's code makes a normal (player) account under them. One use, timed. The **Admin** may pick any type for a code (Master, Cavo, Kubrador or Player) and, for the last three, who the new account reports to (stored on the code, `referral_codes.parent_id`).
+```bash
+git clone https://github.com/stelnetxcis-create/stelnexus.git
+cd stelnexus
 
-**Cut formula** (per ticket, summed per game; every figure in Settings -> Commissions, per-account overrides on the Cuts page):
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 
-    pool       = basis x pool%                  (basis = ticket's share of the house win, or its stake)
-    cavo_gross = pool x Volume %                (default 30%)
-    kubrador   = cavo_gross x SOP %             (default 20%, taken OUT of the Cavo's cut)
-    cavo       = cavo_gross - kubrador
-    master     = pool - cavo_gross              (Management, default 70%)
+cp .env.example .env
+python -m app.cli gen-keys          # prints SECRET_KEY and PII_KEY; paste them into .env
 
-master + cavo + kubrador always equals the pool exactly. Master and Admin edit Volume % / SOP % (Master within the limits set in Settings); every change is audited (`cut.update`), every settlement writes `commission.split`, and each commission line stores its formula inputs.
+python -m app.cli init-db           # creates tables and system accounts
+python -m app.cli create-admin --username admin     # hidden super account (prompts for password)
+python -m app.cli create-master --username boss     # top visible account
 
-**Admin vs Master:** identical operational powers. Admin alone sees Settings, Audit Trail, ledger integrity, System Over / Hidden Over, the settlement House column and per-line formula. The Admin account never appears in lists, trees, counts, chat or receipts for anyone else (shown as "System").
+python -m app.cli seed-demo         # optional demo data, ENV=dev only
 
-**Upgrading:** starting the app renames gold -> cavo and sub -> kubrador in existing rows and widens the role CHECK. `audit_logs` is left as written.
+uvicorn app.main:app --port 8000
+```
 
-## Roles, wallet and Admin Panel (v2)
-- **Wallet** (click the balance in the top bar): overview, load, cash out, transfer, money history (what you earned/received and spent/sent), and for Admin/Master the approvals queue + emergency withdrawal switch. Cash In/Out and Transfer are no longer in the side menu or Users page.
-- **Transfer** is open to every account that holds credit (Admin, Master, Cavo, Kubrador). Who can receive is `wallet.transfer_scope` (anyone | network) in Admin Panel -> Variables -> Credit.
-- **Own-wallet load / cash-out** are approved requests; only the Admin can approve a request for their own credit.
-- **Declarator** and **Pawn** have no balance and cannot hold, send, receive, load, cash out or bet.
-- **Pawn**: created by the Admin only (Admin Panel -> Pawns). A declarator-style spectator that **can declare results by default** (not a grant); the Admin ticks which Admin Panel sections it may additionally see or change (variable groups, locations, cuts, audit, players, who is online, totals, staff chat, `agents:create`...). Nothing extra is on by default.
-- **Admin Panel** (`/admin`): Variables (was Settings), Locations, Cuts, Pawns, Audit trail. Old URLs (/settings, /cuts, /audit, /integrity, /cashin_out) redirect.
-- **Users** page: Master/Admin only. **Players** page, **Cuts** and **who is online** (`/clp/online`): Admin (or a Pawn with the grant). Master no longer has Cuts or Players.
-- **Locations**: Master/Admin create an event at a location and can register a venue on the spot; the Admin edits, archives, deletes, adds custom fields and per-venue defaults (games, payout model, tong). `event.require_location` (default on) applies once a location exists.
-- Upgrade: start the app; the migration adds `users.grants`, `events.location_id`, `cash_requests.target`, the `locations` table and the `pawn` role. Nothing is dropped.
+For a quick local run without PostgreSQL, put these in `.env` (or export them):
 
-## Games, results and pictures (v3)
-- **Who declares:** Admin, Pawn and Declarator. **Master cannot declare or redeclare** (and has no staff chat); Master still runs events, locks games and can approve a redeclare when approval is required. Cavo and Kubrador never declare.
-- **Direct account creation:** the Admin can create Master, Cavo, Kubrador, Declarator and Pawn accounts directly (no referral code) and picks the upline for a Cavo/Kubrador. A Pawn with the grant `agents:create` can create Cavo/Kubrador the same way. Master can create Cavo and Declarator.
-- **Games lobby:** `/events` shows one box per event; opening it shows numbered game tiles with status. Status filter chips narrow the list.
-- **Result pictures:** a **Pawn must upload one to declare** (setting `fight.pawn_proof_required`, on by default). It is optional for Admin and Declarator. JPEG/PNG/WebP only (type is read from the file's first bytes), max `MAX_UPLOAD_BYTES` (5 MB). Stored in `var/uploads/proofs` under a random name, served only to signed-in staff at `/fights/{id}/proof`. A replaced picture stays on disk as evidence.
-- **Game History** shows Location and Picture.
-- **Upgrade note:** the migration adds `fights.proof_file`, `fights.proof_mime`, `fights.proof_by_id`, `fights.proof_at` and `referral_codes.parent_id`. Nothing is dropped.
+```
+ENV=dev
+DATABASE_URL=sqlite:///./dev.db
+COOKIE_SECURE=false
+COOKIE_SAMESITE=lax
+```
+
+Open `http://localhost:8000`. In `ENV=dev` the interactive API docs are at `/api/docs`.
+
+## Configuration
+
+Settings are read from environment variables or `.env`. Settings that are lists are written as JSON.
+
+| Variable | Purpose |
+| --- | --- |
+| `ENV` | `dev` or `prod`. `prod` refuses to start unless the security settings below are safe |
+| `DATABASE_URL` | SQLAlchemy URL, for example `postgresql+psycopg://user:pass@localhost/stelnexus` or `sqlite:///./dev.db` |
+| `SECRET_KEY` | Signs sessions and tokens. Generate with `python -m app.cli gen-keys` |
+| `PII_KEY` | Encrypts player addresses and GCash numbers. Back it up separately |
+| `COOKIE_SECURE` | `true` in production (HTTPS only) |
+| `COOKIE_SAMESITE` | `lax` recommended |
+| `TRUSTED_HOSTS` | JSON list of allowed `Host` headers, for example `["your.domain"]` |
+| `TRUSTED_PROXIES` | JSON list of proxy IPs whose forwarded headers are trusted, for example `["127.0.0.1"]` |
+| `FRAME_ANCESTORS` | CSP frame-ancestors value, for example `'self'` |
+| `DEBUG` | Must be `false` in production |
+| `UPLOAD_DIR` | Where result pictures and payment proofs are stored (default `var/uploads`) |
+| `BACKUP_DIR` | Used by `deploy/backup.sh` (default `/var/backups/stelnexus`) |
+
+Operational values (odds, limits, commission rates, withdrawal switch, transfer scope, live board) are not environment variables. They live in the database and are edited by the Admin in **Admin Panel, then Variables**.
+
+## CLI reference
+
+Run as `python -m app.cli <command>`.
+
+| Command | Description |
+| --- | --- |
+| `init-db` | Creates tables, runs schema upgrades, creates system accounts |
+| `create-admin --username NAME` | Creates the hidden Admin account (prompts for a password) |
+| `create-master --username NAME` | Creates the top visible Master account |
+| `create-pawn --username NAME` | Creates a Pawn (a restricted staff account) |
+| `seed-locations` | Seeds venue locations |
+| `seed-demo` | Loads demo data (`ENV=dev` only) |
+| `gen-keys` | Generates `SECRET_KEY` and `PII_KEY` values |
+| `encrypt-pii` | Encrypts existing plaintext player data after `PII_KEY` is set |
+
+## Roles and permissions
+
+| Role | Summary |
+| --- | --- |
+| `admin` | Hidden super account. Same operational powers as Master, plus Variables, audit trail, ledger integrity, system / hidden figures and per-line commission formulas. Never appears in lists, trees, chat or receipts for other users (shown as "System") |
+| `master` | Top visible account. Approves loads and cash-outs, manages the network, edits cuts within the limits set by the Admin |
+| `cavo` | Mid-level agent. Can invite Kubradors and holds credit |
+| `kubrador` | Lowest agent level. Can invite player accounts under them |
+| `declarator` | Declares results. Never sees stakes, pools or payouts. Has no balance |
+| `pawn` | Created by the Admin only. Can declare results by default; the Admin ticks any extra Admin Panel sections it may see or change (for example locations, cuts, audit, players, online users, totals, staff chat). No balance, cannot bet or transfer |
+| Player | Not a login role in the staff sense. Bets from credit under an agent |
+
+**Invites.** The invitee's role is fixed by the issuer: a Master code creates a Cavo, a Cavo code creates a Kubrador, a Kubrador code creates a player. Codes are single-use and time-limited. The Admin can issue any type and choose who the new account reports to.
+
+## Money model
+
+- **In:** a load is a GCash or bank request with a reference number. Staff approve it, and only then does money move.
+- **Bet:** every bet is paid from the player's credit. There are no walk-in or counter tickets.
+- **Out:** winnings are credited automatically at settlement. Cash-outs are requests that staff approve.
+- **Requests are a state machine** (`pending`, then `approved` or `rejected`) protected by a row lock and a unique idempotency key, so a request cannot be approved twice.
+- **Transfers** between accounts are open to every role that holds credit. Who may receive is controlled by `wallet.transfer_scope` (`anyone` or `network`).
+- **Own-wallet requests** by staff can only be approved by the Admin.
+- **Emergency stop:** an Admin switch turns off all withdrawals instantly.
+- **Ledger:** all movements are double-entry rows. The integrity check (Admin only) verifies that the ledger balances.
+
+## Betting and settlement
+
+- **Draw:** bettable at a fixed multiplier (`payout.draw_odds_bps`, default 8.00x). On a Draw result, Draw tickets win and Meron / Wala stakes are refunded. Otherwise Draw stakes go to the house.
+- **Minimum odds:** `payout.min_odds_bps` (default 1.40x). A pool fight whose winner would pay less is cancelled and refunded automatically. Set to 0 to disable.
+- **Cancellation:** a single ticket, a game, or a whole event (refunds every unsettled game) can be cancelled.
+- **Per-game figures:** revolving amount, system over, and hidden over (the last two are Admin-only).
+- **Result pictures** are stored as evidence under `var/uploads` and are included in backups.
+
+## Commissions (cuts)
+
+Computed per ticket and summed per game. All percentages are editable in the Admin Panel, with per-account overrides on the Cuts page.
+
+```
+pool       = basis x pool%             (basis = the ticket's share of the house win, or its stake)
+cavo_gross = pool x Volume %           (default 30%)
+kubrador   = cavo_gross x SOP %        (default 20%, taken out of the Cavo's cut)
+cavo       = cavo_gross - kubrador
+master     = pool - cavo_gross         (management share, default 70%)
+```
+
+`master + cavo + kubrador` always equals the pool exactly. Every change to a cut is audited (`cut.update`), every settlement writes a `commission.split` entry, and each commission line stores its formula inputs.
+
+## HTTP API
+
+- `POST /api/v1/auth/token` with `{"username", "password"}` returns a bearer token. Tokens can also be created from the profile page.
+- Send `Authorization: Bearer <token>` on later requests.
+- Mutating calls accept an `idempotency_key` so retries are safe.
+- Interactive docs at `/api/docs` and the schema at `/api/openapi.json` are available only when `ENV=dev`.
+- `GET /healthz` is a health probe that checks database connectivity.
+
+## Testing
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
+Tests use their own temporary SQLite database and never touch `dev.db`.
+
+## Production deployment
+
+1. Provision PostgreSQL and create a database and user.
+2. Create `.env` with `ENV=prod`, a real `SECRET_KEY` and `PII_KEY`, `COOKIE_SAMESITE=lax`, `COOKIE_SECURE=true`, `TRUSTED_HOSTS`, `TRUSTED_PROXIES`, `FRAME_ANCESTORS='self'` and `DEBUG=false`. The app will refuse to start if these are unsafe.
+3. Install into `/opt/stelnexus`, create the virtualenv and install `requirements.txt`.
+4. Run `python -m app.cli init-db` and create the Admin and Master accounts.
+5. Install `deploy/stelnexus.service` as a systemd unit (adjust the user and paths). It binds to `127.0.0.1:8000` and runs **one worker**, because the rate limiter keeps state in process memory.
+6. Put Caddy (or nginx) in front for HTTPS. `deploy/Caddyfile` is a working example: replace the domain, then run `caddy run --config deploy/Caddyfile`.
+7. Run `scripts/security_check.sh` before every deploy.
 
 ## Backups
-`deploy/backup.sh` writes a Postgres dump **and** a tar of `var/uploads` (result pictures) to `BACKUP_DIR`, both kept 14 days. Back up `.env` (PII_KEY) separately.
+
+`deploy/backup.sh` writes a compressed `pg_dump` plus an archive of `var/uploads` to `BACKUP_DIR` and deletes backups older than 14 days. Schedule it with cron:
+
+```
+15 2 * * * /opt/stelnexus/deploy/backup.sh
+```
+
+Copy the output off the machine. Back up `.env` separately, because without `PII_KEY` the encrypted player data in a backup cannot be read.
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for the production checklist. Highlights:
+
+- Argon2 password hashing, CSRF protection, strict security headers, trusted-host enforcement.
+- Field-level encryption of personal data (`PII_KEY`).
+- Idempotency keys and row locks on money-moving operations.
+- Audit log with database-level guards against modification.
+- Known limits: no two-factor login yet, and non-login rate limits (bets, cash desk) are per-process memory.
+
+Never commit `.env`, database files, backups, or `var/uploads` (payment proofs and result pictures contain other people's data). The provided `.gitignore` excludes them. If a secret was ever committed or shared, rotate it.
+
+## Upgrading an existing database
+
+Starting the app or running `python -m app.cli init-db` runs `app/db/migrate.py`, which adds new columns and tables and widens CHECK constraints for new roles and ticket sides. It never drops data. Back up your database before upgrading anyway.
+
+## Legal and compliance
+
+Online betting is regulated or prohibited in many jurisdictions, including parts of the Philippines. This repository is software only. You are responsible for making sure that your use of it is lawful where you operate and where your players are, including any licensing, age verification, anti-money-laundering and tax obligations.
