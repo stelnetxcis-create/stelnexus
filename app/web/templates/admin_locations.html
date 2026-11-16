@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Locations · {{ brand }}{% endblock %}
+{% block heading %}Admin Panel{% endblock %}
+{% block actions %}{% if can_manage %}<button class="btn btn-sm btn-brand" data-modal="loc-modal" data-action="/admin/locations/create" data-label="New location"><svg class="ico"><use href="#i-plus"/></svg>Register location</button>{% endif %}{% endblock %}
+{% block content %}
+{% include "_panel_nav.html" %}
+<p class="notice">Venues for events. Custom fields can hold anything you need (capacity, contact, rules). Defaults pre-fill the event form for that venue. A location with events can be archived, not deleted.</p>
+<div class="card"><div class="card-body tight">
+{% if rows %}
+<div class="table-wrap"><table class="table"><thead><tr><th>Picture</th><th>Name</th><th>Where</th><th>Custom fields</th><th>Defaults</th><th class="right">Events</th><th>Status</th>{% if can_manage %}<th class="right">Actions</th>{% endif %}</tr></thead><tbody>
+{% for l in rows %}
+<tr>
+  <td>{% if l.image_url %}<img class="venue-thumb" src="{{ l.image_url }}" alt="" width="64" height="32">{% else %}—{% endif %}</td>
+  <td><strong>{{ l.name }}</strong>{% if l.notes %}<div class="small muted">{{ l.notes }}</div>{% endif %}</td>
+  <td class="small">{{ l.address or '' }}{{ ', ' if l.address and l.city else '' }}{{ l.city or '' }}{% if not l.address and not l.city %}—{% endif %}</td>
+  <td class="small">{% for f in (l.custom_fields or []) %}<div><span class="muted">{{ f.label }}:</span> {{ f.value }}</div>{% else %}—{% endfor %}</td>
+  <td class="small">{{ (l.default_fight_count ~ ' games') if l.default_fight_count else 'global' }}{% if l.default_payout_model %} · {{ l.default_payout_model }}{% endif %}{% if l.default_house_cut_bps is not none %} · tong {{ '%.2f%%' | format(l.default_house_cut_bps / 100) }}{% endif %}</td>
+  <td class="right num">{{ counts.get(l.id, 0) }}</td>
+  <td>{{ ui.badge('active' if l.is_active else 'archived', 'green' if l.is_active else 'slate') }}</td>
+  {% if can_manage %}<td class="right"><div class="table-actions" style="justify-content:flex-end">
+    <button class="btn btn-sm" data-modal="loc-modal" data-action="/admin/locations/{{ l.id }}/update" data-label="Edit {{ l.name }}"
+      data-name="{{ l.name }}" data-image="{{ l.image or '' }}" data-address="{{ l.address or '' }}" data-city="{{ l.city or '' }}" data-notes="{{ l.notes or '' }}"
+      data-fights="{{ l.default_fight_count or '' }}" data-model="{{ l.default_payout_model or '' }}" data-cut="{{ l.default_house_cut_bps if l.default_house_cut_bps is not none else '' }}"
+      data-fields='{{ (l.custom_fields or []) | tojson }}'>Edit</button>
+    <form method="post" action="/admin/locations/{{ l.id }}/{{ 'archive' if l.is_active else 'restore' }}" style="display:inline">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm btn-ghost" type="submit">{{ 'Archive' if l.is_active else 'Restore' }}</button></form>
+    {% if not counts.get(l.id) %}<form method="post" action="/admin/locations/{{ l.id }}/delete" style="display:inline" data-confirm="Delete {{ l.name }} for good?">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm btn-danger" type="submit">Delete</button></form>{% endif %}
+  </div></td>{% endif %}
+</tr>
+{% endfor %}</tbody></table></div>
+{% else %}{{ ui.empty('No locations yet. Register the first venue.') }}{% endif %}
+</div></div>
+
+{% if can_manage %}
+{% call ui.modal('loc-modal', 'Location') %}
+<form method="post" action="/admin/locations/create" data-action-from id="loc-form">
+  {{ ui.csrf(csrf_token) }}
+  <p class="small muted" data-text="label"></p>
+  <div class="form-grid">
+    {{ ui.field('Name', 'name', required=true, attrs='maxlength=80 data-fill=name') }}
+    {{ ui.field('City / area', 'city', attrs='maxlength=80 data-fill=city') }}
+  </div>
+  {{ ui.field('Address', 'address', attrs='maxlength=200 data-fill=address') }}
+  {{ ui.field('Notes', 'notes', attrs='maxlength=500 data-fill=notes') }}
+  <label class="field"><span>Picture <small class="muted">(background of this venue's event boxes)</small></span>
+    <select name="image" data-fill="image"><option value="">None</option>{% for key, label in venue_images.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select>
+  </label>
+  <h4 style="margin:14px 0 6px">Event defaults <small class="muted">(blank = global setting)</small></h4>
+  <div class="form-grid">
+    {{ ui.field('Games', 'default_fight_count', 'number', attrs='min=1 max=200 data-fill=fights') }}
+    <label class="field"><span>Payout model</span><select name="default_payout_model" data-fill="model"><option value="">Global default</option><option value="pool">Pool</option><option value="fixed">Fixed odds</option></select></label>
+    {{ ui.field('Tong (bps)', 'default_house_cut_bps', 'number', attrs='min=0 max=10000 data-fill=cut') }}
+  </div>
+  <h4 style="margin:14px 0 6px">Custom fields <small class="muted">(up to {{ max_fields }})</small></h4>
+  <div id="cf-rows"></div>
+  <button class="btn btn-sm btn-ghost" type="button" id="cf-add">+ Add field</button>
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Save location</button></div>
+</form>
+{% endcall %}
+<script>
+(function(){
+  var rows=document.getElementById('cf-rows'), max={{ max_fields }};
+  function add(l,v){ if(rows.children.length>=max) return;
+    var d=document.createElement('div'); d.className='cf-row';
+    d.innerHTML='<input name="cf_label" maxlength="40" placeholder="Label"><input name="cf_value" maxlength="200" placeholder="Value">';
+    d.children[0].value=l||''; d.children[1].value=v||''; rows.appendChild(d); }
+  document.getElementById('cf-add').addEventListener('click',function(){add();});
+  document.querySelectorAll('[data-modal="loc-modal"]').forEach(function(b){ b.addEventListener('click',function(){
+    rows.innerHTML=''; var f=[]; try{f=JSON.parse(b.getAttribute('data-fields')||'[]');}catch(e){}
+    f.forEach(function(x){add(x.label,x.value);}); if(!f.length) add(); }); });
+})();
+</script>
+{% endif %}
+{% endblock %}

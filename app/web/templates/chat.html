@@ -4,7 +4,7 @@
 {% block heading %}Staff Chat{% endblock %}
 {% block content %}
 <div class="card">
-  <div class="card-head"><h2>Admin &amp; tellers</h2><span class="muted small">refreshes every few seconds</span></div>
+  <div class="card-head"><h2>Admin &amp; master</h2><span class="muted small">refreshes every few seconds</span></div>
   <div class="card-body">
     <div class="chat-log" data-chat-log data-me="{{ user.username }}" data-last="{{ messages[-1].id if messages else 0 }}" aria-live="polite">
       {% for m in messages %}

@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Wallet · {{ brand }}{% endblock %}
+{% block heading %}Wallet{% endblock %}
+{% block content %}
+<div class="subtabs" role="tablist">
+  {% for key, label in tabs %}
+  <a class="subtab {{ 'is-active' if tab == key }}" href="/wallet?t={{ key }}">{{ label }}{% if key == 'approvals' and wallet_pending %} ({{ wallet_pending }}){% endif %}</a>
+  {% endfor %}
+</div>
+
+{% macro req_table(rows) %}
+{% if rows %}
+<div class="table-wrap"><table class="table">
+  <thead><tr><th>For</th><th>Type</th><th>Method</th><th class="right">Amount</th><th>Date</th><th>Status</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+  <tr>
+    <td>{{ r.player.full_name if r.player else ('My credit' if r.target == 'wallet' else 'My commission') }}</td>
+    <td>{{ ui.badge('Load' if r.direction.value == 'in' else 'Cash out', 'green' if r.direction.value == 'in' else 'red') }}</td>
+    <td>{{ ui.badge(r.method) }}</td>
+    <td class="right num">{{ r.amount_cents | money }}</td>
+    <td class="small nowrap">{{ r.created_at | datetime }}</td>
+    <td>{{ ui.status_badge(r.status) }}{% if r.review_note %} <span class="muted small">{{ r.review_note }}</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody></table></div>
+{% else %}{{ ui.empty('No requests yet.') }}{% endif %}
+{% endmacro %}
+
+{% macro money_rows(rows) %}
+{% if rows %}
+<div class="table-wrap"><table class="table">
+  <thead><tr><th>Date</th><th>What</th><th>Details</th><th class="right">Money in</th><th class="right">Money out</th><th class="right">Balance</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+  <tr>
+    <td class="small nowrap">{{ r.when | datetime }}</td>
+    <td>{{ ui.badge(r.label, 'green' if r.direction == 'in' else 'amber') }}</td>
+    <td class="small">{{ r.memo }}{% if r.note %} <span class="muted">· {{ r.note }}</span>{% endif %}</td>
+    <td class="right num amt-in">{{ ('+' ~ (r.amount_cents | money)) if r.direction == 'in' else '' }}</td>
+    <td class="right num amt-out">{{ ('−' ~ (r.amount_cents | money)) if r.direction == 'out' else '' }}</td>
+    <td class="right num">{{ r.balance_after_cents | money }}</td>
+  </tr>
+  {% endfor %}
+  </tbody></table></div>
+{% else %}{{ ui.empty('No money has moved yet.') }}{% endif %}
+{% endmacro %}
+
+{% macro period_chips(base) %}
+<div class="table-tools">
+  {% for key, label in [('all','All time'),('today','Today'),('7d','7 days'),('30d','30 days')] %}
+  <a class="chip {{ 'is-active' if period == key }}" href="{{ base }}&period={{ key }}">{{ label }}</a>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{% if tab == 'overview' %}
+<div class="card"><div class="card-body hero-bal">
+  <div><div class="muted small">Your credit</div><strong>{{ balance | money }}</strong>
+    {% if commission %}<div class="small muted">+ {{ commission | money }} commission · <a href="/commissions">manage</a></div>{% endif %}</div>
+  <div class="table-actions">
+    {% if 'requests.create' in perms %}<a class="btn btn-brand" href="/wallet?t=load">Load</a><a class="btn" href="/wallet?t=cashout">Cash out</a>{% endif %}
+    {% if 'wallet.transfer' in perms %}<a class="btn" href="/wallet?t=transfer">Transfer</a>{% endif %}
+  </div>
+</div></div>
+
+<div class="card">
+  <div class="card-head"><h2>Where your money went</h2>{{ period_chips('/wallet?t=overview') }}</div>
+  <div class="card-body">
+    <div class="grid grid-3">
+      {{ ui.stat('Money in', summary['in'] | money, 'earned and received', 'green') }}
+      {{ ui.stat('Money out', summary['out'] | money, 'spent and sent', 'red') }}
+      {{ ui.stat('Net', summary['net'] | money, 'in minus out') }}
+    </div>
+    {% if summary.categories %}
+    <div class="table-wrap" style="margin-top:12px"><table class="table">
+      <thead><tr><th>Category</th><th class="right">In</th><th class="right">Out</th></tr></thead>
+      <tbody>{% for c in summary.categories %}<tr><td>{{ c.label }}</td><td class="right num amt-in">{{ c['in'] | money if c['in'] else '' }}</td><td class="right num amt-out">{{ c['out'] | money if c['out'] else '' }}</td></tr>{% endfor %}</tbody>
+    </table></div>{% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Latest activity</h2><a class="btn btn-sm" href="/wallet?t=history">Full history</a></div>
+  <div class="card-body tight">{{ money_rows(recent) }}</div>
+</div>
+{% if my_requests %}<div class="card"><div class="card-head"><h2>My requests</h2></div><div class="card-body tight">{{ req_table(my_requests) }}</div></div>{% endif %}
+
+{% elif tab in ('load', 'cashout') %}
+{% set is_load = tab == 'load' %}
+<div class="card">
+  <div class="card-head"><h2>{{ 'Load credit' if is_load else 'Cash out' }}</h2><span class="muted small">Balance {{ balance | money }}</span></div>
+  <div class="card-body">
+    {% if not is_load and not withdrawals_on %}
+    <div class="alert alert-warning">Cash-outs are switched off right now by the Admin.</div>
+    {% else %}
+    <form method="post" action="/wallet/request">
+      {{ ui.csrf(csrf_token) }}{{ ui.idem() }}
+      <input type="hidden" name="direction" value="{{ 'in' if is_load else 'out' }}">
+      <div class="form-grid">
+        <label class="field"><span>{{ 'Load into' if is_load else 'Cash out from' }}</span>
+          <select name="subject">
+            <option value="me">My credit</option>
+            {% for p in my_players %}<option value="player:{{ p.id }}">Player · {{ p.full_name }} ({{ p.card_number or p.username }})</option>{% endfor %}
+          </select></label>
+        <label class="field"><span>Method</span>
+          <select name="method"><option value="gcash">GCash</option><option value="bank">Bank transfer</option></select></label>
+        {{ ui.field('Amount (PHP)', 'amount', required=true, help='Between ' ~ (min_cash | money) ~ ' and ' ~ (max_cash | money), attrs='inputmode=decimal') }}
+        {{ ui.field('Reference number', 'reference', attrs='maxlength=64 placeholder="' ~ ('GCash reference (required for GCash loads)' if is_load else 'Your GCash / bank number') ~ '"') }}
+      </div>
+      <p class="notice">Your balance changes only after the Admin approves. A request cannot be approved twice.</p>
+      <button class="btn btn-primary" type="submit">{{ 'Request load' if is_load else 'Request cash out' }}</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+<div class="card"><div class="card-head"><h2>Recent requests</h2></div><div class="card-body tight">{{ req_table(my_requests) }}</div></div>
+
+{% elif tab == 'transfer' %}
+<div class="card">
+  <div class="card-head"><h2>Send credit</h2><span class="muted small">Available {{ balance | money }}</span></div>
+  <div class="card-body">
+    <form method="post" action="/wallet/transfer">
+      {{ ui.csrf(csrf_token) }}{{ ui.idem() }}
+      <div class="form-grid">
+        <label class="field"><span>To (username) <em>*</em></span>
+          <input name="username" list="recips" required maxlength="32" autocapitalize="none" autocomplete="off" placeholder="username">
+          <datalist id="recips">{% for r in recipients %}<option value="{{ r.username }}">{{ r.full_name }} · {{ r.role_label }}</option>{% endfor %}</datalist>
+          <small>{{ 'Any active account that holds credit.' if transfer_scope == 'anyone' else 'Your own upline and downline.' }}</small></label>
+        {{ ui.field('Amount (PHP)', 'amount', required=true, help='Between ' ~ (min_transfer | money) ~ ' and ' ~ (max_transfer | money), attrs='inputmode=decimal') }}
+        {{ ui.field('Note', 'note', attrs='maxlength=200 placeholder="optional"') }}
+      </div>
+      <p class="notice">Transfers are instant, final, logged, and can never overdraw your credit.</p>
+      <button class="btn btn-primary" type="submit">Send</button>
+    </form>
+  </div>
+</div>
+<div class="card"><div class="card-head"><h2>Recent transfers</h2></div><div class="card-body tight">{{ money_rows(recent_transfers) }}</div></div>
+
+{% elif tab == 'history' %}
+<div class="card">
+  <div class="card-head"><h2>Money history</h2>{{ period_chips('/wallet?t=history&flow=' ~ flow) }}</div>
+  <div class="card-body">
+    <div class="grid grid-3">
+      {{ ui.stat('Earned / received', summary['in'] | money, '', 'green') }}
+      {{ ui.stat('Spent / sent', summary['out'] | money, '', 'red') }}
+      {{ ui.stat('Net', summary['net'] | money) }}
+    </div>
+    <div class="table-tools" style="margin-top:12px">
+      {% for key, label in [('all','Everything'),('in','Money in'),('out','Money out')] %}
+      <a class="chip {{ 'is-active' if flow == key }}" href="/wallet?t=history&flow={{ key }}&period={{ period }}">{{ label }}</a>{% endfor %}
+    </div>
+  </div>
+  <div class="card-body tight">{{ money_rows(rows) }}</div>
+  {% if page or more %}
+  <div class="card-body"><div class="table-actions">
+    {% if page %}<a class="btn btn-sm" href="/wallet?t=history&flow={{ flow }}&period={{ period }}&page={{ page - 1 }}">← Newer</a>{% endif %}
+    {% if more %}<a class="btn btn-sm" href="/wallet?t=history&flow={{ flow }}&period={{ period }}&page={{ page + 1 }}">Older →</a>{% endif %}
+  </div></div>{% endif %}
+</div>
+
+{% elif tab == 'approvals' %}
+{% if 'withdrawals.switch' in perms %}
+<div class="card">
+  <div class="card-head"><h2>Emergency withdrawal switch</h2>{{ ui.badge('ON' if withdrawals_on else 'OFF', 'green' if withdrawals_on else 'red') }}</div>
+  <div class="card-body">
+    <form method="post" action="/wallet/withdrawals" class="inline-form" data-confirm="Change the withdrawal switch?">
+      {{ ui.csrf(csrf_token) }}
+      <input type="hidden" name="enabled" value="{{ '0' if withdrawals_on else '1' }}">
+      <span class="muted small">{{ 'Withdrawals are allowed.' if withdrawals_on else 'All cash-outs and approvals of them are blocked.' }}</span>
+      <button class="btn {{ 'btn-danger' if withdrawals_on }}" type="submit">{{ 'Turn withdrawals OFF' if withdrawals_on else 'Turn withdrawals ON' }}</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+<div class="card">
+  <div class="card-head"><h2>{{ 'Pending loads' if view == 'in' else ('Pending cash-outs' if view == 'out' else 'All requests') }}</h2>
+    <div class="table-tools">
+      <a class="chip {{ 'is-active' if view == 'in' }}" href="/wallet?t=approvals&v=in">Loads</a>
+      <a class="chip {{ 'is-active' if view == 'out' }}" href="/wallet?t=approvals&v=out">Cash-outs</a>
+      <a class="chip {{ 'is-active' if view == 'hist' }}" href="/wallet?t=approvals&v=hist">History</a>
+    </div></div>
+  <div class="card-body tight">
+    {% if queue %}
+    <div class="table-wrap"><table class="table" data-table data-page-size="25">
+      <thead><tr><th>For</th><th>Requested by</th><th>Method</th><th>Reference</th><th class="right">Amount</th><th>Type</th><th>Date</th><th>Status</th><th class="right">Action</th></tr></thead>
+      <tbody>
+      {% for row in queue %}
+      <tr>
+        <td>{{ row.player.full_name if row.player else (who(row.agent) ~ (' (credit)' if row.target == 'wallet' else ' (commission)')) }}</td>
+        <td class="small">{{ who(row.requester) }}</td>
+        <td>{{ ui.badge(row.method) }}</td>
+        <td class="mono small">{{ row.reference or '—' }}</td>
+        <td class="right num" data-sort="{{ row.amount_cents }}">{{ row.amount_cents | money }}</td>
+        <td>{{ ui.badge('Load' if row.direction.value == 'in' else 'Cash out', 'green' if row.direction.value == 'in' else 'red') }}</td>
+        <td class="small nowrap">{{ row.created_at | datetime }}</td>
+        <td>{{ ui.status_badge(row.status) }}</td>
+        <td class="right">
+          {% if row.status.value == 'pending' %}
+          <div class="table-actions" style="justify-content:flex-end">
+            <button class="btn btn-sm btn-primary" data-modal="review-modal" data-action="/wallet/{{ row.id }}/review" data-decision="approve" data-label="{{ row.amount_cents | money }}">Approve</button>
+            <button class="btn btn-sm" data-modal="review-modal" data-action="/wallet/{{ row.id }}/review" data-decision="reject" data-label="{{ row.amount_cents | money }}">Reject</button>
+          </div>
+          {% else %}<span class="muted small">{{ row.review_note or '—' }}</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody></table></div>
+    {% else %}{{ ui.empty('Nothing in this view.') }}{% endif %}
+  </div>
+</div>
+{% call ui.modal('review-modal', 'Review request') %}
+<form method="post" action="/wallet/0/review" data-action-from>
+  {{ ui.csrf(csrf_token) }}
+  <input type="hidden" name="decision" data-fill="decision">
+  <p>Amount <strong data-text="label"></strong> — decision <strong data-text="decision"></strong></p>
+  {{ ui.field('Note (required when rejecting)', 'note', attrs='maxlength=200') }}
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Confirm</button></div>
+</form>
+{% endcall %}
+{% endif %}
+{% endblock %}

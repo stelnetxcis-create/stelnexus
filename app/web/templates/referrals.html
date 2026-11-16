@@ -3,7 +3,7 @@
 {% block title %}Referral codes · {{ brand }}{% endblock %}
 {% block heading %}Referral Codes{% endblock %}
 {% block actions %}
-{% if roles %}<button class="btn btn-sm btn-brand" data-modal="ref-modal"><svg class="ico"><use href="#i-plus"/></svg>New code</button>{% endif %}
+{% if invite_roles %}<button class="btn btn-sm btn-brand" data-modal="ref-modal"><svg class="ico"><use href="#i-plus"/></svg>New code</button>{% endif %}
 {% endblock %}
 {% block content %}
 <div class="notice" style="margin-bottom:16px">Every code is <strong>single-use</strong> and stops working when its timer runs out. The person you give it to opens <span class="mono">/register</span>, enters the code, and creates their own account under you. Times shown are UTC.</div>
@@ -18,8 +18,8 @@
       {% set st = row.status(now) %}
       <tr>
         <td class="mono"><strong>{{ row.code }}</strong>{% if st == 'active' %} <button type="button" class="btn btn-ghost btn-sm" data-copy="{{ request.base_url }}register?code={{ row.code }}">Copy link</button>{% endif %}</td>
-        <td>{{ {'master':'Master Agent','gold':'Gold Agent','sub':'Sub Agent','teller':'Teller / Station','admin':'Admin'}[row.role] }}</td>
-        <td class="small">{{ row.issuer.username }}</td>
+        <td>{{ 'Player (normal account)' if row.role == 'player' else row.role | capitalize }}</td>
+        <td class="small">{{ who(row.issuer) }}</td>
         <td class="small">{{ row.note or '—' }}</td>
         <td class="small nowrap">{{ row.expires_at | datetime }}</td>
         <td>{{ ui.badge(st, {'active':'green','used':'blue','expired':'slate','revoked':'red'}[st]) }}</td>
@@ -36,15 +36,27 @@
     {% else %}{{ ui.empty('No codes yet. Create one to invite someone.') }}{% endif %}
   </div>
 </div>
-{% if roles %}
+{% if invite_roles %}
 {% call ui.modal('ref-modal', 'New referral code') %}
 <form method="post" action="/referrals/create">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  <label class="field"><span>Account type this code creates</span>
-    <select name="role" required>
-      {% for r in roles %}<option value="{{ r.value }}">{{ r.label }}</option>{% endfor %}
-    </select>
-  </label>
+  {% if invite_roles | length > 1 %}
+  <div class="form-grid">
+    <label class="field"><span>Account type</span>
+      <select name="role" id="ref-role">{% for key, label in invite_roles %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select>
+    </label>
+    <label class="field" id="ref-upline-field"><span>Reports to</span>
+      <select name="parent_id" id="ref-upline">
+        <option value="">Automatic / directly under me</option>
+        {% for u in uplines %}<option value="{{ u.id }}" data-for="{{ {'master':'cavo','cavo':'kubrador','kubrador':'player'}[u.role.value] }}">{{ u.full_name }} ({{ u.role.value | capitalize }})</option>{% endfor %}
+      </select>
+    </label>
+  </div>
+  <small class="muted">You can invite any account type. A Cavo reports to a Master, a Kubrador to a Cavo, a Player to a Kubrador; a Master sits directly under you.</small>
+  {% else %}
+  <input type="hidden" name="role" value="{{ invite_roles[0][0] }}">
+  <div class="notice" style="margin-bottom:10px">Whoever uses this code becomes a <strong>{{ invite_roles[0][1] }}</strong> under you. This is fixed by your role.</div>
+  {% endif %}
   <div class="form-grid">
     <label class="field"><span>Expires after</span><input type="number" name="ttl_amount" min="1" value="{{ default_ttl }}" required></label>
     <label class="field"><span>Unit</span>
@@ -58,3 +70,4 @@
 {% endcall %}
 {% endif %}
 {% endblock %}
+{% block scripts %}{% if invite_roles | length > 1 %}<script src="/static/js/referrals.js?v=1" defer></script>{% endif %}{% endblock %}

@@ -1,4 +1,4 @@
-"""Counter claim (QR), public live board, staff chat, game history and report archives."""
+"""Public live board, staff chat, game history and report archives."""
 from __future__ import annotations
 
 import csv
@@ -20,32 +20,6 @@ router = APIRouter()
 
 
 # ---------------------------------------------------------------------------
-# Claim a ticket at the counter
-# ---------------------------------------------------------------------------
-
-@router.get("/claim")
-async def claim_page(request: Request, ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.BETS_CLAIM)
-    code = (request.query_params.get("code") or "").strip()
-    ticket = fight = None
-    if code:
-        ticket = betting.assert_ticket_visible(ctx.db, ctx.user, betting.find_by_scan(ctx.db, code))
-        fight = events.get_fight(ctx.db, ticket.fight_id)
-    recent = list(ctx.db.scalars(
-        select(Ticket).where(Ticket.claimed_by_id == ctx.user.id).order_by(Ticket.claimed_at.desc()).limit(8)
-    ).all())
-    return render(ctx, "claim.html", active="claim", ticket=ticket, fight=fight, code=code,
-                  state=betting.claim_status(ticket) if ticket else None, recent=recent)
-
-
-@router.post("/claim/{ticket_id}")
-async def claim_do(ticket_id: int, ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.BETS_CLAIM)
-    ticket = betting.claim_ticket(ctx.db, ctx.user, ticket_id=ticket_id)
-    return flash_redirect("/claim", f"Ticket {ticket.code} claimed. Pay out {ticket.payout_cents / 100:,.2f}.")
-
-
-# ---------------------------------------------------------------------------
 # Public live board (no sign-in; no player or agent names)
 # ---------------------------------------------------------------------------
 
@@ -64,8 +38,9 @@ async def live_board(request: Request, db: Session = Depends(get_db)):
 # Staff chat
 # ---------------------------------------------------------------------------
 
-def _chat_json(rows: list[ChatMessage]) -> list[dict]:
-    return [{"id": m.id, "user": m.user.username, "role": m.user.role_label,
+def _chat_json(rows: list[ChatMessage], ctx: Ctx) -> list[dict]:
+    return [{"id": m.id, "user": ctx.who(m.user),
+             "role": "Management" if ctx.who(m.user) == "System" else m.user.role_label,
              "body": m.body, "at": m.created_at.strftime("%H:%M")} for m in rows]
 
 
@@ -73,7 +48,7 @@ def _chat_json(rows: list[ChatMessage]) -> list[dict]:
 async def chat_page(ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.CHAT_USE)
     rows = list(ctx.db.scalars(select(ChatMessage).order_by(ChatMessage.id.desc()).limit(60)).all())
-    return render(ctx, "chat.html", active="chat", messages=_chat_json(list(reversed(rows))))
+    return render(ctx, "chat.html", active="chat", messages=_chat_json(list(reversed(rows)), ctx))
 
 
 @router.get("/chat/messages")
@@ -81,7 +56,7 @@ async def chat_messages(after: int = 0, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.CHAT_USE)
     rows = list(ctx.db.scalars(select(ChatMessage).where(ChatMessage.id > max(after, 0))
                                .order_by(ChatMessage.id).limit(100)).all())
-    return JSONResponse({"messages": _chat_json(rows)}, headers={"Cache-Control": "no-store"})
+    return JSONResponse({"messages": _chat_json(rows, ctx)}, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/chat/send")
@@ -106,7 +81,7 @@ async def chat_send(request: Request, ctx: Ctx = Depends(require_ctx)):
 
 
 # ---------------------------------------------------------------------------
-# Game history & report archives
+# Previous game history & report archives
 # ---------------------------------------------------------------------------
 
 @router.get("/history")
@@ -140,7 +115,7 @@ async def event_report_csv(event_id: int, ctx: Ctx = Depends(require_ctx)):
     writer.writerow(["Event", _safe(event.title), "Date", event.event_date.isoformat(), "Status", event.status.value])
     writer.writerow([])
     writer.writerow(["Game", "Result", "Llamado/Dehado", "Meron", "Wala", "Draw", "Staked", "Paid out",
-                     "House (tong + over)", "Unclaimed cash payouts", "Status"])
+                     "House (tong + over)", "Status"])
     for fight in events.fights_of(ctx.db, event.id):
         fig = reports.fight_figures(ctx.db, fight)
         rows = ctx.db.execute(select(Ticket.side, Ticket.stake_cents, Ticket.payout_cents).where(
@@ -157,7 +132,7 @@ async def event_report_csv(event_id: int, ctx: Ctx = Depends(require_ctx)):
                          f"{by_side['meron'] / 100:.2f}", f"{by_side['wala'] / 100:.2f}",
                          f"{by_side['draw'] / 100:.2f}", f"{total_stake / 100:.2f}",
                          f"{total_paid / 100:.2f}", f"{fig['system_over'] / 100:.2f}",
-                         f"{fig['unclaimed'] / 100:.2f}", fight.status.value])
+                         fight.status.value])
     summary = reports.event_summary(ctx.db, event.id)
     writer.writerow([])
     for label, key in (("Total staked", "staked"), ("Paid out", "payouts"), ("House take", "house"),

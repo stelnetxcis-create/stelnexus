@@ -78,62 +78,83 @@ DEFS: tuple[SettingDef, ...] = (
     SettingDef("payout.draw_odds_bps", "Draw payout multiplier", "bps", 80000, "Payout",
                "Draw is its own side bet, always paid at this fixed multiplier. 80000 = 8.00x.", 10000, 1000000),
     SettingDef("payout.min_odds_bps", "Minimum odds (pool model)", "bps", 14000, "Payout",
-               "If the winning side would pay less than this multiple, the game is cancelled and every "
+               "If the winning side would pay less than this multiple, the fight is cancelled and every "
                "stake refunded. 14000 = 1.40x. 0 = rule off.", 0, 100000),
     SettingDef("fight.draw_bets_enabled", "Allow Draw bets", "bool", True, "Events",
                "Off hides the Draw side everywhere."),
+    SettingDef("fight.pawn_proof_required", "A Pawn must upload a picture to declare a result", "bool", True,
+               "Events", "Admin and Master may attach one too, but it is optional for them. The picture "
+               "is shown on the game and in Game History."),
     SettingDef("payout.default_fixed_odds_bps", "Default fixed odds", "bps", 19000, "Payout",
                "Used by fixed-odds events. 19000 = 1.90x.", 10000, 1000000),
     # ---- commissions ------------------------------------------------------
+    # Waterfall: pool -> Cavo cut (Volume %) -> Kubrador cut (SOP %, taken out of the Cavo's cut).
+    # Whatever the Cavo does not keep is the Master's ("Management"), so the lines always sum
+    # to the pool exactly. Master and Admin can override Volume % / SOP % per Cavo / Kubrador
+    # on the Cuts page; these are the defaults and the guard rails.
     SettingDef("commission.enabled", "Commissions enabled", "bool", True, "Commissions"),
-    SettingDef("commission.basis", "Commission basis", "choice", "turnover", "Commissions",
-               "turnover = share of every settled stake; netwin = share of the house's net win.",
+    SettingDef("commission.basis", "Commission basis", "choice", "netwin", "Commissions",
+               "netwin = pool is a share of the house's win on the game (tong etc.), split pro-rata by stake; "
+               "turnover = pool is a share of every settled stake.",
                choices=("turnover", "netwin")),
-    SettingDef("commission.rate_master_bps", "Master agent rate", "bps", 150, "Commissions", "150 = 1.50%.", 0, 10000),
-    SettingDef("commission.rate_gold_bps", "Gold agent rate", "bps", 100, "Commissions", "100 = 1.00%.", 0, 10000),
-    SettingDef("commission.rate_sub_bps", "Sub agent rate", "bps", 50, "Commissions", "50 = 0.50%.", 0, 10000),
-    SettingDef("commission.rate_admin_bps", "Admin rate", "bps", 0, "Commissions", "Usually 0.", 0, 10000),
-    SettingDef("commission.cap_of_house_cut_bps", "Cap: share of house cut", "bps", 10000, "Commissions",
-               "Total commission per game can never exceed this share of the tong. 10000 = 100%.", 0, 10000),
+    SettingDef("commission.pool_bps", "Pool: share of the basis that is split", "bps", 10000, "Commissions",
+               "How much of the basis goes into the Master / Cavo / Kubrador split. 10000 = 100%. "
+               "With basis = turnover use a small number (e.g. 150 = 1.50% of every stake).", 0, 10000),
+    SettingDef("commission.cavo_cut_bps", "Default Cavo cut (Volume %)", "bps", 3000, "Commissions",
+               "Share of the pool kept by the Cavo's side. 3000 = 30%, so the Master gets 70%.", 0, 10000),
+    SettingDef("commission.kubrador_cut_bps", "Default Kubrador cut (SOP %)", "bps", 2000, "Commissions",
+               "Share of the Cavo's cut that goes to the Kubrador who brought the bet. 2000 = 20% of the Cavo's 30%.",
+               0, 10000),
+    SettingDef("commission.max_cavo_cut_bps", "Highest Cavo cut a Master may set", "bps", 5000, "Commissions",
+               "Guard rail. Admin is not limited. 5000 = 50%.", 0, 10000),
+    SettingDef("commission.max_kubrador_cut_bps", "Highest Kubrador cut a Master may set", "bps", 5000, "Commissions",
+               "Guard rail, as a share of the Cavo's cut. Admin is not limited.", 0, 10000),
+    SettingDef("commission.cap_of_house_cut_bps", "Cap: share of house win", "bps", 10000, "Commissions",
+               "Total commission per game can never exceed this share of the house win. 10000 = 100%.", 0, 10000),
     SettingDef("commission.pay_on_refund", "Pay commission on refunded bets", "bool", False, "Commissions"),
     # ---- wallet / transfers ----------------------------------------------
-    SettingDef("wallet.min_transfer_cents", "Minimum load credit transfer", "money", 1000, "Load credit", "Centavos.", 100, 10**9),
-    SettingDef("wallet.max_transfer_cents", "Maximum load credit transfer", "money", 50000000, "Load credit", "Centavos.", 100, 10**11),
-    SettingDef("wallet.min_cash_cents", "Minimum counter cash-in/out", "money", 1000, "Load credit", "Centavos.", 100, 10**9),
-    SettingDef("wallet.max_cash_cents", "Maximum counter cash-in/out", "money", 50000000, "Load credit", "Centavos.", 100, 10**11),
-    SettingDef("wallet.withdrawals_enabled", "Withdrawals / cash-outs enabled", "bool", True, "Load credit",
+    SettingDef("wallet.min_transfer_cents", "Minimum credit transfer", "money", 1000, "Credit", "Centavos.", 100, 10**9),
+    SettingDef("wallet.max_transfer_cents", "Maximum credit transfer", "money", 50000000, "Credit", "Centavos.", 100, 10**11),
+    SettingDef("wallet.min_cash_cents", "Minimum online load / cash-out", "money", 1000, "Credit", "Centavos.", 100, 10**9),
+    SettingDef("wallet.max_cash_cents", "Maximum online load / cash-out", "money", 50000000, "Credit", "Centavos.", 100, 10**11),
+    SettingDef("wallet.withdrawals_enabled", "Withdrawals / cash-outs enabled", "bool", True, "Credit",
                "Emergency switch. Off blocks every cash-out, agent withdrawal and approval of one."),
-    SettingDef("wallet.allow_agent_overdraft", "Allow agent load credit to go negative", "bool", False, "Load credit",
-               "Off is strongly recommended: load credit must be pre-funded down the tree."),
+    SettingDef("wallet.transfer_scope", "Who can receive a credit transfer", "choice", "anyone", "Credit",
+               "anyone = any active account that holds credit (found by username). network = only your "
+               "own upline and downline. Declarators and Pawns never hold credit.",
+               choices=("anyone", "network")),
+    SettingDef("wallet.allow_agent_overdraft", "Allow agent credit to go negative", "bool", False, "Credit",
+               "Off is strongly recommended: credit must be pre-funded down the tree."),
     # ---- players / responsible gaming ------------------------------------
     SettingDef("player.min_age", "Minimum player age", "int", 21, "Players", "Enforced at registration.", 18, 99),
     SettingDef("player.daily_bet_limit_cents", "Default daily bet limit", "money", 0, "Players",
                "0 = unlimited. Per-player limits override this.", 0, 10**11),
     SettingDef("player.require_kyc_for_online", "Require KYC for online players", "bool", True, "Players"),
     SettingDef("player.self_exclusion_days", "Self-exclusion period (days)", "int", 30, "Players", "", 1, 3650),
-    # ---- events / games ---------------------------------------------------
-    SettingDef("event.default_fight_count", "Default games per main event", "int", 20, "Events", "", 1, 200),
-    SettingDef("event.auto_lock_on_declare", "Auto-lock game before declaring", "bool", True, "Events"),
-    SettingDef("fight.redeclare_requires_approval", "Redeclare needs a second admin", "bool", True, "Events",
+    # ---- events / fights --------------------------------------------------
+    SettingDef("event.default_fight_count", "Default games per event", "int", 20, "Events", "", 1, 200),
+    SettingDef("event.require_location", "Require a location on every new event", "bool", True, "Events",
+               "Only applies while at least one active location is registered (Admin Panel → Locations)."),
+    SettingDef("event.auto_lock_on_declare", "Auto-lock fight before declaring", "bool", True, "Events"),
+    SettingDef("fight.redeclare_requires_approval", "Redeclare needs a second approver", "bool", True, "Events",
                "Maker-checker: the requester cannot approve their own correction."),
     SettingDef("fight.cancel_window_seconds", "Ticket cancel window (seconds)", "int", 300, "Events",
-               "Tellers may cancel a ticket within this window, and only before the game locks.", 0, 86400),
+               "Agents may cancel a ticket within this window, and only before the fight locks.", 0, 86400),
     SettingDef("live.board_enabled", "Public live board (/live)", "bool", True, "Events",
-               "Shows game number, betting open/closed, totals and odds to anyone with the link."),
-    # ---- booklets ---------------------------------------------------------
-    SettingDef("booklet.default_pages", "Default pages per booklet", "int", 100, "Booklets", "", 1, 10000),
-    SettingDef("booklet.use_pages_for_tickets", "Consume booklet pages as ticket codes", "bool", True, "Booklets"),
+               "Shows fight number, betting open/closed, totals and odds to anyone with the link."),
     # ---- security ---------------------------------------------------------
     SettingDef("security.session_idle_minutes", "Idle session timeout (minutes)", "int", 30, "Security", "", 5, 480),
     SettingDef("security.max_login_attempts", "Failed logins before lockout", "int", 5, "Security", "", 3, 20),
     SettingDef("security.lockout_minutes", "Lockout duration (minutes)", "int", 15, "Security", "", 1, 1440),
     SettingDef("referral.default_ttl_minutes", "Referral code default lifetime (minutes)", "int", 1440, "Security", "Codes are always single-use; this is only the default timer.", 1, 43200),
+    SettingDef("presence.window_minutes", "Count an account as online for (minutes)", "int", 5, "Security",
+               "An account is 'online' if it did something within this many minutes.", 1, 60),
     SettingDef("security.password_min_length", "Minimum password length", "int", 12, "Security", "", 8, 128),
     # ---- branding / ticket ------------------------------------------------
     SettingDef("brand.name", "Brand name", "str", "StelNexus", "Branding", "", maximum=40),
     SettingDef("brand.tagline", "Tagline", "str", "Every fight, settled to the centavo", "Branding", "", maximum=80),
     SettingDef("ticket.header", "Ticket header", "str", "StelNexus", "Branding", "", maximum=40),
-    SettingDef("ticket.footer", "Ticket footer", "str", "Keep this ticket to claim. Not transferable.", "Branding", "", maximum=120),
+    SettingDef("ticket.footer", "Ticket footer", "str", "Winnings are credited to the player automatically. Not transferable.", "Branding", "", maximum=120),
     SettingDef("ticket.currency_symbol", "Currency symbol", "str", "₱", "Branding", "", maximum=4),
 )
 
@@ -190,6 +211,3 @@ class SettingsStore:
         self.invalidate()
         return old_value, new_value
 
-
-def rate_for_tier(store: SettingsStore, tier: str) -> int:
-    return int(store.get(f"commission.rate_{tier}_bps"))

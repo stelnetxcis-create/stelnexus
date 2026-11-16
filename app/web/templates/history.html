@@ -1,23 +1,26 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
 {% block title %}Game History · {{ brand }}{% endblock %}
-{% block heading %}Game History{% endblock %}
+{% block heading %}Previous Game History{% endblock %}
 {% block content %}
 <div class="card">
   <div class="card-head"><h2>Declared games</h2><span class="muted small">latest first</span></div>
   <div class="card-body tight">
     {% if fights %}
     <div class="table-wrap"><table class="table" data-table data-page-size="30">
-      <thead><tr><th>Main event</th><th>Game</th><th>Result</th><th>Llamado / Dehado</th><th>Declared</th>{% if not hide_totals %}<th class="right">Pool</th>{% endif %}<th>Status</th></tr></thead>
+      <thead><tr><th>Event</th><th>Location</th><th>Game</th><th>Result</th><th>Llamado / Dehado</th><th>Declared</th>{% if not hide_totals %}<th class="right">Pool</th>{% endif %}<th>Result photo</th><th>Status</th></tr></thead>
       <tbody>
       {% for f in fights %}
       <tr>
-        <td><a href="/events/{{ f.event_id }}">{{ events[f.event_id].title }}</a></td>
+        {% set ev = events[f.event_id] %}
+        <td><a href="/events/{{ f.event_id }}">{{ ev.title }}</a></td>
+        <td class="small">{{ ev.location.name if ev.location else '—' }}{% if ev.location and ev.location.city %}<br><span class="muted">{{ ev.location.city }}</span>{% endif %}</td>
         <td class="num"><strong>{{ f.number }}</strong></td>
         <td>{% if f.result %}{{ ui.badge(f.result, 'meron' if f.result.value=='meron' else ('wala' if f.result.value=='wala' else 'purple')) }}{% else %}<span class="muted">—</span>{% endif %}</td>
         <td>{% set role = role_of(f, f.result.value if f.result else none) %}{{ role or '—' }}</td>
         <td class="small nowrap">{{ f.declared_at | datetime }}</td>
         {% if not hide_totals %}<td class="right num">{{ totals[f.id].total | money }}</td>{% endif %}
+        <td>{% if f.proof_file %}<a class="btn btn-sm btn-ghost" href="/change_name?event_id={{ f.event_id }}&fight_id={{ f.id }}">View</a>{% else %}<span class="muted">—</span>{% endif %}</td>
         <td>{{ ui.status_badge(f.status) }}</td>
       </tr>
       {% endfor %}

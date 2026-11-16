@@ -9,7 +9,7 @@ How StelNexus makes it safe:
   A correction never edits the old numbers -- it *reverses* the previous run's
   ledger transactions and posts a new one. Both remain visible forever.
 * **Maker-checker.** When `fight.redeclare_requires_approval` is on, the admin who
-  requests a correction cannot approve it; a second admin must.
+  requests a correction cannot approve it; a second approver (Master or Admin) must.
 * **Reason required.** No correction without a written reason, stored on the run,
   the ledger transactions and the audit log.
 * **Deterministic integer math.** Same inputs -> same centavo outputs, so
@@ -240,7 +240,7 @@ def _rollback_previous(db: Session, fight: Fight, actor: User, reason: str) -> S
         if txn and txn.reversed_by_txn_id is None:
             ledger.reverse(db, txn, actor=actor, reason=reason, force=True,
                            idempotency_key=f"settle-reverse:{fight.id}:{previous.version}",
-                           memo=f"Reverse settlement v{previous.version} of game #{fight.number}")
+                           memo=f"Reverse settlement v{previous.version} of fight #{fight.number}")
     if previous.commission_txn_id:
         txn = db.get(ledger.LedgerTxn, previous.commission_txn_id)
         if txn and txn.reversed_by_txn_id is None:
@@ -251,18 +251,12 @@ def _rollback_previous(db: Session, fight: Fight, actor: User, reason: str) -> S
     reset = db.scalars(select(Ticket).where(
         Ticket.fight_id == fight.id, Ticket.settlement_version == previous.version,
         Ticket.status.in_([TicketStatus.SETTLED, TicketStatus.REFUNDED]))).all()
-    already_paid = [t.code for t in reset if t.claimed_at and t.funded_by == "cash" and t.payout_cents > 0]
-    if already_paid:
-        audit.record(db, actor, "fight.rollback.claimed_cash", entity_type="fight", entity_id=fight.id,
-                     after={"tickets_already_paid_in_cash": already_paid[:50]}, reason=reason)
     for ticket in reset:
         ticket.status = TicketStatus.ACTIVE
         ticket.payout_cents = 0
         ticket.settled_at = None
         ticket.settlement_version = None
         ticket.payout_txn_id = None
-        ticket.claimed_at = None
-        ticket.claimed_by_id = None
 
     previous.status = RunStatus.REVERSED
     db.flush()
@@ -307,7 +301,7 @@ def _apply(db: Session, run: SettlementRun, actor: User, settings: SettingsStore
 
         payout_txn = ledger.post(
             db, kind="fight.settle", entries=entries, actor=actor,
-            memo=f"Settle game #{fight.number} v{run.version} · {run.result}",
+            memo=f"Settle fight #{fight.number} v{run.version} · {run.result}",
             ref_type="fight", ref_id=fight.id, reason=run.reason,
             idempotency_key=f"settle:{fight.id}:{run.version}",
             meta={"run_id": run.id, "plan": plan.as_dict()},
@@ -321,8 +315,6 @@ def _apply(db: Session, run: SettlementRun, actor: User, settings: SettingsStore
             ticket.settled_at = now
             ticket.settlement_version = run.version
             ticket.payout_txn_id = payout_txn.id
-            if line.payout_cents > 0 and ticket.funded_by == "wallet":
-                ticket.claimed_at = now   # credited straight to the player's balance
 
     basis = str(settings.get("commission.basis"))
     settled_tickets = [line.ticket for line in plan.lines]
@@ -363,7 +355,7 @@ def declare(db: Session, actor: User, *, fight_id: int, result: Result, settings
     if fight is None:
         raise NotFound("Game not found.")
     if fight.status == FightStatus.SETTLED:
-        raise LockedState("This game is already settled. Use Redeclare to correct it.")
+        raise LockedState("This fight is already settled. Use Redeclare to correct it.")
     if fight.status == FightStatus.VOID:
         raise LockedState("This game is void.")
     if settings.get("event.auto_lock_on_declare") and fight.status == FightStatus.OPEN:
@@ -396,7 +388,7 @@ def request_correction(
     if fight is None:
         raise NotFound("Game not found.")
     if fight.status != FightStatus.SETTLED:
-        raise LockedState("Only a settled game can be redeclared or recomputed.")
+        raise LockedState("Only a settled fight can be redeclared or recomputed.")
     if action == "recompute":
         result = fight.result
     elif result == fight.result:
@@ -405,7 +397,7 @@ def request_correction(
     pending = db.scalar(select(SettlementRun).where(
         SettlementRun.fight_id == fight.id, SettlementRun.status == RunStatus.PENDING))
     if pending is not None:
-        raise Conflict("There is already a pending correction for this game.")
+        raise Conflict("There is already a pending correction for this fight.")
 
     run = SettlementRun(
         fight_id=fight.id, version=_next_version(db, fight), action=action, result=result,
@@ -422,10 +414,11 @@ def request_correction(
         run.reviewed_at = dt.datetime.now(dt.timezone.utc)
         return _apply(db, run, actor, settings)
 
-    for admin_id in db.scalars(select(User.id).where(User.role == Role.ADMIN, User.id != actor.id)).all():
+    for admin_id in db.scalars(select(User.id).where(User.role.in_([Role.ADMIN, Role.MASTER]),
+                                                      User.id != actor.id)).all():
         db.add(Notification(user_id=admin_id, level="warning",
                             message=f"{actor.username} requested a {action} on game #{fight.number}",
-                            link="/games"))
+                            link="/change_name"))
     db.flush()
     return run
 
@@ -437,7 +430,7 @@ def approve(db: Session, actor: User, *, run_id: int, settings: SettingsStore) -
     if run.status != RunStatus.PENDING:
         raise Conflict("That request has already been processed.")
     if settings.get("fight.redeclare_requires_approval") and run.requested_by_id == actor.id:
-        raise Forbidden("Maker-checker: a second admin must approve this correction.")
+        raise Forbidden("Maker-checker: a second Master/Admin must approve this correction.")
     run.approved_by_id = actor.id
     run.reviewed_at = dt.datetime.now(dt.timezone.utc)
     return _apply(db, run, actor, settings)

@@ -14,7 +14,7 @@
 <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/static/icons/icon-180.png">
 <link rel="stylesheet" href="/static/css/app.css">
-<link rel="stylesheet" href="/static/css/luxe.css">
+<link rel="stylesheet" href="/static/css/luxe.css?v=fix3">
 <script src="/static/js/nav-init.js"></script>
 </head>
 <body>
@@ -48,6 +48,9 @@
 <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
 <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></symbol>
 <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></symbol>
+<symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></symbol>
+<symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="i-code" viewBox="0 0 24 24"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></symbol>
 <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
 </defs></svg>
 
@@ -60,35 +63,42 @@
       <button class="icon-btn close-nav" data-close-nav aria-label="Close menu"><svg><use href="#i-x"/></svg></button>
     </div>
     <nav class="nav">
-      {% set nav = [
-        ('dashboard', '/dashboard', 'i-grid', 'Dashboard', 'dashboard.view'),
-        ('agents', '/agents', 'i-users', 'Agents', 'agents.view'),
-        ('clp', '/clp', 'i-card', 'Cashless Players', 'players.view'),
-        ('cashin_out', '/cashin_out', 'i-swap', 'Load / Cash Out', 'requests.view'),
-        ('events', '/events', 'i-calendar', 'Main Events', 'events.view'),
-        ('games', '/games', 'i-target', 'Game View', 'fights.view'),
-        ('history', '/history', 'i-clock', 'Game History', 'fights.view'),
-        ('claim', '/claim', 'i-qr', 'Claim Ticket', 'bets.claim'),
-        ('betlogs', '/betlogs', 'i-list', 'Betting List', 'bets.view'),
-        ('cancelT', '/cancelT', 'i-ban', 'Cancelled Tickets', 'bets.view'),
-        ('referrals', '/referrals', 'i-key', 'Referral Codes', 'agents.create'),
-        ('commissions', '/commissions', 'i-coins', 'Commissions', 'commissions.view'),
-        ('cashflow', '/cashflow', 'i-chart', 'Cashflow', 'cashflow.view'),
-        ('archives', '/archives', 'i-archive', 'Report Archives', 'reports.view'),
-        ('chat', '/chat', 'i-chat', 'Staff Chat', 'chat.use'),
-        ('booklets', '/booklets', 'i-book', 'Booklets', 'booklets.view'),
-        ('stations', '/stations', 'i-monitor', 'Wallet Stations', 'stations.view'),
-        ('settings', '/settings', 'i-sliders', 'Settings', 'settings.view'),
-        ('audit', '/audit', 'i-shield', 'Audit Trail', 'audit.view')
+      {% set groups = [
+        ('', [
+          ('dashboard', '/dashboard', 'i-grid', 'Dashboard', 'dashboard.view')]),
+        ('Events', [
+          ('events', '/events', 'i-calendar', 'Games', 'events.view'),
+          ('change_name', '/change_name', 'i-target', 'Fight View', 'fights.view'),
+          ('history', '/history', 'i-clock', 'Game History', 'fights.view'),
+          ('betlogs', '/betlogs', 'i-list', 'Betting List', 'bets.view'),
+          ('cancelT', '/cancelT', 'i-ban', 'Cancel Ticket', 'bets.view')]),
+        ('Network', [
+          ('agents', '/agents', 'i-users', 'Users', 'agents.view'),
+          ('clp', '/clp', 'i-card', 'Players', 'players.view'),
+          ('referrals', '/referrals', 'i-key', 'Referral Codes', 'referrals.manage'),
+          ('commissions', '/commissions', 'i-coins', 'Commission', 'commissions.view')]),
+        ('Staff', [
+          ('chat', '/chat', 'i-chat', 'Staff Chat', 'chat.use'),
+          ('admin', '/admin', 'i-sliders', 'Admin Panel', 'panel.view')])
       ] %}
-      {% for key, href, icon, label, perm in nav %}
-        {% if perm in perms %}
+      {% for title, items in groups %}
+        {% set shown = items | selectattr(4, 'in', perms) | list %}
+        {% if shown %}
+        {% if title %}<div class="nav-title">{{ title }}</div>{% endif %}
+        {% for key, href, icon, label, perm in shown %}
         <a class="nav-link {{ 'is-active' if active == key }}" href="{{ href }}" title="{{ label }}">
           <svg class="ico"><use href="#{{ icon }}"/></svg><span>{{ label }}</span>
         </a>
+        {% endfor %}
         {% endif %}
       {% endfor %}
     </nav>
+    <div class="sidebar-install">
+      <button class="install-btn" type="button" data-install title="Install app">
+        <svg class="ico"><use href="#i-download"/></svg><span>Install app</span>
+      </button>
+      <p class="install-hint" data-install-hint hidden></p>
+    </div>
   </aside>
   <div class="backdrop" data-close-nav hidden></div>
 
@@ -100,6 +110,55 @@
       <div class="topbar-actions">
         {% block actions %}{% endblock %}
         {% if user %}
+        {% if is_dev %}
+        <details class="menu dev-menu">
+          <summary class="chip chip-dev {{ 'is-live' if viewing_as }}" aria-label="Developer tools" title="Developer tools: preview the console as another account">
+            <svg class="ico"><use href="#i-code"/></svg><span>DEV</span>{% if viewing_as %}<em class="dev-as">{{ viewing_as.username }}</em>{% endif %}
+          </summary>
+          <div class="menu-panel dev-panel">
+            <h4>Developer tools</h4>
+            {% if viewing_as %}
+            <div class="dev-live-card">
+              <div><small>Previewing as</small><strong>{{ viewing_as.username }}</strong><span class="muted small"> · {{ viewing_as.role_label }} · read-only</span></div>
+              <form method="post" action="/dev/view-as/exit"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-sm btn-brand" type="submit">Exit preview</button></form>
+            </div>
+            {% endif %}
+            <div class="dev-sec">
+              <label class="dev-label">View console as</label>
+              <div class="dev-roles">
+                {% for g in dev.groups %}
+                <form method="post" action="/dev/view-as">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="role" value="{{ g.role }}">
+                  <button class="dev-role" type="submit" {{ 'disabled' if not g.users }} title="{{ (g.users|length ~ ' active account(s)') if g.users else 'No active ' ~ g.label ~ ' account yet' }}">{{ g.label }}<small>{{ g.users|length }}</small></button>
+                </form>
+                {% endfor %}
+              </div>
+              <form method="post" action="/dev/view-as" class="dev-pick">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <select name="user_id" aria-label="Preview a specific account" required>
+                  <option value="">A specific account…</option>
+                  {% for g in dev.groups %}{% if g.users %}
+                  <optgroup label="{{ g.label }}">{% for u in g.users %}<option value="{{ u.id }}" {{ 'selected' if viewing_as and viewing_as.id == u.id }}>{{ u.username }}</option>{% endfor %}</optgroup>
+                  {% endif %}{% endfor %}
+                </select>
+                <button class="btn btn-sm" type="submit">Preview</button>
+              </form>
+              <p class="muted small">Exactly what that account sees: same menu, dashboard and data. Read-only: nothing you click can change data while previewing.</p>
+            </div>
+            <details class="dev-sec dev-perms">
+              <summary>Permissions in this view <b>{{ dev.perms|length }}</b></summary>
+              <div class="dev-chips">{% for pm in dev.perms %}<code>{{ pm }}</code>{% endfor %}</div>
+            </details>
+            {% if not viewing_as %}
+            <div class="dev-sec dev-links">
+              <label class="dev-label">Shortcuts</label>
+              <a href="/admin">Admin Panel</a><a href="/admin/integrity">Ledger integrity</a><a href="/cashflow">Cashflow</a>{% if dev.env == 'dev' %}<a href="/api/docs" target="_blank" rel="noopener">API docs</a>{% endif %}
+            </div>
+            {% endif %}
+            <div class="dev-foot">env <b>{{ dev.env }}</b> · db <b>{{ dev.db }}</b> · {{ tagline or brand }}</div>
+          </div>
+        </details>
+        {% endif %}
         <details class="menu">
           <summary class="icon-btn" aria-label="Notifications">
             <svg><use href="#i-bell"/></svg>
@@ -114,6 +173,23 @@
             {% else %}<p class="muted small">Nothing new.</p>{% endif %}
           </div>
         </details>
+        {% if my_balance is not none %}
+        <details class="menu wallet-menu">
+          <summary class="chip wallet-chip" aria-label="Wallet">
+            <svg class="ico"><use href="#i-coins"/></svg><span class="bal" title="Your credit balance">{{ my_balance | money }}</span>{% if wallet_pending %}<span class="dot">{{ wallet_pending }}</span>{% endif %}
+          </summary>
+          <div class="menu-panel wallet-panel">
+            <div class="wallet-bal"><small>Your credit</small><strong>{{ my_balance | money }}</strong></div>
+            <div class="wallet-actions">
+              {% if 'requests.create' in perms %}<a href="/wallet?t=load"><svg class="ico"><use href="#i-plus"/></svg>Load</a>
+              <a href="/wallet?t=cashout"><svg class="ico"><use href="#i-out"/></svg>Cash out</a>{% endif %}
+              {% if 'wallet.transfer' in perms %}<a href="/wallet?t=transfer"><svg class="ico"><use href="#i-swap"/></svg>Transfer</a>{% endif %}
+              <a href="/wallet?t=history"><svg class="ico"><use href="#i-clock"/></svg>History</a>
+            </div>
+            <a class="account-item" href="/wallet">Open wallet{% if wallet_pending %} · {{ wallet_pending }} to review{% endif %}</a>
+          </div>
+        </details>
+        {% endif %}
         <details class="menu account-menu">
           <summary class="chip user-chip" aria-label="Account menu">
             <span class="avatar sm">{{ user.full_name[:1] | upper }}</span><span class="uname">{{ user.username }}</span>
@@ -121,6 +197,15 @@
           <div class="menu-panel account-panel">
             <div class="account-who"><strong>{{ user.full_name }}</strong><small>{{ user.username }} · {{ user.role_label }}</small></div>
             <a class="account-item" href="/profile"><svg class="ico"><use href="#i-user"/></svg>Profile &amp; security</a>
+            {% set report_links = [('/cashflow', 'i-chart', 'Cashflow', 'cashflow.view'), ('/archives', 'i-archive', 'Report archives', 'reports.view')] %}
+            {% set shown_reports = report_links | selectattr(3, 'in', perms) | list %}
+            {% if shown_reports %}
+            <div class="account-sep">Reports</div>
+            {% for href, icon, label, perm in shown_reports %}
+            <a class="account-item {{ 'is-active' if active == href[1:] }}" href="{{ href }}"><svg class="ico"><use href="#{{ icon }}"/></svg>{{ label }}</a>
+            {% endfor %}
+            <div class="account-sep"></div>
+            {% endif %}
             <form method="post" action="/logout">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <button class="account-item" type="submit"><svg class="ico"><use href="#i-out"/></svg>Sign out</button>
@@ -131,6 +216,13 @@
       </div>
     </header>
 
+    {% if viewing_as %}
+    <div class="viewas-bar" role="status">
+      <svg class="ico"><use href="#i-eye"/></svg>
+      <span>Previewing as <b>{{ viewing_as.username }}</b> ({{ viewing_as.role_label }}) · read-only</span>
+      <form method="post" action="/dev/view-as/exit"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-sm" type="submit">Exit preview</button></form>
+    </div>
+    {% endif %}
     <main class="content" id="main">
       {% for flash in flashes %}
       <div class="alert alert-{{ flash.level }}" role="status">{{ flash.message }}</div>
@@ -144,9 +236,10 @@
 {% if user %}
 <nav class="tabbar" aria-label="Quick navigation">
   {% for key, href, icon, label, perm in [('dashboard','/dashboard','i-grid','Home','dashboard.view'),
-                                          ('events','/events','i-calendar','Events','events.view'),
+                                          ('events','/events','i-calendar','Games','events.view'),
+                                          ('wallet','/wallet','i-coins','Wallet','wallet.view'),
                                           ('betlogs','/betlogs','i-list','Bets','bets.view'),
-                                          ('clp','/clp','i-card','Players','players.view')] %}
+                                          ('admin','/admin','i-sliders','Panel','panel.view')] %}
     {% if perm in perms %}
     <a class="tab {{ 'is-active' if active == key }}" href="{{ href }}"><svg class="ico"><use href="#{{ icon }}"/></svg><span>{{ label }}</span></a>
     {% endif %}
@@ -154,8 +247,9 @@
   <button class="tab" data-open-nav type="button"><svg class="ico"><use href="#i-menu"/></svg><span>More</span></button>
 </nav>
 {% endif %}
-<script src="/static/js/app.js" defer></script>
-<script src="/static/js/luxe.js" defer></script>
+<script src="/static/js/app.js?v=fix2" defer></script>
+<script src="/static/js/luxe.js?v=fix2" defer></script>
+<script src="/static/js/pages.js?v=1" defer></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -7,8 +7,8 @@
 <div class="alert alert-warning" role="alert">You must change your password before continuing.</div>
 {% endif %}
 <div class="grid grid-3">
-  {{ ui.stat('Load credit', wallet | money) }}
-  {{ ui.stat('Commission balance', commission | money) }}
+  {% if user.has_wallet %}{{ ui.stat('Credit', wallet | money, 'open the Wallet for history') }}
+  {{ ui.stat('Commission balance', commission | money) }}{% endif %}
   {{ ui.stat('Role', user.role_label, 'Ref code ' ~ user.ref_code) }}
 </div>
 

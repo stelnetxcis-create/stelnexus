@@ -4,11 +4,11 @@
 {% block heading %}Report Archives{% endblock %}
 {% block content %}
 <div class="card">
-  <div class="card-head"><h2>Closed &amp; cancelled main events</h2><span class="muted small">download a CSV to keep with your records</span></div>
+  <div class="card-head"><h2>Closed &amp; cancelled events</h2><span class="muted small">download a CSV to keep with your records</span></div>
   <div class="card-body tight">
     {% if rows %}
     <div class="table-wrap"><table class="table" data-table data-page-size="25">
-      <thead><tr><th>Main event</th><th>Date</th><th>Status</th><th class="right">Staked</th><th class="right">Paid out</th><th class="right">House</th><th class="right">Commission</th><th class="right">Expenses</th><th class="right">Net income</th><th class="right">Report</th></tr></thead>
+      <thead><tr><th>Event</th><th>Date</th><th>Status</th><th class="right">Staked</th><th class="right">Paid out</th><th class="right">House</th><th class="right">Commission</th><th class="right">Expenses</th><th class="right">Net income</th><th class="right">Report</th></tr></thead>
       <tbody>
       {% for e, s in rows %}
       <tr>
@@ -20,7 +20,7 @@
       {% endfor %}
       </tbody>
     </table></div>
-    {% else %}{{ ui.empty('Nothing archived yet. Close a main event to see it here.') }}{% endif %}
+    {% else %}{{ ui.empty('Nothing archived yet. Close an event to see it here.') }}{% endif %}
   </div>
 </div>
 {% endblock %}

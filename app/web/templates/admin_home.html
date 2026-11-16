@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Admin Panel · {{ brand }}{% endblock %}
+{% block heading %}Admin Panel{% endblock %}
+{% block content %}
+{% include "_panel_nav.html" %}
+{% if is_pawn %}<div class="notice">You are a Pawn: you can see and change only the sections the Admin switched on for you.</div>{% endif %}
+<div class="grid grid-4">
+  {% for label, value, hint, href in cards %}<a href="{{ href }}" style="text-decoration:none">{{ ui.stat(label, value, hint) }}</a>{% endfor %}
+  {{ ui.stat('Withdrawals', 'ON' if withdrawals_on else 'OFF', 'emergency switch is in Wallet → Approvals', 'green' if withdrawals_on else 'red') }}
+</div>
+{% if recent %}
+<div class="card"><div class="card-head"><h2>Latest activity</h2><a class="btn btn-sm" href="/admin/audit">Audit trail</a></div>
+<div class="card-body tight"><div class="table-wrap"><table class="table"><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Record</th></tr></thead><tbody>
+{% for r in recent %}<tr><td class="small nowrap">{{ r.created_at | datetime }}</td><td class="small">{{ r.actor_username or 'System' }}</td><td class="mono small">{{ r.action }}</td><td class="small">{{ r.entity_type or '' }} {{ r.entity_id or '' }}</td></tr>{% endfor %}
+</tbody></table></div></div></div>{% endif %}
+{% endblock %}

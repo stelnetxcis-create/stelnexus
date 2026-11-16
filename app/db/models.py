@@ -6,7 +6,6 @@ Design notes / fixes vs. the original `online_bukis` schema:
   and `cashless_cash_inventory` were three independent, mutually-unreconcilable
   numbers. Here every centavo moves through balanced, append-only ledger entries,
   so "wallet", "on-hand cash" and "remit" are *derived* and always agree.
-* **No hard-coded machine IDs 167-171.** Stations are rows.
 * **Immutable audit.** `audit_logs`, `ledger_entries` and `ledger_txns` are guarded
   by database triggers (see migrations) -- not even the app user can rewrite them.
 * **Idempotency keys** on every money-moving operation, so a double-tapped
@@ -31,6 +30,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    true,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -58,31 +58,63 @@ class StrEnum(str, enum.Enum):
 
 
 class Role(StrEnum):
+    """Who is who.
+
+    admin      Hidden developer account. Same powers as Master plus the hidden layer
+               (Settings, Audit Trail, ledger integrity, System/Hidden Over). It never
+               appears in any list, count, tree or name shown to anyone else.
+    master     Top of the visible network ("Management" in the old reports).
+    cavo       Invited by a Master. Earns the Volume % cut.
+    kubrador   Invited by a Cavo. Earns the SOP % taken out of the Cavo's cut.
+    teller     RETIRED. The platform is online-only; old rows are closed by the migration.
+    declarator Declares results only; never sees totals (was hard-coded id 78). No balance,
+               cannot bet or move money: a spectator/helper for the event.
+    pawn       Created by the Admin only. A spectator like the declarator (no balance, no betting)
+               whose reach into the Admin Panel is set per account by the Admin (``User.grants``).
+
+    Normal accounts (players) are not users: a Kubrador's referral code creates a Player.
+    """
     ADMIN = "admin"      # legacy UTYPE '0'
     MASTER = "master"
-    GOLD = "gold"
-    SUB = "sub"
-    TELLER = "teller"    # station / machine operator (was hard-coded ids 167-171)
-    DECLARATOR = "declarator"  # declares results only; never sees totals (was hard-coded id 78)
+    CAVO = "cavo"
+    KUBRADOR = "kubrador"
+    TELLER = "teller"
+    DECLARATOR = "declarator"
+    PAWN = "pawn"
 
     @property
     def label(self) -> str:
         return {
-            "admin": "Main Admin", "master": "Master Agent", "gold": "Gold Agent",
-            "sub": "Sub Agent", "teller": "Teller / Station", "declarator": "Declarator",
+            "admin": "Admin", "master": "Master", "cavo": "Cavo", "kubrador": "Kubrador",
+            "teller": "Teller", "declarator": "Declarator", "pawn": "Pawn",
         }[self.value]
 
 
-AGENT_ROLES = (Role.ADMIN, Role.MASTER, Role.GOLD, Role.SUB)
-# Strict downline tree, exactly as the original Create-Agent form enforced.
+AGENT_ROLES = (Role.ADMIN, Role.MASTER, Role.CAVO, Role.KUBRADOR)
+# Spectator / helper accounts: no balance, no bets, no money movement, nobody's upline.
+NO_WALLET_ROLES = (Role.DECLARATOR, Role.PAWN)
+TOP_ROLES = (Role.ADMIN, Role.MASTER)          # the operator tier: see everything visible
+# Strict downline tree. A Kubrador's children are Players (a separate table).
 CHILD_ROLE: dict[Role, Role | None] = {
     Role.ADMIN: Role.MASTER,
-    Role.MASTER: Role.GOLD,
-    Role.GOLD: Role.SUB,
-    Role.SUB: None,
+    Role.MASTER: Role.CAVO,
+    Role.CAVO: Role.KUBRADOR,
+    Role.KUBRADOR: None,
     Role.TELLER: None,
     Role.DECLARATOR: None,
+    Role.PAWN: None,
 }
+# What a referral code issued by this role turns the invitee into.
+INVITE_ROLE: dict[Role, str | None] = {
+    Role.ADMIN: "master",
+    Role.MASTER: "cavo",
+    Role.CAVO: "kubrador",
+    Role.KUBRADOR: "player",
+    Role.TELLER: None,
+    Role.DECLARATOR: None,
+    Role.PAWN: None,
+}
+CUT_ROLES = (Role.CAVO, Role.KUBRADOR)
 
 
 class Status(StrEnum):
@@ -94,12 +126,12 @@ class Status(StrEnum):
 class AccountKind(StrEnum):
     WALLET = "wallet"                       # agent / player spendable balance
     COMMISSION_PAYABLE = "commission_payable"
-    STATION_CASH = "station_cash"           # physical drawer of a station
+    STATION_CASH = "station_cash"           # RETIRED: historical ledger accounts only
     FIGHT_POOL = "fight_pool"               # escrow holding stakes of one fight
     HOUSE_REVENUE = "house_revenue"         # plasada
     COMMISSION_EXPENSE = "commission_expense"
     ROUNDING = "rounding"                   # integer-division remainder
-    CASH_ON_HAND = "cash_on_hand"           # central cashier drawer
+    CASH_ON_HAND = "cash_on_hand"           # RETIRED: legacy cash, kept so old ledger rows load
     GCASH_CLEARING = "gcash_clearing"
 
 
@@ -224,14 +256,26 @@ class User(UUIDMixin, TimestampMixin, Base):
     last_login_ip: Mapped[str | None] = mapped_column(String(64))
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
+    # Cut system (basis points; NULL = inherit the default from Settings -> Commissions).
+    #   cavo:      cut_bps = Volume %  (share of the commission pool the Cavo's network keeps)
+    #              sop_bps = SOP %     (share of that cut passed to each of its Kubradors)
+    #   kubrador:  cut_bps = personal SOP % override (NULL = use the Cavo's sop_bps)
+    cut_bps: Mapped[int | None] = mapped_column(Integer)
+    sop_bps: Mapped[int | None] = mapped_column(Integer)
+
+    # Pawn only: the list of grant keys the Admin switched on (see app.core.rbac.GRANTS).
+    grants: Mapped[list | None] = mapped_column(JsonType)
+
     parent: Mapped["User | None"] = relationship(
         remote_side="User.id", back_populates="children", foreign_keys="User.parent_id")
     children: Mapped[list["User"]] = relationship(
         back_populates="parent", foreign_keys="User.parent_id")
 
     __table_args__ = (
-        CheckConstraint("role in ('admin','master','gold','sub','teller','declarator')", name="role_valid"),
+        CheckConstraint("role in ('admin','master','cavo','kubrador','teller','declarator','pawn')", name="role_valid"),
         CheckConstraint("id <> parent_id", name="no_self_parent"),
+        CheckConstraint("cut_bps is null or cut_bps between 0 and 10000", name="cut_range"),
+        CheckConstraint("sop_bps is null or sop_bps between 0 and 10000", name="sop_range"),
         Index("ix_users_parent_status", "parent_id", "status"),
     )
 
@@ -240,22 +284,27 @@ class User(UUIDMixin, TimestampMixin, Base):
         return self.role == Role.ADMIN
 
     @property
+    def is_hidden(self) -> bool:
+        """Hidden accounts exist in the database like any other row but are never shown."""
+        return self.role == Role.ADMIN
+
+    @property
+    def is_top(self) -> bool:
+        """Admin or Master: the operator tier."""
+        return self.role in TOP_ROLES
+
+    @property
     def role_label(self) -> str:
         return Role(self.role).label
 
+    @property
+    def has_wallet(self) -> bool:
+        """Declarators and Pawns never hold, send or receive money."""
+        return self.role not in NO_WALLET_ROLES
 
-class Station(UUIDMixin, TimestampMixin, Base):
-    """Teller counter / kiosk. Replaces the hard-coded user ids 167-171."""
-    __tablename__ = "stations"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    code: Mapped[str] = mapped_column(String(24), unique=True, index=True)
-    name: Mapped[str] = mapped_column(String(80))
-    location: Mapped[str | None] = mapped_column(String(120))
-    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), unique=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    # Remit target: cash this station has handed in is tracked on its own account.
-    user: Mapped[User | None] = relationship()
+    @property
+    def grant_set(self) -> set[str]:
+        return set(self.grants or []) if self.role == Role.PAWN else set()
 
 
 class Player(UUIDMixin, TimestampMixin, Base):
@@ -344,7 +393,6 @@ class Account(TimestampMixin, Base):
     label: Mapped[str] = mapped_column(String(120))
     owner_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
     owner_player_id: Mapped[int | None] = mapped_column(ForeignKey("players.id", ondelete="RESTRICT"), index=True)
-    owner_station_id: Mapped[int | None] = mapped_column(ForeignKey("stations.id", ondelete="RESTRICT"))
     owner_fight_id: Mapped[int | None] = mapped_column(ForeignKey("fights.id", ondelete="RESTRICT"))
     balance_cents: Mapped[int] = mapped_column(Money, default=0, nullable=False)
     allow_negative: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -401,6 +449,38 @@ class LedgerEntry(Base):
 # Events / fights
 # ---------------------------------------------------------------------------
 
+class Location(TimestampMixin, Base):
+    """A registered venue. Fully admin-controlled: name, address, free-form custom fields and the
+    defaults that pre-fill a new event held there. Archived locations stay on old events."""
+    __tablename__ = "locations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    address: Mapped[str | None] = mapped_column(String(200))
+    city: Mapped[str | None] = mapped_column(String(80))
+    notes: Mapped[str | None] = mapped_column(String(500))
+    # File name of the venue picture (one of app/static/img/venues/*); it is the background of this
+    # venue's event boxes in the Games lobby. NULL = plain box.
+    image: Mapped[str | None] = mapped_column(String(80))
+    # Admin-defined extras, e.g. [{"label": "Capacity", "value": "800"}, {"label": "Contact", "value": "..."}]
+    custom_fields: Mapped[list | None] = mapped_column(JsonType)
+    # Defaults offered when creating an event here (NULL = fall back to the global setting).
+    default_fight_count: Mapped[int | None] = mapped_column(Integer)
+    default_payout_model: Mapped[str | None] = mapped_column(String(8))
+    default_house_cut_bps: Mapped[int | None] = mapped_column(Integer)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False, index=True)
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    __table_args__ = (
+        CheckConstraint("default_fight_count is null or default_fight_count between 1 and 200", name="loc_fights_range"),
+        CheckConstraint("default_house_cut_bps is null or default_house_cut_bps between 0 and 10000", name="loc_cut_range"),
+    )
+
+    @property
+    def image_url(self) -> str | None:
+        return f"/static/img/venues/{self.image}" if self.image else None
+
+
 class Event(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "events"
 
@@ -412,7 +492,9 @@ class Event(UUIDMixin, TimestampMixin, Base):
     payout_model: Mapped[PayoutModel] = mapped_column(EnumStr(PayoutModel, 8), default=PayoutModel.POOL)
     house_cut_bps: Mapped[int | None] = mapped_column(Integer)  # null -> use global setting
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    location_id: Mapped[int | None] = mapped_column(ForeignKey("locations.id", ondelete="SET NULL"), index=True)
 
+    location: Mapped["Location | None"] = relationship(foreign_keys=[location_id])
     fights: Mapped[list["Fight"]] = relationship(back_populates="event", cascade="all, delete-orphan")
 
     __table_args__ = (
@@ -440,8 +522,14 @@ class Fight(TimestampMixin, Base):
     locked_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
     declared_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
     declared_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    # Picture of the result (stored outside /static, served only to signed-in staff).
+    proof_file: Mapped[str | None] = mapped_column(String(120))
+    proof_mime: Mapped[str | None] = mapped_column(String(24))
+    proof_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    proof_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
 
     event: Mapped[Event] = relationship(back_populates="fights")
+    proof_by: Mapped["User | None"] = relationship(foreign_keys=[proof_by_id])
 
     __table_args__ = (
         UniqueConstraint("event_id", "number", name="uq_fight_number"),
@@ -450,40 +538,8 @@ class Fight(TimestampMixin, Base):
 
 
 # ---------------------------------------------------------------------------
-# Booklets & tickets
+# Tickets
 # ---------------------------------------------------------------------------
-
-class Booklet(UUIDMixin, TimestampMixin, Base):
-    __tablename__ = "booklets"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    code: Mapped[str] = mapped_column(String(24), unique=True, index=True)
-    pages_total: Mapped[int] = mapped_column(Integer)
-    pages_available: Mapped[int] = mapped_column(Integer)
-    status: Mapped[Status] = mapped_column(EnumStr(Status, 16), default=Status.ACTIVE)
-    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
-
-    pages: Mapped[list["BookletPage"]] = relationship(back_populates="booklet", cascade="all, delete-orphan")
-
-    __table_args__ = (
-        CheckConstraint("pages_total between 1 and 10000", name="pages_range"),
-        CheckConstraint("pages_available between 0 and pages_total", name="avail_range"),
-    )
-
-
-class BookletPage(Base):
-    __tablename__ = "booklet_pages"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    booklet_id: Mapped[int] = mapped_column(ForeignKey("booklets.id", ondelete="CASCADE"), index=True)
-    page_no: Mapped[int] = mapped_column(Integer)
-    code: Mapped[str] = mapped_column(String(24), unique=True, index=True)
-    is_used: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
-    used_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
-
-    booklet: Mapped[Booklet] = relationship(back_populates="pages")
-    __table_args__ = (UniqueConstraint("booklet_id", "page_no", name="uq_page_no"),)
-
 
 class Ticket(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "tickets"
@@ -493,27 +549,21 @@ class Ticket(UUIDMixin, TimestampMixin, Base):
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="RESTRICT"), index=True)
     fight_id: Mapped[int] = mapped_column(ForeignKey("fights.id", ondelete="RESTRICT"), index=True)
     player_id: Mapped[int | None] = mapped_column(ForeignKey("players.id", ondelete="RESTRICT"), index=True)
-    station_id: Mapped[int | None] = mapped_column(ForeignKey("stations.id", ondelete="RESTRICT"), index=True)
-    teller_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     agent_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
-    booklet_page_id: Mapped[int | None] = mapped_column(ForeignKey("booklet_pages.id", ondelete="SET NULL"))
 
     side: Mapped[Side] = mapped_column(EnumStr(Side, 8))
     stake_cents: Mapped[int] = mapped_column(Money)
-    funded_by: Mapped[str] = mapped_column(String(8), default="wallet")  # wallet | cash
+    funded_by: Mapped[str] = mapped_column(String(8), default="wallet")  # always "wallet"; "cash" only on pre-online rows
     est_payout_cents: Mapped[int] = mapped_column(Money, default=0)
     payout_cents: Mapped[int] = mapped_column(Money, default=0)
     status: Mapped[TicketStatus] = mapped_column(EnumStr(TicketStatus, 12), default=TicketStatus.ACTIVE, index=True)
-    is_diy: Mapped[bool] = mapped_column(Boolean, default=False)  # "Diy Player": self-service kiosk
+    is_diy: Mapped[bool] = mapped_column(Boolean, default=False)  # self-service bet
     placed_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow, index=True)
     canceled_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
     canceled_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     cancel_reason: Mapped[str | None] = mapped_column(String(255))
     settled_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
     settlement_version: Mapped[int | None] = mapped_column(Integer)
-    # Counter payout tracking: a winning cash ticket is "unclaimed" until a teller scans it.
-    claimed_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime(), index=True)
-    claimed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     stake_txn_id: Mapped[int | None] = mapped_column(ForeignKey("ledger_txns.id", ondelete="RESTRICT"))
     payout_txn_id: Mapped[int | None] = mapped_column(ForeignKey("ledger_txns.id", ondelete="RESTRICT"))
     idempotency_key: Mapped[str | None] = mapped_column(String(120), unique=True)
@@ -527,8 +577,6 @@ class Ticket(UUIDMixin, TimestampMixin, Base):
     fight: Mapped[Fight] = relationship()
     event: Mapped[Event] = relationship()
     player: Mapped[Player | None] = relationship()
-    station: Mapped[Station | None] = relationship()
-    teller: Mapped[User | None] = relationship(foreign_keys=[teller_id])
 
     __table_args__ = (
         CheckConstraint("stake_cents > 0", name="stake_positive"),
@@ -577,6 +625,8 @@ class Commission(TimestampMixin, Base):
     rate_bps: Mapped[int] = mapped_column(Integer)
     base_cents: Mapped[int] = mapped_column(Money)
     amount_cents: Mapped[int] = mapped_column(Money)
+    # Snapshot of the formula inputs/outputs for this line (pool, cuts, chain). Admin-only audit view.
+    calc: Mapped[dict | None] = mapped_column(JsonType)
     status: Mapped[CommissionStatus] = mapped_column(EnumStr(CommissionStatus, 12), default=CommissionStatus.UNCLAIMED, index=True)
     claimed_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
     claim_txn_id: Mapped[int | None] = mapped_column(ForeignKey("ledger_txns.id", ondelete="RESTRICT"))
@@ -602,6 +652,9 @@ class CashRequest(UUIDMixin, TimestampMixin, Base):
     direction: Mapped[RequestDirection] = mapped_column(EnumStr(RequestDirection, 4), index=True)
     method: Mapped[str] = mapped_column(String(12), default="gcash")
     amount_cents: Mapped[int] = mapped_column(Money)
+    # For an agent subject: which balance the request moves. 'commission' (the original behaviour:
+    # a commission withdrawal) or 'wallet' (the agent's own credit: load / cash-out from the Wallet).
+    target: Mapped[str] = mapped_column(String(12), default="commission", server_default="commission", nullable=False)
     reference: Mapped[str | None] = mapped_column(String(64))
     status: Mapped[RequestStatus] = mapped_column(EnumStr(RequestStatus, 12), default=RequestStatus.PENDING, index=True)
     reviewed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
@@ -642,7 +695,7 @@ class EventExpense(TimestampMixin, Base):
 
 
 class ChatMessage(Base):
-    """Staff chat box (admin <-> tellers)."""
+    """Staff chat box (admin <-> master)."""
     __tablename__ = "chat_messages"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -706,6 +759,9 @@ class ReferralCode(Base):
     code: Mapped[str] = mapped_column(String(16), unique=True, index=True)
     role: Mapped[str] = mapped_column(String(16))
     issuer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    # Only for codes the Admin issues: who the new account reports to (Cavo -> a Master,
+    # Kubrador -> a Cavo, Player -> a Kubrador). Empty = directly under the issuer.
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     note: Mapped[str | None] = mapped_column(String(120))
     created_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow)
     expires_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), index=True)
@@ -715,6 +771,7 @@ class ReferralCode(Base):
 
     issuer: Mapped["User"] = relationship(foreign_keys=[issuer_id])
     used_by: Mapped["User | None"] = relationship(foreign_keys=[used_by_id])
+    parent: Mapped["User | None"] = relationship(foreign_keys=[parent_id])
 
     def status(self, now: dt.datetime | None = None) -> str:
         now = now or utcnow()

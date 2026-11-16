@@ -2,8 +2,9 @@
 {% import "_macros.html" as ui %}
 {% block title %}Ledger integrity · {{ brand }}{% endblock %}
 {% block heading %}Ledger integrity{% endblock %}
-{% block actions %}<a class="btn" href="/audit">Audit log</a>{% endblock %}
+{% block actions %}<a class="btn" href="/admin/audit">Audit log</a>{% endblock %}
 {% block content %}
+{% include "_panel_nav.html" %}
 <div class="alert alert-{{ 'success' if report.ok else 'danger' }}" role="status">
   {% if report.ok %}All checks passed across {{ report.accounts }} accounts: every transaction balances, cached balances match the ledger, and the trial balance reconciles.
   {% else %}<strong>Integrity problems detected.</strong> Do not approve settlements until these are investigated.{% endif %}

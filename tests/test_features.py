@@ -8,8 +8,8 @@ from tests.conftest import PASSWORD
 
 
 def sell(w, game, side, cents):
-    return betting.place_bet(w.db, w.teller, fight_id=game.id, side=side, stake_cents=cents,
-                             settings=w.store, station=w.station, funded_by="cash")
+    return betting.place_bet(w.db, w.admin, fight_id=game.id, side=side, stake_cents=cents,
+                             settings=w.store, player_id=w.player.id)
 
 
 def declare(w, game, result):
@@ -81,33 +81,40 @@ def test_llamado_dehado(world):
     assert events.role_of(g, "wala") == "Llamado" and events.role_of(g, "meron") == "Dehado"
 
 
-def test_claim_once_and_unclaimed_figure(world):
+def test_winnings_are_credited_to_the_player_automatically(world):
     g = world.games[0]
+    before = players.wallet(world.db, world.player).balance_cents
     winner = sell(world, g, Side.MERON, 10000); sell(world, g, Side.WALA, 10000)
     declare(world, g, Result.MERON)
-    assert betting.claim_status(winner) == "pending"
-    assert reports.fight_figures(world.db, g)["unclaimed"] == winner.payout_cents
-    betting.claim_ticket(world.db, world.teller, ticket_id=winner.id)
-    assert reports.fight_figures(world.db, g)["unclaimed"] == 0
-    with pytest.raises(Conflict):
-        betting.claim_ticket(world.db, world.teller, ticket_id=winner.id)
+    world.db.refresh(winner)
+    after = players.wallet(world.db, world.player).balance_cents
+    # both stakes were taken; only the winner's payout comes back
+    assert after == before - 20000 + winner.payout_cents
 
 
-def test_claim_rejects_unsettled_and_losing(world):
+def test_cash_is_not_a_payment_method(world):
+    from app.db.models import RequestDirection
+    from app.services import cashdesk
     g = world.games[0]
-    open_t = sell(world, g, Side.MERON, 10000); loser = sell(world, g, Side.WALA, 10000)
-    with pytest.raises(LockedState):
-        betting.claim_ticket(world.db, world.teller, ticket_id=open_t.id)
-    declare(world, g, Result.MERON)
-    with pytest.raises(LockedState):
-        betting.claim_ticket(world.db, world.teller, ticket_id=loser.id)
+    with pytest.raises(ValidationError):
+        betting.place_bet(world.db, world.admin, fight_id=g.id, side=Side.MERON, stake_cents=2000,
+                          settings=world.store, player_id=world.player.id, funded_by="cash")
+    with pytest.raises(ValidationError):
+        betting.place_bet(world.db, world.admin, fight_id=g.id, side=Side.MERON, stake_cents=2000,
+                          settings=world.store)                    # no player, no walk-in cash
+    with pytest.raises(ValidationError):
+        cashdesk.create_request(world.db, world.admin, direction=RequestDirection.IN,
+                                amount_cents=5000, settings=world.store, player_id=world.player.id,
+                                method="cash")
 
 
-def test_scan_accepts_code_or_link(world):
-    g = world.games[0]
-    t = sell(world, g, Side.MERON, 2000)
-    assert betting.find_by_scan(world.db, t.code.lower()).id == t.id
-    assert betting.find_by_scan(world.db, f"https://x.test/tickets/{t.id}").id == t.id
+def test_teller_role_is_retired(world):
+    from app.core.rbac import can_create_role, permissions_for
+    assert permissions_for(Role.TELLER) == set()
+    assert not can_create_role(world.admin, Role.TELLER)
+    with pytest.raises(Exception):
+        agents.create_agent(world.db, world.admin, username=f"t{world.tag}", password=PASSWORD,
+                            role=Role.TELLER, full_name="T", settings=world.store)
 
 
 def test_cancel_event_refunds_and_blocks_reopen(world):
@@ -140,15 +147,14 @@ def test_event_expenses_feed_net_income(world):
 
 
 def test_withdrawal_switch_blocks_cash_out(world):
-    import datetime as dt
-    p = players.register_card_player(world.db, world.admin, card_number=f"CARD{world.tag}",
-                                     full_name="Player", birth_date=dt.date(1990, 1, 1),
-                                     settings=world.store, agent_id=None)
+    from app.db.models import RequestDirection
+    from app.services import cashdesk
     world.store.set("wallet.withdrawals_enabled", "false", world.admin.id)
     try:
         with pytest.raises(LockedState):
-            players.counter_cash(world.db, world.admin, player_id=p.id, amount_cents=5000,
-                                 direction="out", settings=world.store)
+            cashdesk.create_request(world.db, world.admin, direction=RequestDirection.OUT,
+                                    amount_cents=5000, settings=world.store,
+                                    player_id=world.player.id, method="gcash")
     finally:
         world.store.set("wallet.withdrawals_enabled", "true", world.admin.id)
 

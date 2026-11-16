@@ -1,10 +1,15 @@
-
 .env
+.env.*
+!.env.example
 dev.db*
-var/
-.venv/
-requirements.lock
-
-# Python bytecode
+*.db
+*.db-*
+*.sqlite3
+*.tar.gz
 __pycache__/
-*.py[cod]
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+backups/
+var/

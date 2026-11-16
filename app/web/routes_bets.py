@@ -4,12 +4,11 @@ import io
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
 
 from app.core.errors import ValidationError
 from app.core.money import to_cents
 from app.core.rbac import Perm
-from app.db.models import Side, Station, TicketStatus
+from app.db.models import Side, TicketStatus
 from app.services import betting, events
 from app.web.deps import Ctx, form_data, flash_redirect, render, require_ctx
 
@@ -53,11 +52,6 @@ async def place_bet(request: Request, ctx: Ctx = Depends(require_ctx)):
     data = await form_data(request)
     fight_id = _int(data.get("fight_id"))
     fight = events.get_fight(ctx.db, fight_id)
-    station = None
-    if data.get("station_id"):
-        station = ctx.db.get(Station, _int(data.get("station_id")))
-    if station is None:
-        station = ctx.db.scalar(select(Station).where(Station.user_id == ctx.user.id))
     try:
         side = Side(data.get("side", ""))
     except ValueError as exc:
@@ -66,8 +60,8 @@ async def place_bet(request: Request, ctx: Ctx = Depends(require_ctx)):
     ticket = betting.place_bet(
         ctx.db, ctx.user, fight_id=fight_id, side=side,
         stake_cents=to_cents(data.get("amount", "0")), settings=ctx.store,
-        player_id=_int(data.get("player_id")) or None, station=station,
-        funded_by=data.get("funded_by", "wallet"), is_diy=data.get("is_diy") == "1",
+        player_id=_int(data.get("player_id")) or None,
+        is_diy=data.get("is_diy") == "1",
         idempotency_key=data.get("idempotency_key") or None,
         numbers=data.get("numbers"), kubrador=data.get("kubrador"), cavo=data.get("cavo"),
         ip=ctx.ip,

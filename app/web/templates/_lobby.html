@@ -1,0 +1,51 @@
+{# Clickable boxes. Two macros: event cards (the lobby) and numbered game tiles (inside an event). #}
+
+{% macro event_cards(rows, stats, base) %}
+<div class="lobby-filter" role="group" aria-label="Filter events" data-lobby-filter>
+  <button type="button" class="chip-btn is-on" data-f="all">All <b>{{ rows | length }}</b></button>
+  {% for st in ['open', 'draft', 'closed', 'canceled'] %}
+  {% set n = rows | selectattr('status.value', 'equalto', st) | list | length %}
+  {% if n %}<button type="button" class="chip-btn" data-f="{{ st }}">{{ st | capitalize }} <b>{{ n }}</b></button>{% endif %}
+  {% endfor %}
+</div>
+<div class="lobby-grid" data-lobby>
+  {% for e in rows %}
+  {% set s = stats[e.id] %}
+  {% set pic = e.location.image_url if e.location else none %}
+  <a class="lobby-card st-{{ e.status.value }}{{ ' has-img' if pic }}" data-status="{{ e.status.value }}" href="{{ base }}{{ e.id }}"{% if pic %} style="--card-img: url('{{ pic }}')"{% endif %}>
+    <div class="lobby-top">
+      <span class="lobby-status">{{ e.status.value | upper }}</span>
+      {% if s.live and e.status.value == 'open' %}<span class="lobby-live"><i></i>Game {{ s.live }} up next</span>{% endif %}
+    </div>
+    <h3>{{ e.title }}</h3>
+    <div class="lobby-where">
+      <svg class="ico"><use href="#i-target"/></svg>{{ e.location.name if e.location else 'No location' }}{% if e.location and e.location.city %} · {{ e.location.city }}{% endif %}
+    </div>
+    <div class="lobby-date"><svg class="ico"><use href="#i-calendar"/></svg>{{ e.event_date | date }}</div>
+    <div class="lobby-bar" title="{{ s.settled + s.void }} of {{ s.total }} games finished"><i style="width: {{ s.pct }}%"></i></div>
+    <div class="lobby-nums">
+      <span><b>{{ s.total }}</b> games</span>
+      <span class="n-open"><b>{{ s.open }}</b> open</span>
+      <span class="n-locked"><b>{{ s.locked }}</b> locked</span>
+      <span class="n-done"><b>{{ s.settled + s.void }}</b> done</span>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% endmacro %}
+
+{% macro game_tiles(fights, event_id, active_id=0) %}
+<div class="game-tiles">
+  {% for f in fights %}
+  {% set res = f.result.value if f.result else '' %}
+  <a class="game-tile st-{{ f.status.value }}{{ ' res-' ~ res if res }}{{ ' is-active' if f.id == active_id }}"
+     href="/change_name?event_id={{ event_id }}&fight_id={{ f.id }}"
+     title="Game {{ f.number }} · {{ f.entry_name_meron }} vs {{ f.entry_name_wala }} · {{ res | upper if res else f.status.value | upper }}">
+    <b>{{ f.number }}</b>
+    <span class="tile-state">{% if res %}{{ res | upper }}{% else %}{{ f.status.value | upper }}{% endif %}</span>
+    <small>{{ f.entry_name_meron }} / {{ f.entry_name_wala }}</small>
+    {% if f.proof_file %}<svg class="ico tile-cam" aria-label="Result picture attached"><use href="#i-eye"/></svg>{% endif %}
+  </a>
+  {% endfor %}
+</div>
+{% endmacro %}

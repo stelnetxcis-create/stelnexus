@@ -12,11 +12,12 @@ from __future__ import annotations
 import datetime as dt
 import re
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core import audit
-from app.core.errors import Conflict, LockedState, NotFound, ValidationError
+from app.core.errors import Conflict, Forbidden, LockedState, NotFound, ValidationError
+from app.core.rbac import Perm, has_perm
 from app.core.settings_registry import SettingsStore
 from app.db.models import (
     BetMode,
@@ -37,14 +38,36 @@ NAME_RE = re.compile(r"^[\w\s.'&/#-]{1,80}$", re.UNICODE)
 def create_event(
     db: Session, actor: User, *, title: str, event_date: dt.date, settings: SettingsStore,
     fight_count: int | None = None, payout_model: PayoutModel | None = None,
-    house_cut_bps: int | None = None,
+    house_cut_bps: int | None = None, location_id: int | None = None,
 ) -> Event:
+    """Only Master and Admin create events. The location (if any) supplies defaults for
+    whatever the form left blank: games, payout model, tong."""
+    if not has_perm(actor, Perm.EVENTS_CREATE):
+        raise Forbidden("Only a Master or the Admin can create an event.")
     title = title.strip()
     if not title or len(title) > 120:
         raise ValidationError("Event title is required (max 120 characters).")
+
+    from app.db.models import Location
+    location = None
+    if location_id:
+        location = db.get(Location, location_id)
+        if location is None or not location.is_active:
+            raise ValidationError("Choose an active location.")
+    elif settings.get("event.require_location") and db.scalar(
+            select(Location.id).where(Location.is_active.is_(True)).limit(1)):
+        raise ValidationError("Choose the location this event is held at.")
+    if location is not None:
+        if not fight_count and location.default_fight_count:
+            fight_count = location.default_fight_count
+        if payout_model is None and location.default_payout_model:
+            payout_model = PayoutModel(location.default_payout_model)
+        if house_cut_bps is None and location.default_house_cut_bps is not None:
+            house_cut_bps = location.default_house_cut_bps
+
     count = int(fight_count or settings.get("event.default_fight_count"))
     if not 1 <= count <= 200:
-        raise ValidationError("Game count must be between 1 and 200.")
+        raise ValidationError("Fight count must be between 1 and 200.")
     if event_date < dt.date.today() - dt.timedelta(days=365):
         raise ValidationError("Event date is too far in the past.")
     if house_cut_bps is not None and not 0 <= house_cut_bps <= 10000:
@@ -55,6 +78,7 @@ def create_event(
         status=EventStatus.DRAFT,
         payout_model=payout_model or PayoutModel(str(settings.get("payout.model"))),
         house_cut_bps=house_cut_bps, created_by_id=actor.id,
+        location_id=location.id if location else None,
     )
     db.add(event)
     db.flush()
@@ -66,7 +90,8 @@ def create_event(
         accounts.pool_for_fight(db, fight)
     audit.record(db, actor, "event.create", entity_type="event", entity_id=event.id,
                  after={"title": title, "date": event_date, "fights": count,
-                        "model": event.payout_model, "house_cut_bps": house_cut_bps})
+                        "model": event.payout_model, "house_cut_bps": house_cut_bps,
+                        "location": location.name if location else None})
     return event
 
 
@@ -77,6 +102,30 @@ def list_events(db: Session, *, limit: int = 50, offset: int = 0,
         stmt = stmt.where(Event.status == status)
     return list(db.scalars(stmt.order_by(Event.event_date.desc(), Event.id.desc())
                            .limit(min(limit, 200)).offset(max(offset, 0))).all())
+
+
+def lobby_stats(db: Session, event_ids: list[int]) -> dict[int, dict]:
+    """Per-event numbers for the lobby boxes: how many games are open / locked / done, and which
+    game is up next (the lowest-numbered game that is still open or locked)."""
+    stats = {i: {"total": 0, "open": 0, "locked": 0, "settled": 0, "void": 0, "live": None, "pct": 0}
+             for i in event_ids}
+    if not event_ids:
+        return stats
+    for event_id, status, count in db.execute(
+            select(Fight.event_id, Fight.status, func.count(Fight.id))
+            .where(Fight.event_id.in_(event_ids)).group_by(Fight.event_id, Fight.status)).all():
+        row = stats[event_id]
+        row[FightStatus(status).value] += int(count)
+        row["total"] += int(count)
+    for event_id, number in db.execute(
+            select(Fight.event_id, func.min(Fight.number))
+            .where(Fight.event_id.in_(event_ids), Fight.status.in_([FightStatus.OPEN, FightStatus.LOCKED]))
+            .group_by(Fight.event_id)).all():
+        stats[event_id]["live"] = number
+    for row in stats.values():
+        done = row["settled"] + row["void"]
+        row["pct"] = round(done / row["total"] * 100) if row["total"] else 0
+    return stats
 
 
 def get_event(db: Session, event_id: int) -> Event:
@@ -116,7 +165,7 @@ def set_event_status(db: Session, actor: User, event_id: int, status: EventStatu
                      if f.status in (FightStatus.OPEN, FightStatus.LOCKED)
                      and _has_stakes(db, f)]
         if unsettled:
-            raise LockedState(f"Games with unsettled bets: {', '.join(map(str, unsettled[:10]))}.")
+            raise LockedState(f"Fights with unsettled bets: {', '.join(map(str, unsettled[:10]))}.")
     event.status = status
     db.flush()
     audit.record(db, actor, "event.status", entity_type="event", entity_id=event.id,
@@ -148,7 +197,7 @@ def rename_entries(db: Session, actor: User, fight_id: int, *, meron: str, wala:
 def set_fixed_odds(db: Session, actor: User, fight_id: int, *, meron_bps: int, wala_bps: int) -> Fight:
     fight = get_fight(db, fight_id)
     if fight.status == FightStatus.SETTLED:
-        raise LockedState("This game is already settled.")
+        raise LockedState("This fight is already settled.")
     for value in (meron_bps, wala_bps):
         if not 10000 <= value <= 1000000:
             raise ValidationError("Odds must be between 1.00x and 100.00x (10000-1000000 bps).")
@@ -163,7 +212,7 @@ def set_fixed_odds(db: Session, actor: User, fight_id: int, *, meron_bps: int, w
 def lock_fight(db: Session, actor: User, fight_id: int, locked: bool = True) -> Fight:
     fight = get_fight(db, fight_id)
     if fight.status == FightStatus.SETTLED:
-        raise LockedState("A settled game cannot be re-opened for betting; use Redeclare.")
+        raise LockedState("A settled fight cannot be re-opened for betting; use Redeclare.")
     if fight.status == FightStatus.VOID:
         raise LockedState("This game is void.")
     before = {"status": fight.status}
@@ -190,7 +239,7 @@ def set_bet_mode(db: Session, actor: User, fight_id: int, mode: str) -> Fight:
     except ValueError as exc:
         raise ValidationError("Choose All, Meron only or Wala only.") from exc
     if fight.status in (FightStatus.SETTLED, FightStatus.VOID):
-        raise LockedState("This game is finished.")
+        raise LockedState("This fight is finished.")
     before = {"bet_mode": fight.bet_mode}
     fight.bet_mode = mode
     db.flush()

@@ -3,21 +3,78 @@
 {% block title %}Dashboard · {{ brand }}{% endblock %}
 {% block heading %}Dashboard{% endblock %}
 {% block actions %}
-<button class="btn btn-sm btn-ghost" data-install hidden>Install app</button>
-{% if 'events.manage' in perms %}<a class="btn btn-sm btn-brand" href="/events"><svg class="ico"><use href="#i-plus"/></svg>New event</a>{% endif %}
+{% if 'events.manage' in perms %}<a class="btn btn-sm btn-brand" href="/events" title="New event"><svg class="ico"><use href="#i-plus"/></svg><span class="lbl">New event</span></a>{% endif %}
 {% endblock %}
+
+{% macro kpi(icon, label, value, hint='', tone='', delta=none) %}
+<div class="kpi {{ tone }}">
+  <span class="kpi-ico"><svg class="ico"><use href="#{{ icon }}"/></svg></span>
+  <div class="kpi-body">
+    <span class="kpi-label">{{ label }}</span>
+    <strong class="stat-value kpi-value">{{ value }}</strong>
+    <span class="kpi-hint">{{ hint }}{% if delta is not none %} <i class="delta {{ 'up' if delta >= 0 else 'down' }}">{{ '▲' if delta >= 0 else '▼' }} {{ delta | abs }}%</i>{% endif %}</span>
+  </div>
+</div>
+{% endmacro %}
+
+{% macro volume(series) %}
+{% set top = [series | map(attribute='stake') | max, series | map(attribute='payout') | max] | max %}
+<div class="vol" role="img" aria-label="Stake and payout for the last 7 days">
+  {% for point in series %}
+  <div class="vol-col {{ 'is-today' if loop.last }}" title="{{ point.day }} · stake {{ point.stake | money }} · payout {{ point.payout | money }} · {{ point.tickets }} tickets">
+    <div class="vol-bars">
+      <i class="vol-stake" style="height: {{ (point.stake / top * 100) if top else 0 }}%"></i>
+      <i class="vol-pay" style="height: {{ (point.payout / top * 100) if top else 0 }}%"></i>
+    </div>
+    <small>{{ point.day[5:] }}</small>
+  </div>
+  {% endfor %}
+</div>
+<div class="vol-legend"><span><i class="vol-stake"></i>Stake</span><span><i class="vol-pay"></i>Payout</span></div>
+{% endmacro %}
+
 {% block content %}
 
-<div class="grid grid-4">
-  {{ ui.stat('Stake today', stats.stake_today | money, stats.tickets_today ~ ' tickets sold', 'dark') }}
-  {{ ui.stat('Open games', stats.open_fights, stats.events ~ ' events on file') }}
-  {{ ui.stat('Player balances', stats.cashflow.player_balances | money, 'owed to players', 'blue') }}
-  {{ ui.stat('House revenue', stats.cashflow.house_revenue | money, 'tong + rounding', 'green') }}
+<section class="hero">
+  <div class="hero-text">
+    <p class="hero-kicker" data-today>{{ now | date }}</p>
+    <h2><span data-greet>Welcome</span>, {{ (user.full_name or user.username).split()[0] }}</h2>
+    <p class="muted">
+      {{ stats.open_fights }} game{{ '' if stats.open_fights == 1 else 's' }} open
+      · {{ stats.tickets_today }} ticket{{ '' if stats.tickets_today == 1 else 's' }} sold today
+      {% if stats.locked_fights %}· <b class="hero-warn">{{ stats.locked_fights }} waiting for a result</b>{% endif %}
+    </p>
+  </div>
+  <div class="hero-actions">
+    {% if 'bets.place' in perms %}<a class="btn btn-sm btn-brand" href="/events"><svg class="ico"><use href="#i-list"/></svg>Sell ticket</a>{% endif %}
+    {% if 'fights.view' in perms %}<a class="btn btn-sm" href="/change_name"><svg class="ico"><use href="#i-target"/></svg>Fight view</a>{% endif %}
+    {% if 'requests.review' in perms %}<a class="btn btn-sm" href="/wallet?t=approvals"><svg class="ico"><use href="#i-check"/></svg>Review requests{% if stats.pending_requests %}<span class="pill">{{ stats.pending_requests }}</span>{% endif %}</a>{% endif %}
+    {% if 'wallet.view' in perms %}<a class="btn btn-sm" href="/wallet"><svg class="ico"><use href="#i-coins"/></svg>Wallet</a>{% endif %}
+  </div>
+</section>
+
+<div class="kpis">
+{% if mine %}
+  {{ kpi('i-coins', 'My credit', mine.credit | money, 'available credit', 'gold') }}
+  {{ kpi('i-users', 'My agents', mine.downline, 'in my downline') }}
+  {{ kpi('i-card', 'My players', mine.players, 'in my network') }}
+  {{ kpi('i-target', 'Open games', stats.open_fights, stats.events ~ ' events on file') }}
+{% elif show_money %}
+  {{ kpi('i-chart', 'Stake today', stats.stake_today | money, stats.tickets_today ~ ' tickets sold', 'gold', stats.stake_delta_pct) }}
+  {{ kpi('i-coins', 'Player balances', stats.cashflow.player_balances | money, 'owed to players', 'blue') }}
+  {{ kpi('i-shield', 'House revenue', stats.cashflow.house_revenue | money, 'tong + rounding', 'green') }}
+  {{ kpi('i-target', 'Open games', stats.open_fights, stats.locked_fights ~ ' locked · ' ~ stats.events ~ ' events') }}
+{% else %}
+  {{ kpi('i-target', 'Open games', stats.open_fights, stats.events ~ ' events on file', 'gold') }}
+  {{ kpi('i-lock', 'Awaiting result', stats.locked_fights, 'locked, not yet declared', 'amber' if stats.locked_fights else '') }}
+  {{ kpi('i-list', 'Tickets today', stats.tickets_today, 'sold since midnight') }}
+  {{ kpi('i-users', 'Agents', stats.active_agents ~ ' / ' ~ stats.agents, 'active / total', 'green') }}
+{% endif %}
 </div>
 
 {% if pending and 'fights.approve' in perms %}
-<div class="card">
-  <div class="card-head"><h2>Corrections awaiting a second admin</h2>{{ ui.badge(pending|length ~ ' pending', 'amber') }}</div>
+<div class="card" id="corrections">
+  <div class="card-head"><h2>Corrections awaiting a second approver</h2>{{ ui.badge(pending|length ~ ' pending', 'amber') }}</div>
   <div class="card-body tight">
     <div class="table-wrap"><table class="table">
       <thead><tr><th>Game</th><th>Action</th><th>New result</th><th>Requested by</th><th>Reason</th><th class="right">Decision</th></tr></thead>
@@ -50,76 +107,105 @@
 </div>
 {% endif %}
 
-<div class="split">
-  <div class="card">
-    <div class="card-head"><h2>Last 7 days · stake volume</h2><a class="btn btn-sm btn-ghost" href="/cashflow">Cashflow →</a></div>
-    <div class="card-body">
-      {{ ui.chart(stats.series, 'stake', 110) }}
-      <div class="hr"></div>
-      <div class="grid grid-2">
-        {{ ui.stat('Load (all time)', stats.cashflow.cash_in | money, '', 'green') }}
-        {{ ui.stat('Cash out (all time)', stats.cashflow.cash_out | money, '', 'red') }}
+<div class="dash-grid">
+  <div class="dash-col">
+    {% if show_money and not mine %}
+    <div class="card">
+      <div class="card-head"><h2>Last 7 days</h2><a class="btn btn-sm btn-ghost" href="/cashflow">Cashflow →</a></div>
+      <div class="card-body">
+        {{ volume(stats.series) }}
+        <div class="mini-stats">
+          <div><span>Week stake</span><strong>{{ stats.week_total | money }}</strong></div>
+          <div><span>Daily average</span><strong>{{ stats.week_avg | money }}</strong></div>
+          <div><span>Best day</span><strong>{{ stats.week_best.day[5:] if stats.week_best else '—' }}</strong></div>
+          <div><span>Load · all time</span><strong class="amt-in">{{ stats.cashflow.cash_in | money }}</strong></div>
+          <div><span>Cash out · all time</span><strong class="amt-out">{{ stats.cashflow.cash_out | money }}</strong></div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card">
+      <div class="card-head"><h2>Live games</h2>{% if 'fights.view' in perms %}<a class="btn btn-sm btn-ghost" href="/change_name">Fight view →</a>{% endif %}</div>
+      <div class="card-body tight">
+        {% if stats.live_fights %}
+        <ul class="live-list">
+          {% for f in stats.live_fights %}
+          <li>
+            <span class="live-no">#{{ f.number }}</span>
+            <div class="live-main">
+              <div class="live-vs"><b class="side-meron">{{ f.meron }}</b><em>vs</em><b class="side-wala">{{ f.wala }}</b></div>
+              <small class="muted">{{ f.event_title }}</small>
+            </div>
+            {{ ui.status_badge(f.status) }}
+            {% if 'fights.view' in perms %}<a class="btn btn-sm" href="/change_name?event_id={{ f.event_id }}&fight_id={{ f.id }}">Open</a>{% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}{{ ui.empty('No games are open right now.') }}{% endif %}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Recent events</h2><a class="btn btn-sm btn-ghost" href="/events">All events →</a></div>
+      <div class="card-body tight">
+        {% if recent_events %}
+        <div class="table-wrap"><table class="table">
+          <thead><tr><th>Event</th><th>Date</th><th>Games</th><th>Model</th><th>Status</th></tr></thead>
+          <tbody>
+          {% for event in recent_events %}
+            <tr>
+              <td><a href="/events/{{ event.id }}">{{ event.title }}</a></td>
+              <td class="nowrap">{{ event.event_date | date }}</td>
+              <td class="num">{{ event.fight_count }}</td>
+              <td>{{ ui.badge(event.payout_model) }}</td>
+              <td>{{ ui.status_badge(event.status) }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table></div>
+        {% else %}{{ ui.empty('No events yet. Create one to open betting.') }}{% endif %}
       </div>
     </div>
   </div>
 
-  <div class="card">
-    <div class="card-head"><h2>Operations</h2></div>
-    <div class="card-body">
-      <div class="grid grid-2">
-        {{ ui.stat('Pending cash requests', stats.pending_requests, 'awaiting admin', 'amber' if stats.pending_requests else '') }}
-        {{ ui.stat('Pending corrections', stats.pending_corrections, 'maker-checker', 'amber' if stats.pending_corrections else '') }}
-        {{ ui.stat('Players', stats.players, 'card + online') }}
-        {{ ui.stat('Agents', stats.active_agents ~ ' / ' ~ stats.agents, 'active / total') }}
+  <div class="dash-col">
+    {% if attention %}
+    <div class="card">
+      <div class="card-head"><h2>Needs attention</h2></div>
+      <div class="card-body tight">
+        {% set open_items = attention | selectattr('count') | list %}
+        {% if open_items %}
+        <ul class="todo-list">
+          {% for item in open_items %}
+          <li><a href="{{ item.href }}"><span>{{ item.label }}</span><b class="pill pill-{{ item.tone }}">{{ item.count }}</b></a></li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <div class="all-clear"><svg class="ico"><use href="#i-check"/></svg>All clear. Nothing is waiting on you.</div>
+        {% endif %}
       </div>
-      <div class="hr"></div>
-      <div class="table-actions">
-        {% if 'requests.view' in perms %}<a class="btn btn-sm" href="/cashin_out">Review requests</a>{% endif %}
-        {% if 'players.cash' in perms %}<a class="btn btn-sm" href="/clp">Cash desk</a>{% endif %}
-        {% if 'bets.place' in perms %}<a class="btn btn-sm" href="/events">Sell ticket</a>{% endif %}
-        {% if 'audit.view' in perms %}<a class="btn btn-sm" href="/integrity">Ledger integrity</a>{% endif %}
+    </div>
+    {% endif %}
+
+    {% if top_agents %}
+    <div class="card">
+      <div class="card-head"><h2>Top earning agents</h2></div>
+      <div class="card-body">
+        {% set best = top_agents[0].earned or 1 %}
+        <ul class="rank-list">
+          {% for row in top_agents %}
+          <li>
+            <div class="rank-head"><span class="rank-no">{{ loop.index }}</span><b>{{ row.username }}</b>{{ ui.badge(row.role) }}<span class="rank-val num">{{ row.earned | money }}</span></div>
+            <div class="rank-bar"><i style="width: {{ (row.earned / best * 100) | round(0) | int }}%"></i></div>
+          </li>
+          {% endfor %}
+        </ul>
       </div>
     </div>
+    {% endif %}
   </div>
-</div>
-
-<div class="split">
-  <div class="card">
-    <div class="card-head"><h2>Recent events</h2><a class="btn btn-sm btn-ghost" href="/events">All events →</a></div>
-    <div class="card-body tight">
-      {% if recent_events %}
-      <div class="table-wrap"><table class="table">
-        <thead><tr><th>Event</th><th>Date</th><th>Games</th><th>Model</th><th>Status</th></tr></thead>
-        <tbody>
-        {% for event in recent_events %}
-          <tr>
-            <td><a href="/events/{{ event.id }}">{{ event.title }}</a></td>
-            <td class="nowrap">{{ event.event_date | date }}</td>
-            <td class="num">{{ event.fight_count }}</td>
-            <td>{{ ui.badge(event.payout_model) }}</td>
-            <td>{{ ui.status_badge(event.status) }}</td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table></div>
-      {% else %}{{ ui.empty('No events yet. Create one to open betting.') }}{% endif %}
-    </div>
-  </div>
-
-  {% if top_agents %}
-  <div class="card">
-    <div class="card-head"><h2>Top earning agents</h2></div>
-    <div class="card-body tight">
-      <div class="table-wrap"><table class="table">
-        <thead><tr><th>Agent</th><th>Tier</th><th class="right">Commission earned</th></tr></thead>
-        <tbody>
-        {% for row in top_agents %}
-          <tr><td>{{ row.username }}</td><td>{{ ui.badge(row.role) }}</td><td class="right num">{{ row.earned | money }}</td></tr>
-        {% endfor %}
-        </tbody>
-      </table></div>
-    </div>
-  </div>
-  {% endif %}
 </div>
 {% endblock %}
+
+{% block scripts %}<script src="/static/js/dash.js?v=fix2" defer></script>{% endblock %}

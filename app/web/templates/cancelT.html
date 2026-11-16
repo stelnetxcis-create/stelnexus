@@ -1,18 +1,18 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
 {% block title %}Cancelled Tickets · {{ brand }}{% endblock %}
-{% block heading %}Cancelled Tickets{% endblock %}
+{% block heading %}Ticket Logs{% endblock %}
 {% block content %}
 <div class="card">
   <div class="card-head"><h2>Cancel log</h2><span class="muted small">{{ rows | length }} cancelled tickets · every cancel refunds the stake</span></div>
   <div class="card-body tight">
     {% if rows %}
     <div class="table-wrap"><table class="table" data-table data-page-size="30">
-      <thead><tr><th>Teller</th><th>Code</th><th class="right">Amount</th><th>Side</th><th>Game #</th><th>Cancelled</th><th>By</th><th>Reason</th></tr></thead>
+      <thead><tr><th>Player</th><th>Code</th><th class="right">Amount</th><th>Side</th><th>Game #</th><th>Cancelled</th><th>By</th><th>Reason</th></tr></thead>
       <tbody>
       {% for ticket in rows %}
         <tr>
-          <td>{{ ticket.teller.username if ticket.teller else '—' }}</td>
+          <td>{{ ticket.player.full_name if ticket.player else '—' }}</td>
           <td class="mono"><a href="/tickets/{{ ticket.id }}">{{ ticket.code }}</a></td>
           <td class="right num">{{ ticket.stake_cents | money }}</td>
           <td>{{ ui.side_badge(ticket.side) }}</td>

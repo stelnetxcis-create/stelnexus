@@ -82,6 +82,7 @@
   size(); for (var i = 0; i < N; i++) P.push(spawn(0));
   addEventListener('resize', size, { passive: true });
   function draw(t) {
+    if (document.documentElement.classList.contains('modal-open')) { raf = requestAnimationFrame(draw); return; }
     ctx.clearRect(0, 0, W, H);
     for (var j = 0; j < N; j++) {
       var q = P[j]; q.y -= q.v; q.x += Math.sin(t / 2200 + q.p) * .25;

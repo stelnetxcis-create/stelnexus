@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Tanauan and Taal lake">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#10203a"/><stop offset=".6" stop-color="#2d6a7a"/><stop offset="1" stop-color="#f0b27a"/></linearGradient>
+    <radialGradient id="sun" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#ffe7a8" stop-opacity="1"/><stop offset="1" stop-color="#ffe7a8" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="800" height="400" fill="url(#sky)"/><circle cx="60" cy="40" r="1.4" fill="#fff" opacity=".7"/><circle cx="150" cy="80" r="1.1" fill="#fff" opacity=".7"/><circle cx="260" cy="30" r="1.5" fill="#fff" opacity=".7"/><circle cx="430" cy="56" r="1.2" fill="#fff" opacity=".7"/><circle cx="560" cy="26" r="1.4" fill="#fff" opacity=".7"/><circle cx="690" cy="70" r="1.1" fill="#fff" opacity=".7"/><circle cx="740" cy="34" r="1.5" fill="#fff" opacity=".7"/><circle cx="340" cy="90" r="1" fill="#fff" opacity=".7"/>
+  <circle cx="610" cy="215" r="150" fill="url(#sun)" opacity=".85"/>
+  <circle cx="610" cy="215" r="34" fill="#ffe7a8"/>
+  <path d="M300 262 L380 196 Q410 180 440 196 L520 262 Z" fill="#14363f"/>
+  <path d="M0 250 Q120 190 240 236 T470 226 T680 240 T800 214 V400 H0 Z" fill="#1f5a63"/>
+  <path d="M0 300 Q160 252 320 292 T620 286 T800 270 V400 H0 Z" fill="#143f48"/>
+  <rect y="338" width="800" height="62" fill="#0d2b33"/>
+  <g transform="translate(250,272)">
+    <ellipse cx="0" cy="60" rx="150" ry="12" fill="#000" opacity=".28"/>
+    <path d="M-140 60 L-120 -6 Q0 -52 120 -6 L140 60 Z" fill="#0b1f26"/>
+    <path d="M-120 -6 Q0 -52 120 -6 L112 6 Q0 -38 -112 6 Z" fill="#1a4a55" opacity=".9"/>
+    <g fill="#000" opacity=".35"><rect x="-104" y="18" width="14" height="36" rx="7"/><rect x="-78" y="18" width="14" height="36" rx="7"/><rect x="-52" y="18" width="14" height="36" rx="7"/><rect x="-26" y="18" width="14" height="36" rx="7"/><rect x="0" y="18" width="14" height="36" rx="7"/><rect x="26" y="18" width="14" height="36" rx="7"/><rect x="52" y="18" width="14" height="36" rx="7"/><rect x="78" y="18" width="14" height="36" rx="7"/><rect x="104" y="18" width="14" height="36" rx="7"/></g>
+    <rect x="-2" y="-78" width="4" height="44" fill="#0b1f26"/>
+    <path d="M2 -78 L34 -68 L2 -58 Z" fill="#1a4a55"/>
+  </g>
+  <g transform="translate(70,350) scale(1.0)" fill="#0b1a14">
+    <path d="M0 0 Q4 -50 -2 -96 L3 -96 Q10 -50 6 0 Z"/>
+    <path d="M0 -96 Q-40 -108 -62 -84 Q-30 -96 0 -90 Z"/><path d="M0 -96 Q40 -110 66 -86 Q34 -98 2 -90 Z"/>
+    <path d="M0 -96 Q-24 -130 -54 -128 Q-24 -118 -2 -92 Z"/><path d="M2 -96 Q28 -132 58 -128 Q28 -118 4 -92 Z"/></g><g transform="translate(740,356) scale(1.15)" fill="#0b1a14">
+    <path d="M0 0 Q4 -50 -2 -96 L3 -96 Q10 -50 6 0 Z"/>
+    <path d="M0 -96 Q-40 -108 -62 -84 Q-30 -96 0 -90 Z"/><path d="M0 -96 Q40 -110 66 -86 Q34 -98 2 -90 Z"/>
+    <path d="M0 -96 Q-24 -130 -54 -128 Q-24 -118 -2 -92 Z"/><path d="M2 -96 Q28 -132 58 -128 Q28 -118 4 -92 Z"/></g><g transform="translate(690,350) scale(0.8)" fill="#0b1a14">
+    <path d="M0 0 Q4 -50 -2 -96 L3 -96 Q10 -50 6 0 Z"/>
+    <path d="M0 -96 Q-40 -108 -62 -84 Q-30 -96 0 -90 Z"/><path d="M0 -96 Q40 -110 66 -86 Q34 -98 2 -90 Z"/>
+    <path d="M0 -96 Q-24 -130 -54 -128 Q-24 -118 -2 -92 Z"/><path d="M2 -96 Q28 -132 58 -128 Q28 -118 4 -92 Z"/></g>
+</svg>

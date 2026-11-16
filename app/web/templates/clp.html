@@ -1,18 +1,19 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
-{% block title %}Cashless Players · {{ brand }}{% endblock %}
-{% block heading %}Cashless Players{% endblock %}
+{% block title %}Players · {{ brand }}{% endblock %}
+{% block heading %}Players{% endblock %}
 {% block actions %}
 {% if 'players.create' in perms %}<button class="btn btn-sm btn-brand" data-modal="register-modal"><svg class="ico"><use href="#i-plus"/></svg>Register player</button>{% endif %}
 {% endblock %}
 {% block content %}
+{% if 'online.view' in perms %}<div class="subtabs"><a class="subtab is-active" href="/clp">Players</a><a class="subtab" href="/clp/online">Online now</a></div>{% endif %}
 
 <div class="card">
   <div class="card-head">
-    <h2>{{ 'Card players' if kind == 'card' else ('Online players' if kind == 'online' else 'All players') }}</h2>
+    <h2>{{ 'GCash accounts' if kind == 'online' else ('Card players (legacy)' if kind == 'card' else 'All players') }}</h2>
     <div class="table-tools">
+      <a class="chip" href="/clp?kind=online">GCash</a>
       <a class="chip" href="/clp?kind=card">Card</a>
-      <a class="chip" href="/clp?kind=online">Online</a>
       <a class="chip" href="/clp?kind=all">All</a>
       <form class="search" method="get" action="/clp">
         <input type="hidden" name="kind" value="{{ kind }}">
@@ -24,24 +25,20 @@
   <div class="card-body tight">
     {% if rows %}
     <div class="table-wrap"><table class="table" data-table data-page-size="25">
-      <thead><tr><th>Player</th><th>Card / Username</th><th>Type</th><th>Agent</th><th class="right">Load credit on card</th><th>Limit</th><th>Status</th><th>Registered</th><th class="right">Actions</th></tr></thead>
+      <thead><tr><th>Player</th><th>Username / Card</th><th>Type</th><th>Agent</th><th class="right">Credit</th><th>Limit</th><th>Status</th><th>Registered</th><th class="right">Actions</th></tr></thead>
       <tbody>
       {% for row in rows %}
         <tr>
           <td>{{ row.full_name }}</td>
-          <td class="mono">{{ row.card_number or row.username }}</td>
+          <td class="mono">{{ row.username or row.card_number }}</td>
           <td>{{ ui.badge(row.kind, 'blue' if row.kind.value == 'online' else 'slate') }}</td>
-          <td class="small">{{ row.agent.username if row.agent else '—' }}</td>
+          <td class="small">{{ who(row.agent) }}</td>
           <td class="right num" data-sort="{{ balances[row.id] }}">{{ balances[row.id] | money }}</td>
           <td class="small">{{ (row.daily_bet_limit_cents | money) if row.daily_bet_limit_cents else 'default' }}</td>
           <td>{{ ui.status_badge(row.status) }}{% if row.self_excluded_until %} {{ ui.badge('self-excluded', 'purple') }}{% endif %}</td>
           <td class="small nowrap">{{ row.created_at | date }}</td>
           <td class="right">
             <div class="table-actions" style="justify-content:flex-end">
-              {% if 'players.cash' in perms %}
-              <button class="btn btn-sm btn-primary" data-modal="cash-modal" data-player_id="{{ row.id }}" data-direction="in" data-label="{{ row.full_name }}">Cash in</button>
-              <button class="btn btn-sm" data-modal="cash-modal" data-player_id="{{ row.id }}" data-direction="out" data-label="{{ row.full_name }}">Cash out</button>
-              {% endif %}
               <a class="btn btn-sm btn-ghost" href="/clp/{{ row.id }}/history">History</a>
             </div>
           </td>
@@ -59,8 +56,8 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <label class="field"><span>Player type</span>
     <select name="kind" id="player-kind">
-      <option value="card">Cashless card player</option>
       <option value="online">Online (GCash) player</option>
+      <option value="card">Card player (legacy)</option>
     </select>
   </label>
   {{ ui.field('Card number', 'card_number', attrs='maxlength=64 placeholder="Tap your card here…" autocomplete=off') }}
@@ -84,19 +81,5 @@
 {% endcall %}
 {% endif %}
 
-{% if 'players.cash' in perms %}
-{% call ui.modal('cash-modal', 'Counter cash transaction') %}
-<form method="post" action="/clp/cash">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  {{ ui.idem() }}
-  <input type="hidden" name="player_id" data-fill="player_id">
-  <input type="hidden" name="direction" data-fill="direction">
-  <p>Player: <strong data-text="label"></strong> · direction <strong data-text="direction"></strong></p>
-  {{ ui.field('Amount (PHP)', 'amount', required=true, attrs='inputmode=decimal placeholder="500.00" autofocus') }}
-  {{ ui.field('Note', 'note', attrs='maxlength=200') }}
-  <p class="notice">Posts against {{ station.name if station else 'the central cash drawer' }} and the player load credit in one balanced transaction.</p>
-  <div class="form-actions"><button class="btn btn-primary" type="submit">Post transaction</button></div>
-</form>
-{% endcall %}
-{% endif %}
+
 {% endblock %}

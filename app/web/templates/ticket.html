@@ -17,18 +17,16 @@
     <div class="t-row"><span>Entry</span><span>{{ 'Draw' if ticket.side.value == 'draw' else (fight.entry_name_meron if ticket.side.value == 'meron' else fight.entry_name_wala) }}</span></div>
     <div class="t-row"><span>Amount</span><strong>{{ ticket.stake_cents | money }}</strong></div>
     <div class="t-row"><span>Est. payout</span><span>{{ ticket.est_payout_cents | money }}</span></div>
-    <div class="t-row"><span>Teller</span><span>{{ ticket.station.code if ticket.station else (ticket.teller.username if ticket.teller else '—') }}</span></div>
-    <div class="t-row"><span>Sold</span><span>{{ ticket.placed_at | datetime }}</span></div>
+    <div class="t-row"><span>Placed</span><span>{{ ticket.placed_at | datetime }}</span></div>
     {% if ticket.status.value != 'active' %}
     <div class="t-sep"></div>
     <div class="t-row"><span>Status</span><strong>{{ ticket.status.value | upper }}</strong></div>
-    {% if ticket.status.value in ('settled', 'refunded') and ticket.payout_cents %}<div class="t-row"><span>{{ 'Refund' if ticket.status.value == 'refunded' else 'Payout' }}</span><strong>{{ ticket.payout_cents | money }}</strong></div>
-    <div class="t-row"><span>Claim</span><span>{{ 'claimed ' ~ (ticket.claimed_at | datetime) if ticket.claimed_at else 'UNCLAIMED' }}</span></div>{% endif %}
+    {% if ticket.status.value in ('settled', 'refunded') and ticket.payout_cents %}<div class="t-row"><span>{{ 'Refund' if ticket.status.value == 'refunded' else 'Payout' }}</span><strong>{{ ticket.payout_cents | money }}</strong></div>{% endif %}
     {% endif %}
     <div class="t-sep"></div>
     <div class="t-qr">{{ qr | safe }}</div>
     <div class="t-code">{{ ticket.code }}</div>
-    <div class="t-sub">Present this ticket to claim. Cancelled if altered.</div>
+    <div class="t-sub">Winnings are credited to the player automatically.</div>
   </article>
 
   {% if ticket.status.value == 'active' and Perm.BETS_CANCEL.value in perms %}

@@ -1,6 +1,5 @@
 """Reporting. Every figure is derived from the ledger, so the cashflow page can
-never disagree with the wallets (the original summed three unrelated columns and
-hard-coded station ids 167-171)."""
+never disagree with the wallets."""
 from __future__ import annotations
 
 import datetime as dt
@@ -26,13 +25,12 @@ from app.db.models import (
     Role,
     SettlementRun,
     RunStatus,
-    Station,
     Status,
     Ticket,
     TicketStatus,
     User,
 )
-from app.services import accounts, ledger
+from app.services import ledger
 
 
 def _sum_kind(db: Session, kinds: list[str], cash_kinds: list[AccountKind], positive: bool) -> int:
@@ -57,20 +55,11 @@ def _kind_balance(db: Session, kind: AccountKind, *, players_only: bool = False,
 
 
 def cashflow(db: Session) -> dict:
-    cash_kinds = [AccountKind.STATION_CASH, AccountKind.CASH_ON_HAND, AccountKind.GCASH_CLEARING]
-    today = dt.datetime.now(dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    remit_today = int(db.scalar(
-        select(func.coalesce(func.sum(LedgerEntry.amount_cents), 0))
-        .join(LedgerTxn, LedgerTxn.id == LedgerEntry.txn_id)
-        .join(Account, Account.id == LedgerEntry.account_id)
-        .where(LedgerTxn.kind == "station.remit", LedgerTxn.created_at >= today,
-               Account.kind == AccountKind.CASH_ON_HAND, LedgerEntry.amount_cents > 0)
-    ) or 0)
-
+    """Online money only: loads and cash-outs approved through the request flow."""
+    online = [AccountKind.GCASH_CLEARING]
     return {
-        "cash_in": _sum_kind(db, ["cash.in", "request.in"], cash_kinds, True),
-        "cash_out": _sum_kind(db, ["cash.out", "request.out"], cash_kinds, False),
-        "cash_on_hand": _kind_balance(db, AccountKind.STATION_CASH) + _kind_balance(db, AccountKind.CASH_ON_HAND),
+        "cash_in": _sum_kind(db, ["request.in"], online, True),
+        "cash_out": _sum_kind(db, ["request.out"], online, False),
         "gcash_float": _kind_balance(db, AccountKind.GCASH_CLEARING),
         "player_balances": _kind_balance(db, AccountKind.WALLET, players_only=True),
         "agent_wallets": _kind_balance(db, AccountKind.WALLET, users_only=True),
@@ -78,22 +67,7 @@ def cashflow(db: Session) -> dict:
         "house_revenue": _kind_balance(db, AccountKind.HOUSE_REVENUE) + _kind_balance(db, AccountKind.ROUNDING),
         "commission_expense": _kind_balance(db, AccountKind.COMMISSION_EXPENSE),
         "pool_escrow": _kind_balance(db, AccountKind.FIGHT_POOL),
-        "remit_today": remit_today,
     }
-
-
-def stations(db: Session) -> list[dict]:
-    rows = list(db.scalars(select(Station).order_by(Station.code)).all())
-    out = []
-    for station in rows:
-        drawer = accounts.cash_for_station(db, station)
-        sold = int(db.scalar(select(func.coalesce(func.sum(Ticket.stake_cents), 0))
-                             .where(Ticket.station_id == station.id,
-                                    Ticket.status.in_([TicketStatus.ACTIVE, TicketStatus.SETTLED]))) or 0)
-        out.append({"station": station, "drawer": drawer.balance_cents, "sold": sold,
-                    "tickets": int(db.scalar(select(func.count(Ticket.id))
-                                             .where(Ticket.station_id == station.id)) or 0)})
-    return out
 
 
 def dashboard(db: Session, actor: User) -> dict:
@@ -112,13 +86,40 @@ def dashboard(db: Session, actor: User) -> dict:
         "pending_corrections": int(db.scalar(select(func.count(SettlementRun.id))
                                              .where(SettlementRun.status == RunStatus.PENDING)) or 0),
         "players": int(db.scalar(select(func.count(Player.id))) or 0),
-        "agents": int(db.scalar(select(func.count(User.id)).where(User.role != Role.TELLER)) or 0),
-        "active_agents": int(db.scalar(select(func.count(User.id))
-                                       .where(User.role != Role.TELLER, User.status == Status.ACTIVE)) or 0),
+        "agents": int(db.scalar(select(func.count(User.id)).where(
+            User.role.not_in([Role.TELLER, Role.ADMIN]))) or 0),
+        "active_agents": int(db.scalar(select(func.count(User.id)).where(
+            User.role.not_in([Role.TELLER, Role.ADMIN]), User.status == Status.ACTIVE)) or 0),
     }
+    stats["locked_fights"] = int(db.scalar(select(func.count(Fight.id)).where(
+        Fight.status == FightStatus.LOCKED)) or 0)
+    yesterday = today - dt.timedelta(days=1)
+    stats["stake_yesterday"] = int(db.scalar(select(func.coalesce(func.sum(Ticket.stake_cents), 0))
+                                             .where(Ticket.placed_at >= yesterday, Ticket.placed_at < today,
+                                                    Ticket.status != TicketStatus.CANCELED)) or 0)
+    stats["stake_delta_pct"] = (round((stats["stake_today"] - stats["stake_yesterday"]) * 100 / stats["stake_yesterday"])
+                                if stats["stake_yesterday"] else None)
+    stats["live_fights"] = live_fights(db)
     stats["cashflow"] = cashflow(db)
     stats["series"] = daily_series(db, days=7)
+    totals = [p["stake"] for p in stats["series"]]
+    stats["week_total"] = sum(totals)
+    stats["week_avg"] = sum(totals) // len(totals) if totals else 0
+    best = max(stats["series"], key=lambda p: p["stake"]) if stats["series"] else None
+    stats["week_best"] = best if best and best["stake"] > 0 else None
     return stats
+
+
+def live_fights(db: Session, limit: int = 6) -> list[dict]:
+    """Open and locked games, newest first: what is happening right now."""
+    rows = db.execute(
+        select(Fight.id, Fight.number, Fight.status, Fight.entry_name_meron, Fight.entry_name_wala,
+               Event.id.label("event_id"), Event.title.label("event_title"))
+        .join(Event, Event.id == Fight.event_id)
+        .where(Fight.status.in_([FightStatus.OPEN, FightStatus.LOCKED]))
+        .order_by(Fight.id.desc()).limit(limit)).all()
+    return [{"id": r.id, "number": r.number, "status": r.status, "meron": r.entry_name_meron,
+             "wala": r.entry_name_wala, "event_id": r.event_id, "event_title": r.event_title} for r in rows]
 
 
 def daily_series(db: Session, days: int = 7) -> list[dict]:
@@ -148,7 +149,7 @@ def agent_performance(db: Session, limit: int = 10) -> list[dict]:
         select(User.id, User.username, User.role,
                func.coalesce(func.sum(Commission.amount_cents), 0).label("earned"))
         .join(Commission, Commission.agent_id == User.id)
-        .where(Commission.status != CommissionStatus.REVERSED)
+        .where(Commission.status != CommissionStatus.REVERSED, User.role != Role.ADMIN)
         .group_by(User.id).order_by(func.sum(Commission.amount_cents).desc()).limit(limit)
     ).all()
     return [{"id": r.id, "username": r.username, "role": r.role, "earned": int(r.earned)} for r in rows]
@@ -163,29 +164,19 @@ def integrity(db: Session) -> dict:
 # ---------------------------------------------------------------------------
 
 def fight_figures(db: Session, fight: Fight) -> dict:
-    """Counter-side numbers for one fight.
+    """Numbers for one fight.
 
-    * unclaimed   -- cash tickets that won (or were refunded) but have not been paid at the counter
     * revolving   -- stakes still held on active tickets (money in play, not yet settled)
     * system_over -- what the house kept on the latest settlement (tong + remainder + lost draw stakes)
     * hidden_over -- the integer-division remainder inside system_over
     """
-    paid_states = [TicketStatus.SETTLED, TicketStatus.REFUNDED]
-    base = [Ticket.fight_id == fight.id, Ticket.status.in_(paid_states), Ticket.payout_cents > 0,
-            Ticket.funded_by == "cash"]
-    unclaimed, unclaimed_n = db.execute(
-        select(func.coalesce(func.sum(Ticket.payout_cents), 0), func.count(Ticket.id))
-        .where(*base, Ticket.claimed_at.is_(None))).one()
-    claimed = db.scalar(select(func.coalesce(func.sum(Ticket.payout_cents), 0))
-                        .where(*base, Ticket.claimed_at.is_not(None))) or 0
     revolving = db.scalar(select(func.coalesce(func.sum(Ticket.stake_cents), 0)).where(
         Ticket.fight_id == fight.id, Ticket.status == TicketStatus.ACTIVE)) or 0
     run = db.scalar(select(SettlementRun).where(
         SettlementRun.fight_id == fight.id, SettlementRun.status == RunStatus.APPLIED
     ).order_by(SettlementRun.version.desc()))
     totals = (run.totals or {}) if run else {}
-    return {"unclaimed": int(unclaimed), "unclaimed_count": int(unclaimed_n), "claimed": int(claimed),
-            "revolving": int(revolving), "system_over": int(totals.get("house_take", 0)),
+    return {"revolving": int(revolving), "system_over": int(totals.get("house_take", 0)),
             "hidden_over": int(totals.get("remainder", 0)),
             "auto_cancel": bool(totals.get("auto_cancel", False))}
 
@@ -205,12 +196,8 @@ def event_summary(db: Session, event_id: int) -> dict:
                                   Commission.status != CommissionStatus.REVERSED)) or 0
     expenses = db.scalar(select(func.coalesce(func.sum(EventExpense.amount_cents), 0))
                          .where(EventExpense.event_id == event_id)) or 0
-    unclaimed = db.scalar(select(func.coalesce(func.sum(Ticket.payout_cents), 0)).where(
-        Ticket.event_id == event_id, Ticket.status.in_([TicketStatus.SETTLED, TicketStatus.REFUNDED]),
-        Ticket.payout_cents > 0, Ticket.funded_by == "cash", Ticket.claimed_at.is_(None))) or 0
     return {"staked": int(staked), "payouts": int(payouts), "house": house, "commission": int(commission),
-            "expenses": int(expenses), "net": house - int(commission) - int(expenses),
-            "unclaimed": int(unclaimed)}
+            "expenses": int(expenses), "net": house - int(commission) - int(expenses)}
 
 
 def history(db: Session, *, limit: int = 100) -> list[Fight]:

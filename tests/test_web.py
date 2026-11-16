@@ -35,8 +35,8 @@ def test_bad_password_then_retry_with_stale_cookie():
 
 def test_pages_render_for_admin():
     c, _ = login("admin")
-    for path in ["/dashboard", "/events", "/games", "/history", "/archives", "/claim", "/chat",
-                 "/cashin_out", "/settings", "/agents", "/betlogs", "/cancelT", "/cashflow"]:
+    for path in ["/dashboard", "/events", "/change_name", "/history", "/archives", "/chat",
+                 "/wallet", "/admin/variables", "/agents", "/betlogs", "/cancelT", "/cashflow"]:
         assert c.get(path).status_code == 200, path
 
 
@@ -48,10 +48,19 @@ def test_sidebar_has_no_account_block_and_menu_has_signout():
     assert 'src="/static/js/nav-init.js"' in html
 
 
-def test_claim_and_chat_scripts_load_via_scripts_block():
+def test_chat_script_loads_via_scripts_block():
     c, _ = login("admin")
-    assert "/static/js/claim.js" in c.get("/claim").text
     assert "/static/js/chat.js" in c.get("/chat").text
+
+
+def test_counter_pages_are_gone():
+    """Online-only: no stations, booklets, ticket-claim desk or counter cash."""
+    c, _ = login("admin")
+    for path in ["/stations", "/booklets", "/claim"]:
+        assert c.get(path).status_code == 404, path
+    html = c.get("/dashboard").text
+    for word in ("Teller", "Booklets", "Claim Ticket", "Cash desk"):
+        assert word not in html, word
 
 
 def test_live_board_is_public_and_hides_names():
@@ -82,48 +91,7 @@ def test_declarator_is_restricted():
         db.scalar(select(User).where(User.username == "decl_user")).must_change_password = False
     c, r = login("decl_user")
     assert r.status_code == 303
-    for path in ["/dashboard", "/betlogs", "/claim", "/cashflow", "/chat", "/archives"]:
+    for path in ["/dashboard", "/betlogs", "/cashflow", "/chat", "/archives"]:
         assert c.get(path).status_code == 403, path
-    assert c.get("/games").status_code == 200
+    assert c.get("/change_name").status_code == 200
     assert c.get("/history").status_code == 200
-
-
-def test_legacy_change_name_url_redirects_to_games_keeping_query():
-    c, _ = login("admin")
-    r = c.get("/change_name?event_id=3&fight_id=7")
-    assert r.status_code == 308
-    assert r.headers["location"] == "/games?event_id=3&fight_id=7"
-    assert c.get("/change_name").headers["location"] == "/games"
-
-
-def test_terminology_labels_are_consistent():
-    c, _ = login("admin")
-    nav = c.get("/dashboard").text
-    assert 'href="/games"' in nav and "/change_name" not in nav
-    assert "Wallet Stations" in nav and "Game View" in nav
-    assert "Betting List" in c.get("/betlogs").text and "Betting Master List" not in c.get("/betlogs").text
-    assert "Previous Game History" not in c.get("/history").text
-    assert "Requests History" in c.get("/cashin_out?t=hist").text
-    assert "Wallet Stations" in c.get("/stations").text
-    # the spendable balance is "load credit"; bare "credit" is reserved for station-collected cash
-    assert "Load credit" in c.get("/agents").text
-    assert "Remit credit" in c.get("/cashflow").text
-
-
-def test_game_view_forms_post_to_games_urls():
-    c, _ = login("admin")
-    token = c.cookies.get("snx_csrf").split(".")[0]
-    r = c.post("/events/create", data={"csrf_token": token, "title": "Terminology smoke",
-                                       "event_date": "2030-01-01", "fight_count": "2",
-                                       "payout_model": "pool"})
-    assert r.status_code == 303, r.text[:200]
-    event_id = int(re.search(r"/events/(\d+)", r.headers["location"]).group(1))
-    html = c.get(f"/games?event_id={event_id}").text
-    assert "/fights/" not in html and "/change_name" not in html
-    m = re.search(r'action="/games/(\d+)/lock"', html)
-    assert m, "lock form should post to /games/<id>/lock"
-    token = c.cookies.get("snx_csrf").split(".")[0]  # the cookie rotates between requests
-    r = c.post(f"/games/{m.group(1)}/lock", data={"csrf_token": token, "locked": "1"})
-    assert r.status_code == 303 and r.headers["location"].startswith("/games?event_id=")
-    token = c.cookies.get("snx_csrf").split(".")[0]
-    assert c.post(f"/fights/{m.group(1)}/lock", data={"csrf_token": token}).status_code in (404, 405)

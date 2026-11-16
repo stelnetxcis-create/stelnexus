@@ -16,9 +16,9 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import AuthError, Forbidden, ValidationError
 from app.core.money import to_cents
-from app.core.rbac import Perm, hides_totals, permissions_for
+from app.core.rbac import Perm, hides_totals, permissions_of
 from app.core.settings_registry import SettingsStore
-from app.db.models import EventStatus, Role, Side, Station, TicketStatus, User
+from app.db.models import EventStatus, Side, TicketStatus, User
 from app.db.session import get_db
 from app.services import agents, auth, betting, events, players, reports
 
@@ -33,7 +33,7 @@ class ApiCtx:
     ip: str | None
 
     def need(self, perm: Perm) -> None:
-        if perm not in permissions_for(self.user.role):
+        if perm not in permissions_of(self.user):
             raise Forbidden("Your role is not allowed to perform this action.")
 
 
@@ -72,8 +72,7 @@ def _ticket(t) -> dict:
     return {"id": t.id, "code": t.code, "event_id": t.event_id, "fight_id": t.fight_id,
             "side": str(t.side), "stake_cents": t.stake_cents, "est_payout_cents": t.est_payout_cents,
             "payout_cents": t.payout_cents, "status": str(t.status), "placed_at": t.placed_at,
-            "player_id": t.player_id, "is_diy": t.is_diy,
-            "claim": betting.claim_status(t), "claimed_at": t.claimed_at}
+            "player_id": t.player_id, "is_diy": t.is_diy}
 
 
 async def _json(request: Request) -> dict[str, Any]:
@@ -105,7 +104,7 @@ async def issue_token(request: Request, db: Session = Depends(get_db)):
 async def me(c: ApiCtx = Depends(api_ctx)):
     return {**_user(c.user), "wallet_cents": agents.wallet_balance(c.db, c.user),
             "commission_cents": agents.commission_balance(c.db, c.user),
-            "permissions": sorted(p.value for p in permissions_for(c.user.role))}
+            "permissions": sorted(p.value for p in permissions_of(c.user))}
 
 
 # --- events / fights -------------------------------------------------------
@@ -164,15 +163,12 @@ async def place_bet(request: Request, c: ApiCtx = Depends(api_ctx)):
         fight_id = int(data.get("fight_id"))
     except (ValueError, TypeError) as exc:
         raise ValidationError("fight_id and side (meron|wala|draw) are required.") from exc
-    station = None
-    if c.user.role == Role.TELLER:
-        station = c.db.scalar(select(Station).where(Station.user_id == c.user.id))
     player_id = data.get("player_id")
     ticket = betting.place_bet(
         c.db, c.user, fight_id=fight_id, side=side,
         stake_cents=to_cents(str(data.get("amount", "0"))), settings=c.store,
-        player_id=int(player_id) if player_id else None, station=station,
-        funded_by=str(data.get("funded_by", "wallet")), is_diy=bool(data.get("is_diy", False)),
+        player_id=int(player_id) if player_id else None,
+        is_diy=bool(data.get("is_diy", False)),
         idempotency_key=data.get("idempotency_key") or request.headers.get("idempotency-key"),
         ip=c.ip)
     return {"ticket": _ticket(ticket)}
@@ -215,19 +211,13 @@ async def cancel_ticket(ticket_id: int, request: Request, c: ApiCtx = Depends(ap
     return {"ticket": _ticket(ticket)}
 
 
-@router.post("/tickets/{ticket_id}/claim")
-async def claim_ticket(ticket_id: int, c: ApiCtx = Depends(api_ctx)):
-    c.need(Perm.BETS_CLAIM)
-    return {"ticket": _ticket(betting.claim_ticket(c.db, c.user, ticket_id=ticket_id))}
-
-
 # --- dashboard -------------------------------------------------------------
 
 @router.get("/dashboard")
 async def dashboard(c: ApiCtx = Depends(api_ctx)):
     c.need(Perm.DASHBOARD)
     stats = reports.dashboard(c.db, c.user)
-    if not c.user.is_admin:
+    if not c.user.is_top:
         # The HTML dashboard hides company-wide figures from non-admins; so does the API.
         stats = {k: stats[k] for k in ("open_fights", "events") if k in stats}
     return jsonable_encoder(stats)

@@ -1,18 +1,16 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
 {% block title %}Agents · {{ brand }}{% endblock %}
-{% block heading %}Agent Network{% endblock %}
+{% block heading %}Users{% endblock %}
 {% block actions %}
-{% if 'agents.transfer' in perms %}<button class="btn btn-sm" data-modal="transfer-modal"><svg class="ico"><use href="#i-swap"/></svg>Transfer load credit</button>{% endif %}
-{% if 'agents.create' in perms %}<button class="btn btn-sm btn-brand" data-modal="create-modal"><svg class="ico"><use href="#i-plus"/></svg>Create agent</button>{% endif %}
+{% if 'agents.create' in perms %}<button class="btn btn-sm btn-brand" data-modal="create-modal"><svg class="ico"><use href="#i-plus"/></svg>Create user</button>{% endif %}
 {% endblock %}
 {% block content %}
 
-<div class="grid grid-4">
-  {{ ui.stat('My load credit', my_wallet | money, 'available load credit', 'dark') }}
-  {{ ui.stat('Agents shown', rows | length, 'in your network') }}
+<div class="grid grid-3">
+  {{ ui.stat('Accounts shown', rows | length, 'in your network') }}
   {{ ui.stat('Downline size', downline | length, 'all levels below you') }}
-  {{ ui.stat('Referral code', user.ref_code, 'your account ID. For invites use Referral Codes') }}
+  {% if my_balance is not none %}{{ ui.stat('My credit', my_balance | money, 'send, load and history are in the Wallet', 'dark') }}{% endif %}
 </div>
 
 <div class="card">
@@ -26,25 +24,22 @@
   <div class="card-body tight">
     {% if rows %}
     <div class="table-wrap"><table class="table" data-table data-page-size="25">
-      <thead><tr><th>Agent</th><th>Username</th><th>Type</th><th>Contact</th><th class="right">Load credit</th><th class="right">Commission</th><th>Ref code</th><th>Last login</th><th>Status</th><th class="right">Actions</th></tr></thead>
+      <thead><tr><th>Agent</th><th>Username</th><th>Type</th><th>Contact</th><th class="right">Credit</th><th class="right">Commission</th><th>Ref code</th><th>Last login</th><th>Status</th><th class="right">Actions</th></tr></thead>
       <tbody>
       {% for row in rows %}
         <tr>
           <td>{{ row.full_name }}</td>
           <td class="mono">{{ row.username }}</td>
-          <td>{{ ui.badge(row.role, 'blue' if row.role.value=='master' else ('amber' if row.role.value=='gold' else 'slate')) }}</td>
+          <td>{{ ui.badge(row.role, 'blue' if row.role.value=='master' else ('amber' if row.role.value=='cavo' else ('purple' if row.role.value in ('pawn','declarator') else 'slate'))) }}</td>
           <td class="small">{{ row.contact or '—' }}</td>
-          <td class="right num" data-sort="{{ wallets[row.id] }}">{{ wallets[row.id] | money }}</td>
-          <td class="right num" data-sort="{{ commissions[row.id] }}">{{ commissions[row.id] | money }}</td>
+          <td class="right num" data-sort="{{ wallets[row.id] or 0 }}">{{ (wallets[row.id] | money) if wallets[row.id] is not none else '—' }}</td>
+          <td class="right num" data-sort="{{ commissions[row.id] or 0 }}">{{ (commissions[row.id] | money) if commissions[row.id] is not none else '—' }}</td>
           <td class="mono">{{ row.ref_code }}</td>
           <td class="small nowrap">{{ row.last_login_at | datetime }}</td>
           <td>{{ ui.status_badge(row.status) }}</td>
           <td class="right">
             <div class="table-actions" style="justify-content:flex-end">
-              {% if 'agents.transfer' in perms %}
-              <button class="btn btn-sm" data-modal="transfer-modal" data-target_id="{{ row.id }}" data-label="{{ row.username }}">Load credit</button>
-              {% endif %}
-              {% if 'agents.edit' in perms %}
+                            {% if 'agents.edit' in perms %}
               <button class="btn btn-sm" data-modal="edit-modal" data-action="/agents/{{ row.id }}/update" data-agent="{{ row.id }}" data-full_name="{{ row.full_name }}" data-contact="{{ row.contact or '' }}" data-label="{{ row.username }}">Edit</button>
               <button class="btn btn-sm btn-ghost" data-modal="pw-modal" data-action="/agents/{{ row.id }}/password" data-agent="{{ row.id }}" data-label="{{ row.username }}">Password</button>
               {% endif %}
@@ -59,41 +54,30 @@
 </div>
 
 {% if 'agents.create' in perms %}
-{% call ui.modal('create-modal', 'Create agent') %}
+{% call ui.modal('create-modal', 'Create user') %}
 <form method="post" action="/agents/create">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <div class="form-grid">
     {{ ui.field('Full name', 'full_name', required=true, attrs='maxlength=120') }}
     {{ ui.field('Username', 'username', required=true, attrs='maxlength=32 autocapitalize=none spellcheck=false') }}
     <label class="field"><span>User type <em>*</em></span>
-      <select name="role" required>
+      <select name="role" id="new-role" required>
         {% for role in creatable %}<option value="{{ role.value }}">{{ role.label }}</option>{% endfor %}
       </select>
-      <small>Hierarchy is enforced server-side: Main Admin → Master → Gold → Sub.</small>
+      <small>Cavo and Kubrador accounts are created directly here, no referral code needed. Declarators have no balance and only help with results. Pawns are created in the Admin Panel.</small>
     </label>
+    {% if uplines %}
+    <label class="field" id="upline-field"><span>Reports to <em>*</em></span>
+      <select name="parent_id" id="new-upline">
+        {% for u in uplines %}<option value="{{ u.id }}" data-for="{{ 'cavo' if u.role.value == 'master' else 'kubrador' }}">{{ u.role_label }} · {{ u.full_name }} ({{ u.username }})</option>{% endfor %}
+      </select>
+      <small>A Cavo sits under a Master, a Kubrador under a Cavo.</small>
+    </label>
+    {% endif %}
     {{ ui.field('Contact number', 'contact', attrs='maxlength=32 inputmode=tel') }}
   </div>
   {{ ui.field('Temporary password', 'password', 'password', required=true, help='Minimum ' ~ settings['security.password_min_length'] ~ ' characters, 3 character classes. The agent must change it at first sign-in.', attrs='autocomplete=new-password') }}
-  <div class="form-actions"><button class="btn btn-primary" type="submit">Create agent</button></div>
-</form>
-{% endcall %}
-{% endif %}
-
-{% if 'agents.transfer' in perms %}
-{% call ui.modal('transfer-modal', 'Transfer load credit') %}
-<form method="post" action="/agents/transfer">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  {{ ui.idem() }}
-  <label class="field"><span>Target agent <em>*</em></span>
-    <select name="target_id" required data-fill="target_id">
-      <option value="">Select a downline agent…</option>
-      {% for row in rows %}<option value="{{ row.id }}">{{ row.username }} — {{ row.full_name }}</option>{% endfor %}
-    </select>
-  </label>
-  {{ ui.field('Amount (PHP)', 'amount', 'text', required=true, attrs='inputmode=decimal placeholder="1000.00"') }}
-  {{ ui.field('Note', 'note', attrs='maxlength=200 placeholder="optional reference"') }}
-  <p class="notice">Available: <strong>{{ my_wallet | money }}</strong>. Transfers are atomic, logged and cannot overdraw your load credit.</p>
-  <div class="form-actions"><button class="btn btn-primary" type="submit">Transfer</button></div>
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Create user</button></div>
 </form>
 {% endcall %}
 {% endif %}

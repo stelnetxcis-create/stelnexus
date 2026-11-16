@@ -1,30 +1,20 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
+{% import "_lobby.html" as lobby %}
 {% block title %}Game View · {{ brand }}{% endblock %}
-{% block heading %}Game View{% if event %} — {{ event.title }}{% endif %}{% endblock %}
+{% block heading %}Fight View{% if event %} — {{ event.title }}{% endif %}{% endblock %}
 {% block actions %}
 {% if event %}<a class="btn btn-sm" href="/events/{{ event.id }}">Betting sheet</a>{% endif %}
 {% endblock %}
 {% block content %}
 
 {% if not event %}
-<div class="card">
-  <div class="card-head"><h2>Choose a main event</h2></div>
-  <div class="card-body tight">
-    {% if events %}
-    <div class="table-wrap"><table class="table">
-      <thead><tr><th>Main event</th><th>Date</th><th>Games</th><th>Status</th><th class="right"></th></tr></thead>
-      <tbody>
-      {% for row in events %}
-      <tr><td>{{ row.title }}</td><td>{{ row.event_date | date }}</td><td class="num">{{ row.fight_count }}</td>
-          <td>{{ ui.status_badge(row.status) }}</td>
-          <td class="right"><a class="btn btn-sm" href="/games?event_id={{ row.id }}">Open</a></td></tr>
-      {% endfor %}
-      </tbody>
-    </table></div>
-    {% else %}{{ ui.empty('Create a main event first.') }}{% endif %}
-  </div>
-</div>
+{% if events %}
+<p class="muted small" style="margin:0 0 12px">Choose an event to open its games.</p>
+{{ lobby.event_cards(events, stats, '/change_name?event_id=') }}
+{% else %}
+<div class="card"><div class="card-body">{{ ui.empty('Create an event first.') }}</div></div>
+{% endif %}
 {% else %}
 
 {% if pending and 'fights.approve' in perms %}
@@ -54,15 +44,7 @@
 <div class="fight-grid">
   <div class="card">
     <div class="card-head"><h3>Games</h3></div>
-    <div class="fight-list">
-      {% for item in fights %}
-      <a class="fight-item {{ 'is-active' if fight and item.id == fight.id }}" href="/games?event_id={{ event.id }}&fight_id={{ item.id }}">
-        <b>{{ item.number }}</b>
-        <span>{{ item.entry_name_meron }} / {{ item.entry_name_wala }}</span>
-        {% if item.status.value == 'settled' %}{{ ui.badge(item.result, 'green') }}{% elif item.status.value == 'locked' %}{{ ui.badge('locked', 'amber') }}{% endif %}
-      </a>
-      {% endfor %}
-    </div>
+    <div class="card-body">{{ lobby.game_tiles(fights, event.id, fight.id if fight else 0) }}</div>
   </div>
 
   <div>
@@ -103,10 +85,11 @@
           {% if settings['payout.min_odds_bps'] %}Odds below {{ '%.2f' | format(settings['payout.min_odds_bps'] / 10000) }} are cancelled and refunded.{% endif %}</p>
         {% if figures %}
         <div class="figures">
-          <div class="figure" title="Cash tickets that won or were refunded but have not been paid at the counter."><span>Total unclaimed</span><strong>{{ figures.unclaimed | money }}</strong><small>{{ figures.unclaimed_count }} ticket(s) · <a href="/claim">claim</a></small></div>
           <div class="figure" title="Stakes still held on active tickets (money in play)."><span>Revolving amount</span><strong>{{ figures.revolving | money }}</strong><small>on open tickets</small></div>
+          {% if 'hidden.view' in perms %}
           <div class="figure" title="What the house kept on the latest settlement: tong + rounding remainder + lost Draw stakes."><span>System over</span><strong>{{ figures.system_over | money }}</strong><small>{% if figures.auto_cancel %}auto-cancelled (odds){% else %}house take{% endif %}</small></div>
           <div class="figure" title="The centavo remainder from integer division inside System over."><span>Hidden over</span><strong>{{ figures.hidden_over | money }}</strong><small>rounding remainder</small></div>
+          {% endif %}
         </div>
         {% endif %}
         {% elif hide_totals %}
@@ -114,7 +97,7 @@
         {% endif %}
         {% if 'fights.rename' in perms %}
         <div class="hr"></div>
-        <form method="post" action="/games/rename" class="inline-form">
+        <form method="post" action="/change_name/rename" class="inline-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="fight_id" value="{{ fight.id }}">
           <label class="field"><span>Meron entry name</span>
@@ -127,7 +110,7 @@
 
         {% if 'fights.lock' in perms and fight.status.value in ('open','locked') %}
         <div class="hr"></div>
-        <form method="post" action="/games/{{ fight.id }}/lock" class="inline-form">
+        <form method="post" action="/fights/{{ fight.id }}/lock" class="inline-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="locked" value="{{ '0' if fight.status.value == 'locked' else '1' }}">
           <button class="btn {{ 'btn-danger' if fight.status.value == 'open' else '' }}" type="submit">
@@ -139,7 +122,7 @@
         {% if 'events.manage' in perms and fight.status.value in ('open','locked') %}
         <div class="hr"></div>
         <div class="inline-form">
-          <form method="post" action="/games/{{ fight.id }}/betmode" class="inline-form">
+          <form method="post" action="/fights/{{ fight.id }}/betmode" class="inline-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <label class="field"><span>Force bet side</span>
               <select name="mode">
@@ -149,7 +132,7 @@
               </select></label>
             <button class="btn" type="submit">Apply</button>
           </form>
-          <form method="post" action="/games/{{ fight.id }}/llamado" class="inline-form">
+          <form method="post" action="/fights/{{ fight.id }}/llamado" class="inline-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <label class="field"><span>Llamado (favourite)</span>
               <select name="side">
@@ -163,7 +146,7 @@
         {% endif %}
         {% if 'events.manage' in perms and event.payout_model.value == 'fixed' and fight.status.value != 'settled' %}
         <div class="hr"></div>
-        <form method="post" action="/games/{{ fight.id }}/odds" class="inline-form">
+        <form method="post" action="/fights/{{ fight.id }}/odds" class="inline-form">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <label class="field"><span>Meron odds (bps)</span>
             <input name="meron_bps" type="number" min="10000" max="1000000" value="{{ fight.fixed_odds_meron_bps or settings['payout.default_fixed_odds_bps'] }}"></label>
@@ -177,9 +160,9 @@
 
     {% if 'fights.declare' in perms and fight.status.value != 'settled' %}
     <div class="card">
-      <div class="card-head"><h2>Declare result</h2><span class="muted small">locks betting, pays out load credit, accrues commissions</span></div>
+      <div class="card-head"><h2>Declare result</h2><span class="muted small">locks betting, pays out credit, accrues commissions</span></div>
       <div class="card-body">
-        <form method="post" action="/games/{{ fight.id }}/declare" data-confirm="Declare this result? Payouts and commissions will be posted immediately.">
+        <form method="post" action="/fights/{{ fight.id }}/declare" enctype="multipart/form-data" data-confirm="Declare this result? Payouts and commissions will be posted immediately.">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <div class="inline-form">
             <label class="field"><span>Result</span>
@@ -190,11 +173,32 @@
               </select>
             </label>
             <label class="field"><span>Note</span><input name="reason" maxlength="200" placeholder="optional"></label>
-            <button class="btn btn-primary" type="submit">Declare &amp; settle</button>
           </div>
+          <label class="field"><span>Picture of the result{% if proof_required %} <em>*</em>{% else %} <small class="muted">(optional)</small>{% endif %}</span>
+            <input type="file" name="proof" accept="image/jpeg,image/png,image/webp" {{ 'required' if proof_required }}>
+            <small>{% if proof_required %}Required for your account. {% endif %}JPG, PNG or WebP, up to 5 MB. It is shown on this game and in Game History.</small>
+          </label>
+          <div class="form-actions"><button class="btn btn-primary" type="submit">Declare &amp; settle</button></div>
         </form>
         {% if preview %}
-        <p class="notice">Example if MERON wins: pool {{ (preview.meron + preview.wala) | money }} − tong {{ preview.house_cut | money }} = {{ preview.net_pool | money }} shared by {{ preview.winners }} winning tickets.{% if preview.auto_cancel %} <strong>Odds are below the minimum, so this game would be cancelled and refunded.</strong>{% endif %}</p>
+        <p class="notice">Example if MERON wins: pool {{ (preview.meron + preview.wala) | money }} − tong {{ preview.house_cut | money }} = {{ preview.net_pool | money }} shared by {{ preview.winners }} winning tickets.{% if preview.auto_cancel %} <strong>Odds are below the minimum, so this fight would be cancelled and refunded.</strong>{% endif %}</p>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if fight.proof_file or ('fights.redeclare' in perms and fight.status.value == 'settled') %}
+    <div class="card">
+      <div class="card-head"><h2>Result picture</h2>{% if fight.proof_file %}<span class="muted small">added by {{ who(fight.proof_by) }} · {{ fight.proof_at | datetime }} UTC</span>{% endif %}</div>
+      <div class="card-body">
+        {% if fight.proof_file %}<a href="/fights/{{ fight.id }}/proof" target="_blank" rel="noopener"><img class="proof-img" src="/fights/{{ fight.id }}/proof" alt="Picture of the result of game {{ fight.number }}"></a>
+        {% else %}<p class="muted small">No picture was attached to this result.</p>{% endif %}
+        {% if 'fights.redeclare' in perms %}
+        <form method="post" action="/fights/{{ fight.id }}/proof" enctype="multipart/form-data" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label class="field"><span>{{ 'Replace picture' if fight.proof_file else 'Add a picture' }}</span><input type="file" name="proof" accept="image/jpeg,image/png,image/webp" required></label>
+          <button class="btn" type="submit">Upload</button>
+        </form>
         {% endif %}
       </div>
     </div>
@@ -206,8 +210,8 @@
       <div class="card-body">
         <p class="notice">A correction reverses settlement v{{ fight.settlement_version }} and posts v{{ fight.settlement_version + 1 }}.
         Nothing is deleted: both versions stay in the ledger and audit trail.
-        {% if settings['fight.redeclare_requires_approval'] %}<strong>A second admin must approve.</strong>{% endif %}</p>
-        <form method="post" action="/games/{{ fight.id }}/correct" data-confirm="Submit this correction? The previous settlement will be reversed.">
+        {% if settings['fight.redeclare_requires_approval'] %}<strong>A second approver (Master or Admin) must approve.</strong>{% endif %}</p>
+        <form method="post" action="/fights/{{ fight.id }}/correct" enctype="multipart/form-data" data-confirm="Submit this correction? The previous settlement will be reversed.">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <div class="form-grid">
             <label class="field"><span>Action</span>
@@ -224,6 +228,7 @@
           </div>
           <label class="field"><span>Reason <em>*</em></span>
             <textarea name="reason" required minlength="5" maxlength="255" placeholder="e.g. official result corrected by the referee after review"></textarea></label>
+          <label class="field"><span>Picture <small class="muted">(optional)</small></span><input type="file" name="proof" accept="image/jpeg,image/png,image/webp"></label>
           <div class="form-actions"><button class="btn btn-danger" type="submit">Submit correction</button></div>
         </form>
       </div>
@@ -234,14 +239,14 @@
     <div class="card">
       <div class="card-head"><h2>Settlement history</h2></div>
       <div class="card-body tight"><div class="table-wrap"><table class="table">
-        <thead><tr><th>Version</th><th>Action</th><th>Result</th><th class="right">Pool</th><th class="right">Paid out</th><th class="right">House</th><th>Status</th><th>Reason</th></tr></thead>
+        <thead><tr><th>Version</th><th>Action</th><th>Result</th><th class="right">Pool</th><th class="right">Paid out</th>{% if 'hidden.view' in perms %}<th class="right">House</th>{% endif %}<th>Status</th><th>Reason</th></tr></thead>
         <tbody>
         {% for run in runs %}
           <tr>
             <td class="num">v{{ run.version }}</td><td>{{ ui.badge(run.action) }}</td><td>{{ ui.badge(run.result) }}</td>
             <td class="right num">{{ (run.totals.total if run.totals else 0) | money }}</td>
             <td class="right num">{{ (run.totals.payout_total if run.totals else 0) | money }}</td>
-            <td class="right num">{{ (run.totals.house_take if run.totals else 0) | money }}</td>
+            {% if 'hidden.view' in perms %}<td class="right num">{{ (run.totals.house_take if run.totals else 0) | money }}</td>{% endif %}
             <td>{{ ui.status_badge(run.status) }}</td>
             <td class="small">{{ run.reason }}</td>
           </tr>
@@ -257,7 +262,7 @@
       <div class="card-body tight">
         {% if tickets %}
         <div class="table-wrap"><table class="table" data-table data-page-size="20">
-          <thead><tr><th>Code</th><th>Side</th><th class="right">Stake</th><th class="right">Payout</th><th>Player / station</th><th>Status</th><th>Claim</th><th class="right">Cancel</th></tr></thead>
+          <thead><tr><th>Code</th><th>Side</th><th class="right">Stake</th><th class="right">Payout</th><th>Player</th><th>Status</th><th class="right">Cancel</th></tr></thead>
           <tbody>
           {% for ticket in tickets %}
             <tr>
@@ -265,9 +270,8 @@
               <td>{{ ui.side_badge(ticket.side) }}</td>
               <td class="right num">{{ ticket.stake_cents | money }}</td>
               <td class="right num">{{ ticket.payout_cents | money }}</td>
-              <td class="small">{{ ticket.player.full_name if ticket.player else (ticket.station.name if ticket.station else 'walk-in') }}</td>
+              <td class="small">{{ ticket.player.full_name if ticket.player else '—' }}</td>
               <td>{{ ui.status_badge(ticket.status) }}</td>
-              <td class="small">{% set cs = claim_status(ticket) %}{{ {'pending':'unclaimed','claimed':'claimed','auto':'paid to load credit'}.get(cs, '—') }}</td>
               <td class="right">
                 {% if ticket.status.value == 'active' and fight.status.value == 'open' and 'bets.cancel' in perms %}
                 <button class="btn btn-sm btn-ghost" data-modal="void-modal" data-action="/bets/{{ ticket.id }}/cancel" data-label="{{ ticket.code }}">Cancel</button>

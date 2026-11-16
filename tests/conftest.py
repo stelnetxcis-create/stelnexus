@@ -19,9 +19,9 @@ from sqlalchemy import select  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
 from app.core.settings_registry import SettingsStore  # noqa: E402
 from app.db.migrate import upgrade  # noqa: E402
-from app.db.models import EventStatus, Role, Station, Status, User  # noqa: E402
+from app.db.models import EventStatus, RequestDirection, Role, Status, User  # noqa: E402
 from app.db.session import engine, session_scope  # noqa: E402
-from app.services import accounts, agents, events  # noqa: E402
+from app.services import accounts, agents, cashdesk, events, players  # noqa: E402
 
 PASSWORD = "Test-Passw0rd-2026!"
 
@@ -40,6 +40,15 @@ def _schema():
         accounts.commission_for_user(db, admin)
 
 
+def load_credit(db, admin, store, player, cents):
+    """Fund a player the only supported way: GCash load request -> admin approval."""
+    req = cashdesk.create_request(db, admin, direction=RequestDirection.IN, amount_cents=cents,
+                                  settings=store, player_id=player.id, method="gcash",
+                                  reference="GC-TEST-0001")
+    cashdesk.review(db, admin, request_id=req.id, approve=True, settings=store)
+    return req
+
+
 @pytest.fixture()
 def db():
     with session_scope() as session:
@@ -48,19 +57,20 @@ def db():
 
 @pytest.fixture()
 def world(db):
-    """Admin, a teller with a cash station, and an OPEN event of 6 games (unique per test)."""
+    """Admin, a funded online player, and an OPEN event of 6 games (unique per test).
+
+    Money enters only the online way: a GCash load request approved by the admin."""
     store = SettingsStore(db)
     admin = db.scalar(select(User).where(User.username == "admin"))
     tag = f"{dt.datetime.now().timestamp():.6f}".replace(".", "")[-9:]
-    teller = agents.create_agent(db, admin, username=f"tel{tag}", password=PASSWORD, role=Role.TELLER,
-                                 full_name="Teller", settings=store)
-    station = Station(code=f"S{tag}", name="Station", user_id=teller.id, is_active=True)
-    db.add(station)
-    db.flush()
-    accounts.cash_for_station(db, station)
+    player = players.register_online_player(
+        db, admin, username=f"wp{tag}", password=PASSWORD, full_name="Player",
+        birth_date=dt.date(1990, 1, 1), gcash_number="09171234567", settings=store)
+    player.kyc_verified = True
+    load_credit(db, admin, store, player, 10_000_000)
     event = events.create_event(db, admin, title=f"Event {tag}", event_date=dt.date.today(),
                                 settings=store, fight_count=6)
     events.set_event_status(db, admin, event.id, EventStatus.OPEN)
-    return type("World", (), {"db": db, "store": store, "admin": admin, "teller": teller,
-                              "station": station, "event": event,
+    return type("World", (), {"db": db, "store": store, "admin": admin, "player": player,
+                              "event": event,
                               "games": events.fights_of(db, event.id), "tag": tag})

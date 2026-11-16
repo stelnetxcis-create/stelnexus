@@ -3,8 +3,8 @@
 Fixes vs. the original clp.php / cashin_out.php:
 * card numbers are unique and validated, PII is encrypted at rest;
 * age verification and responsible-gaming limits are enforced server-side;
-* counter cash-in/out is a balanced ledger movement against a real station
-  drawer (the old `cashless_cash_inventory` table was a free-floating number);
+* loading and cashing out go through the approved GCash/bank request flow only
+  (no counter cash);
 * every operation is idempotent, so a retried mobile request cannot double-load.
 """
 from __future__ import annotations
@@ -16,16 +16,14 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core import audit
-from app.core.errors import Conflict, Forbidden, LockedState, NotFound, ValidationError
-from app.core.rbac import assert_player_in_scope, scope_ids
+from app.core.errors import Conflict, Forbidden, NotFound, ValidationError
+from app.core.rbac import assert_player_in_scope, has_global_scope, is_top, scope_ids
 from app.core.security import USERNAME_RE, hash_password, mask, password_problems, pii
 from app.core.settings_registry import SettingsStore
 from app.db.models import (
     Account,
     Player,
     PlayerKind,
-    Role,
-    Station,
     Status,
     Ticket,
     TicketStatus,
@@ -67,7 +65,7 @@ def register_card_player(
     if db.scalar(select(Player.id).where(Player.card_number == card_number)):
         raise Conflict("That card is already registered.")
 
-    owner = agent_id or (actor.id if actor.role != Role.TELLER else None)
+    owner = agent_id or actor.id
     player = Player(
         kind=PlayerKind.CARD, card_number=card_number, full_name=full_name,
         birth_date=birth_date, gender=(gender or None), address_enc=pii.encrypt(address),
@@ -134,10 +132,8 @@ def find_by_card(db: Session, card_number: str) -> Player:
 def list_players(db: Session, actor: User, *, kind: PlayerKind | None = None,
                  search: str | None = None, limit: int = 200, offset: int = 0) -> list[Player]:
     stmt = select(Player)
-    if actor.role not in (Role.ADMIN, Role.TELLER):
+    if not has_global_scope(actor):
         stmt = stmt.where(Player.agent_id.in_(scope_ids(db, actor)))
-    if actor.role == Role.TELLER:
-        stmt = stmt.where(Player.kind == PlayerKind.CARD)
     if kind:
         stmt = stmt.where(Player.kind == kind)
     if search:
@@ -178,44 +174,6 @@ def assert_can_bet(db: Session, player: Player, stake_cents: int, settings: Sett
         raise Forbidden(f"Daily betting limit of {fmt(limit)} would be exceeded.")
 
 
-def counter_cash(
-    db: Session, actor: User, *, player_id: int, amount_cents: int, direction: str,
-    settings: SettingsStore, station: Station | None = None, note: str | None = None,
-    idempotency_key: str | None = None,
-) -> ledger.LedgerTxn:
-    """Cash-in / cash-out at a physical counter."""
-    player = get_player(db, actor, player_id)
-    if player.status != Status.ACTIVE:
-        raise ValidationError("Player account is not active.")
-    minimum = int(settings.get("wallet.min_cash_cents"))
-    maximum = int(settings.get("wallet.max_cash_cents"))
-    if amount_cents < minimum or amount_cents > maximum:
-        from app.core.money import fmt
-        raise ValidationError(f"Amount must be between {fmt(minimum)} and {fmt(maximum)}.")
-    if direction not in ("in", "out"):
-        raise ValidationError("Direction must be in or out.")
-    if direction == "out" and not settings.get("wallet.withdrawals_enabled"):
-        raise LockedState("Withdrawals are switched off by an admin (emergency stop). Try again later.")
-
-    drawer = accounts.cash_for_station(db, station) if station else accounts.central_cash(db)
-    player_wallet = wallet(db, player)
-    if direction == "in":
-        entries = [(drawer, +amount_cents), (player_wallet, -amount_cents)]
-    else:
-        entries = [(player_wallet, +amount_cents), (drawer, -amount_cents)]
-
-    txn = ledger.post(
-        db, kind=f"cash.{direction}", entries=entries, actor=actor,
-        memo=f"Counter cash {direction} · {player.full_name}",
-        ref_type="player", ref_id=player.id, idempotency_key=idempotency_key, reason=note,
-        meta={"station_id": station.id if station else None},
-    )
-    audit.record(db, actor, f"player.cash_{direction}", entity_type="player", entity_id=player.id,
-                 after={"amount_cents": amount_cents, "txn": txn.uuid,
-                        "station": station.code if station else "central"}, reason=note)
-    return txn
-
-
 def set_self_exclusion(db: Session, actor: User, player_id: int, days: int, settings: SettingsStore) -> Player:
     player = get_player(db, actor, player_id)
     days = max(1, min(int(days), 3650))
@@ -237,8 +195,8 @@ def update_player(db: Session, actor: User, player_id: int, *, status: Status | 
     if status is not None:
         player.status = status
     if kyc_verified is not None:
-        if actor.role != Role.ADMIN:
-            raise Forbidden("Only an admin can change KYC status.")
+        if not is_top(actor):
+            raise Forbidden("Only Master or Admin can change KYC status.")
         player.kyc_verified = kyc_verified
     if daily_limit_cents is not None:
         player.daily_bet_limit_cents = max(0, daily_limit_cents) or None

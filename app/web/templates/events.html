@@ -1,54 +1,58 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
-{% block title %}Main Events · {{ brand }}{% endblock %}
-{% block heading %}Main Events{% endblock %}
+{% import "_lobby.html" as lobby %}
+{% block title %}Games · {{ brand }}{% endblock %}
+{% block heading %}Games{% endblock %}
 {% block actions %}
-{% if 'events.manage' in perms %}<button class="btn btn-sm btn-brand" data-modal="event-modal"><svg class="ico"><use href="#i-plus"/></svg>Create main event</button>{% endif %}
+{% if 'events.create' in perms %}<button class="btn btn-sm btn-brand" data-modal="event-modal"><svg class="ico"><use href="#i-plus"/></svg>Create event</button>{% endif %}
 {% endblock %}
 {% block content %}
-<div class="card">
-  <div class="card-head"><h2>Main events</h2><span class="muted small">{{ rows | length }} on file</span></div>
-  <div class="card-body tight">
-    {% if rows %}
-    <div class="table-wrap"><table class="table" data-table>
-      <thead><tr><th>Title</th><th>Date</th><th class="right">Games</th><th>Payout model</th><th>Tong</th><th>Status</th><th class="right">Open</th></tr></thead>
-      <tbody>
-      {% for event in rows %}
-        <tr>
-          <td><a href="/events/{{ event.id }}"><strong>{{ event.title }}</strong></a></td>
-          <td class="nowrap">{{ event.event_date | date }}</td>
-          <td class="right num">{{ event.fight_count }}</td>
-          <td>{{ ui.badge(event.payout_model, 'blue' if event.payout_model.value == 'pool' else 'purple') }}</td>
-          <td class="num">{{ '%.2f%%' | format((event.house_cut_bps if event.house_cut_bps is not none else settings['payout.house_cut_bps']) / 100) }}</td>
-          <td>{{ ui.status_badge(event.status) }}</td>
-          <td class="right"><a class="btn btn-sm" href="/events/{{ event.id }}">Betting sheet</a></td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table></div>
-    {% else %}{{ ui.empty('No main events yet.') }}{% endif %}
-  </div>
-</div>
+{% if rows %}
+<p class="muted small" style="margin:0 0 12px">Tap an event to see its games. Each box shows where it is held, its date and how far along it is.</p>
+{{ lobby.event_cards(rows, stats, '/events/') }}
+{% else %}
+<div class="card"><div class="card-body">{{ ui.empty('No events yet.') }}</div></div>
+{% endif %}
 
-{% if 'events.manage' in perms %}
-{% call ui.modal('event-modal', 'Create main event') %}
+{% if 'events.create' in perms %}
+{% call ui.modal('event-modal', 'Create event') %}
 <form method="post" action="/events/create">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  {{ ui.field('Event title', 'title', required=true, attrs='maxlength=120 placeholder="Sunday Main Event"') }}
+  {{ ui.field('Event title', 'title', required=true, attrs='maxlength=120 placeholder="Sunday Derby"') }}
+  <label class="field"><span>Location{% if locations and require_location %} <em>*</em>{% endif %}</span>
+    <select name="location_id" id="ev-location" {{ 'required' if locations and require_location }}>
+      <option value="">{{ 'Select a location…' if locations else 'No location registered' }}</option>
+      {% for l in locations %}<option value="{{ l.id }}" data-fights="{{ l.default_fight_count or '' }}" data-model="{{ l.default_payout_model or '' }}" data-cut="{{ l.default_house_cut_bps if l.default_house_cut_bps is not none else '' }}">{{ l.name }}{{ ' · ' ~ l.city if l.city }}</option>{% endfor %}
+    </select>
+    {% if 'locations.create' in perms %}<small><a href="#" data-modal="loc-quick-modal" id="loc-quick-link">+ Register a new location</a></small>{% endif %}
+  </label>
   <div class="form-grid">
     {{ ui.field('Event date', 'event_date', 'date', today, required=true) }}
-    {{ ui.field('Number of games', 'fight_count', 'number', default_fights, required=true, attrs='min=1 max=200') }}
+    {{ ui.field('Game sequence (fight count)', 'fight_count', 'number', default_fights, required=true, attrs='min=1 max=200') }}
     <label class="field"><span>Payout model</span>
       <select name="payout_model">
+        <option value="">Location / global default</option>
         <option value="pool">Pool (pari-mutuel) + tong</option>
         <option value="fixed">Fixed odds per side</option>
       </select>
     </label>
     {{ ui.field('Tong override (bps)', 'house_cut_bps', 'number', attrs='min=0 max=10000 placeholder="blank = use global setting"') }}
   </div>
-  <p class="notice">Creating a main event generates the numbered games and one escrow pool account per game.</p>
-  <div class="form-actions"><button class="btn btn-primary" type="submit">Create main event</button></div>
+  <p class="notice">Creating an event generates the numbered games and one escrow pool account per game.</p>
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Create event</button></div>
 </form>
 {% endcall %}
+{% if 'locations.create' in perms %}
+{% call ui.modal('loc-quick-modal', 'Register location') %}
+<form method="post" action="/locations/quick">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  {{ ui.field('Name', 'name', required=true, attrs='maxlength=80') }}
+  <div class="form-grid">{{ ui.field('City / area', 'city', attrs='maxlength=80') }}{{ ui.field('Address', 'address', attrs='maxlength=200') }}</div>
+  <p class="notice">The Admin can add custom fields and defaults later in the Admin Panel.</p>
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Register</button></div>
+</form>
+{% endcall %}
+{% endif %}
+
 {% endif %}
 {% endblock %}

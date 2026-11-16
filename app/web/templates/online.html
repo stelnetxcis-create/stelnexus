@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Online now · {{ brand }}{% endblock %}
+{% block heading %}Players{% endblock %}
+{% block content %}
+{% if 'players.view' in perms %}<div class="subtabs"><a class="subtab" href="/clp">Players</a><a class="subtab is-active" href="/clp/online">Online now ({{ rows | length }})</a></div>{% endif %}
+<div class="card"><div class="card-head"><h2>Signed in right now</h2><span class="muted small">active in the last {{ window }} min</span></div>
+<div class="card-body tight">
+{% if rows %}<div class="table-wrap"><table class="table"><thead><tr><th>Account</th><th>Type</th><th>Last active</th><th>Device</th><th>IP</th><th class="right">Sessions</th></tr></thead><tbody>
+{% for r in rows %}<tr><td><strong>{{ who(r.user) if not r.user.is_hidden else r.user.username }}</strong> <small class="muted">{{ r.user.full_name }}</small></td><td>{{ ui.badge(r.user.role_label) }}</td><td class="small nowrap">{{ r.last_seen_at | datetime }}</td><td class="small">{{ r.device }}</td><td class="mono small">{{ r.ip or '—' }}</td><td class="right num">{{ r.sessions }}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}{{ ui.empty('Nobody else is online.') }}{% endif %}
+</div></div>
+<p class="muted small">Players do not sign in to this console, so this list shows staff accounts.</p>
+{% endblock %}

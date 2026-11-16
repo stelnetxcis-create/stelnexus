@@ -1,6 +1,7 @@
 """Bet placement and ticket cancellation.
 
-Fixes vs. the original teller flow:
+Online-only: every bet is funded from the player's credit (wallet). There is no
+cash counter, station drawer or paper booklet. Fixes vs. the original flow:
 * a bet is one atomic unit: stake debit + escrow credit + ticket row, or nothing;
 * bets are refused once a fight is locked/settled (the old panel had no visible
   cut-off, so a ticket could be sold after the result was known);
@@ -18,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.core import audit
 from app.core.errors import Conflict, Forbidden, LockedState, NotFound, ValidationError
 from app.core.money import bps_of, fmt, odds_of
-from app.core.rbac import scope_ids
+from app.core.rbac import is_top, scope_ids
 from app.core.security import random_code
 from app.core.settings_registry import SettingsStore
 from app.db.models import (
@@ -32,12 +33,11 @@ from app.db.models import (
     Result,
     Role,
     Side,
-    Station,
     Ticket,
     TicketStatus,
     User,
 )
-from app.services import accounts, booklets, events, ledger, players
+from app.services import accounts, events, ledger, players
 
 
 def pool_snapshot(db: Session, fight: Fight) -> dict:
@@ -90,21 +90,33 @@ def estimate_payout(db: Session, fight: Fight, side: Side, stake_cents: int,
     return (stake_cents * net) // side_pool if side_pool else 0
 
 
-def _ticket_code(db: Session, settings: SettingsStore) -> tuple[str, int | None]:
-    if settings.get("booklet.use_pages_for_tickets"):
-        page = booklets.take_page(db)
-        if page is not None:
-            return page.code, page.id
+def _ticket_code(db: Session) -> str:
     for _ in range(20):
         code = random_code(8)
         if not db.scalar(select(Ticket.id).where(Ticket.code == code)):
-            return code, None
+            return code
     raise Conflict("Could not allocate a ticket code, please retry.")
+
+
+def network_names(db: Session, agent_id: int | None) -> tuple[str | None, str | None]:
+    """(kubrador, cavo) usernames for a ticket's owning agent, read from the real upline chain.
+    Snapshotted on the ticket so the Betting List stays correct even if the tree changes later."""
+    kubrador = cavo = None
+    current = db.get(User, agent_id) if agent_id else None
+    for _ in range(8):
+        if current is None:
+            break
+        if current.role == Role.KUBRADOR and kubrador is None:
+            kubrador = current.username
+        elif current.role == Role.CAVO and cavo is None:
+            cavo = current.username
+        current = db.get(User, current.parent_id) if current.parent_id else None
+    return kubrador, cavo
 
 
 def place_bet(
     db: Session, actor: User, *, fight_id: int, side: Side, stake_cents: int,
-    settings: SettingsStore, player_id: int | None = None, station: Station | None = None,
+    settings: SettingsStore, player_id: int | None = None,
     funded_by: str = "wallet", is_diy: bool = False, idempotency_key: str | None = None,
     numbers: str | None = None, kubrador: str | None = None, cavo: str | None = None,
     ip: str | None = None,
@@ -132,8 +144,8 @@ def place_bet(
         raise LockedState("Draw bets are switched off.")
     if fight.bet_mode in ("meron", "wala") and side.value != fight.bet_mode:
         raise LockedState(f"Game #{fight.number} only accepts {fight.bet_mode.upper()} bets right now.")
-    if funded_by not in ("wallet", "cash"):
-        raise ValidationError("Funding must be load credit or cash.")
+    if funded_by != "wallet":
+        raise ValidationError("Bets are funded from player credit only.")
 
     player: Player | None = None
     agent_id: int | None = None
@@ -141,41 +153,34 @@ def place_bet(
         player = players.get_player(db, actor, player_id)
         players.assert_can_bet(db, player, stake_cents, settings)
         agent_id = player.agent_id
-    if actor.role in (Role.MASTER, Role.GOLD, Role.SUB) and agent_id is None:
+    if actor.role in (Role.MASTER, Role.CAVO, Role.KUBRADOR) and agent_id is None:
         agent_id = actor.id
 
-    if funded_by == "wallet":
-        if player is None:
-            raise ValidationError("Load-credit bets need a registered player.")
-        source = players.wallet(db, player)
-    else:
-        if station is None:
-            raise ValidationError("Cash-funded bets need a station drawer.")
-        if actor.role not in (Role.ADMIN, Role.TELLER):
-            raise Forbidden("Only a teller or admin can sell cash tickets.")
-        source = accounts.cash_for_station(db, station)
+    if player is None:
+        raise ValidationError("Choose the player this bet is for.")
+    source = players.wallet(db, player)
 
     pool = accounts.pool_for_fight(db, fight)
     est = estimate_payout(db, fight, side, stake_cents, settings)
-    code, page_id = _ticket_code(db, settings)
+    code = _ticket_code(db)
 
     txn = ledger.post(
         db, kind="bet.stake",
         entries=[(source, +stake_cents), (pool, -stake_cents)],
-        actor=actor, memo=f"Bet {code} · game #{fight.number} · {side.value}",
+        actor=actor, memo=f"Bet {code} · fight #{fight.number} · {side.value}",
         ref_type="fight", ref_id=fight.id,
         idempotency_key=f"bet:{idempotency_key}" if idempotency_key else None,
     )
 
+    chain_kubrador, chain_cavo = network_names(db, agent_id)
     ticket = Ticket(
         code=code, event_id=event.id, fight_id=fight.id,
         player_id=player.id if player else None,
-        station_id=station.id if station else None,
-        teller_id=actor.id, agent_id=agent_id, booklet_page_id=page_id,
+        agent_id=agent_id,
         side=side, stake_cents=stake_cents, funded_by=funded_by, est_payout_cents=est,
         status=TicketStatus.ACTIVE, is_diy=is_diy, stake_txn_id=txn.id,
         idempotency_key=idempotency_key, placed_ip=ip,
-        numbers=(numbers or None), kubrador=(kubrador or None), cavo=(cavo or None),
+        numbers=(numbers or None), kubrador=(kubrador or chain_kubrador), cavo=(cavo or chain_cavo),
     )
     db.add(ticket)
     db.flush()
@@ -200,19 +205,11 @@ def get_ticket_by_code(db: Session, code: str) -> Ticket:
 
 
 def assert_ticket_visible(db: Session, actor: User, ticket: Ticket) -> Ticket:
-    if actor.role == Role.ADMIN:
+    if is_top(actor):
         return ticket
-    if actor.role == Role.TELLER:
-        if ticket.teller_id != actor.id and ticket.station_id != _station_id(db, actor):
-            raise Forbidden("That ticket belongs to another station.")
-        return ticket
-    if ticket.agent_id not in scope_ids(db, actor) and ticket.teller_id != actor.id:
+    if ticket.agent_id not in scope_ids(db, actor):
         raise Forbidden("That ticket is outside your network.")
     return ticket
-
-
-def _station_id(db: Session, actor: User) -> int | None:
-    return db.scalar(select(Station.id).where(Station.user_id == actor.id))
 
 
 def cancel_ticket(db: Session, actor: User, *, ticket_id: int, reason: str,
@@ -228,9 +225,9 @@ def cancel_ticket(db: Session, actor: User, *, ticket_id: int, reason: str,
         raise LockedState(f"Ticket {ticket.code} is already {ticket.status}.")
     fight = events.get_fight(db, ticket.fight_id)
     if fight.status in (FightStatus.SETTLED, FightStatus.LOCKED, FightStatus.VOID):
-        raise LockedState("Betting for this game is closed; tickets can no longer be cancelled.")
+        raise LockedState("Betting for this fight is closed; tickets can no longer be cancelled.")
 
-    if actor.role != Role.ADMIN:
+    if not is_top(actor):
         window = int(settings.get("fight.cancel_window_seconds"))
         age = (dt.datetime.now(dt.timezone.utc) - ticket.placed_at).total_seconds()
         if age > window:
@@ -245,9 +242,6 @@ def cancel_ticket(db: Session, actor: User, *, ticket_id: int, reason: str,
     ticket.canceled_at = dt.datetime.now(dt.timezone.utc)
     ticket.canceled_by_id = actor.id
     ticket.cancel_reason = reason[:255]
-    if ticket.booklet_page_id:
-        booklets.release_page(db, ticket.booklet_page_id)
-        ticket.booklet_page_id = None
     db.flush()
     audit.record(db, actor, "bet.cancel", entity_type="ticket", entity_id=ticket.id,
                  before=before, after={"status": ticket.status, "code": ticket.code}, reason=reason)
@@ -260,10 +254,7 @@ def list_tickets(
     canceled_only: bool = False, limit: int = 100, offset: int = 0,
 ) -> list[Ticket]:
     stmt = select(Ticket)
-    if actor.role == Role.TELLER:
-        station_id = _station_id(db, actor)
-        stmt = stmt.where(or_(Ticket.teller_id == actor.id, Ticket.station_id == station_id))
-    elif actor.role != Role.ADMIN:
+    if not is_top(actor):
         stmt = stmt.where(Ticket.agent_id.in_(scope_ids(db, actor)))
     if event_id:
         stmt = stmt.where(Ticket.event_id == event_id)
@@ -283,73 +274,12 @@ def list_tickets(
 
 
 def beneficiary_account(db: Session, ticket: Ticket) -> Account:
-    """Where a payout or refund lands: player wallet, or the station drawer for
-    walk-in cash tickets."""
-    if ticket.funded_by == "wallet" and ticket.player_id:
+    """Where a payout or refund lands: the player's credit wallet.
+
+    Tickets sold before the platform went online-only may have no player; those fall back to
+    the central account so historical settlements still balance."""
+    if ticket.player_id:
         player = db.get(Player, ticket.player_id)
         if player is not None:
             return accounts.wallet_for_player(db, player)
-    if ticket.station_id:
-        station = db.get(Station, ticket.station_id)
-        if station is not None:
-            return accounts.cash_for_station(db, station)
     return accounts.central_cash(db)
-
-
-# ---------------------------------------------------------------------------
-# Counter claim (scan the ticket, hand over the cash)
-# ---------------------------------------------------------------------------
-
-def parse_scan(payload: str) -> tuple[str, str]:
-    """A QR may carry the bare ticket code or the /tickets/<id> link. -> (kind, value)."""
-    raw = (payload or "").strip()
-    if "/tickets/" in raw:
-        tail = raw.split("/tickets/", 1)[1].split("/", 1)[0].split("?", 1)[0]
-        if tail.isdigit():
-            return "id", tail
-    return "code", raw[:24].upper()
-
-
-def find_by_scan(db: Session, payload: str) -> Ticket:
-    kind, value = parse_scan(payload)
-    if not value:
-        raise ValidationError("Scan or type a ticket code.")
-    return get_ticket(db, int(value)) if kind == "id" else get_ticket_by_code(db, value)
-
-
-def claim_status(ticket: Ticket) -> str:
-    """none | pending | claimed | auto | lost | open"""
-    if ticket.status == TicketStatus.ACTIVE:
-        return "open"
-    if ticket.status == TicketStatus.CANCELED:
-        return "none"
-    if ticket.payout_cents <= 0:
-        return "lost"
-    if ticket.claimed_at is not None:
-        return "auto" if ticket.funded_by == "wallet" else "claimed"
-    return "pending"
-
-
-def claim_ticket(db: Session, actor: User, *, ticket_id: int) -> Ticket:
-    ticket = db.scalar(select(Ticket).where(Ticket.id == ticket_id).with_for_update())
-    if ticket is None:
-        raise NotFound("Ticket not found.")
-    assert_ticket_visible(db, actor, ticket)
-    state = claim_status(ticket)
-    if state == "open":
-        raise LockedState(f"Game is not settled yet, ticket {ticket.code} cannot be claimed.")
-    if state == "none":
-        raise LockedState(f"Ticket {ticket.code} was cancelled and refunded.")
-    if state == "lost":
-        raise LockedState(f"Ticket {ticket.code} did not win. Nothing to pay.")
-    if state in ("claimed", "auto"):
-        when = ticket.claimed_at.strftime("%Y-%m-%d %H:%M") if ticket.claimed_at else "earlier"
-        raise Conflict(f"Ticket {ticket.code} was already claimed ({when}).")
-    if ticket.funded_by == "wallet":
-        raise Conflict("This ticket was paid straight into the player's load credit.")
-    ticket.claimed_at = dt.datetime.now(dt.timezone.utc)
-    ticket.claimed_by_id = actor.id
-    db.flush()
-    audit.record(db, actor, "bet.claim", entity_type="ticket", entity_id=ticket.id,
-                 after={"code": ticket.code, "payout_cents": ticket.payout_cents})
-    return ticket

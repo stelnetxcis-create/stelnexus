@@ -2,12 +2,13 @@
 {% import "_macros.html" as ui %}
 {% block title %}Audit Trail · {{ brand }}{% endblock %}
 {% block heading %}Audit Trail{% endblock %}
-{% block actions %}<a class="btn btn-sm" href="/integrity">Ledger integrity</a>{% endblock %}
+{% block actions %}<a class="btn btn-sm" href="/admin/integrity">Ledger integrity</a>{% endblock %}
 {% block content %}
+{% include "_panel_nav.html" %}
 <div class="card">
   <div class="card-head">
     <h2>Append-only log</h2>
-    <form class="inline-form" method="get" action="/audit">
+    <form class="inline-form" method="get" action="/admin/audit">
       <input name="action" value="{{ filters.action }}" placeholder="action contains…" aria-label="Filter by action">
       <input name="entity" value="{{ filters.entity }}" placeholder="entity type" aria-label="Filter by entity">
       <button class="btn btn-sm btn-primary">Filter</button>

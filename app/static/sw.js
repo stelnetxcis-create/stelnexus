@@ -1,8 +1,8 @@
 /* StelNexus service worker.
    Security rule: NEVER cache authenticated HTML or API responses — a shared
-   tablet must not serve one teller's session data to the next. Only the static
+   tablet must not serve one user's session data to the next. Only the static
    shell (css/js/icons) and an offline fallback page are cached. */
-const CACHE = 'stelnexus-shell-luxe4';
+const CACHE = 'stelnexus-shell-luxe5';
 const SHELL = [
   '/static/css/app.css',
   '/static/css/luxe.css',

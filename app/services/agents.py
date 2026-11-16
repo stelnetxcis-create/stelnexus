@@ -2,7 +2,7 @@
 
 Fixes vs. the original:
 * role of the created account is validated server-side against the creator's
-  role (the old form merely offered a dropdown);
+  role (the old form merely offered a dropdown): Admin -> Master -> Cavo -> Kubrador;
 * passwords are Argon2id-hashed and never echoed back;
 * credit transfer is a balanced ledger transaction under row locks, scoped to
   the downline, idempotent, and cannot overdraw the sender;
@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core import audit
 from app.core.errors import Conflict, Forbidden, NotFound, ValidationError
-from app.core.rbac import assert_user_in_scope, can_create_role, downline_ids, scope_ids
+from app.core.rbac import assert_user_in_scope, can_create_role, downline_ids, has_global_scope, is_top, scope_ids
 from app.core.security import USERNAME_RE, hash_password, password_problems, random_code
 from app.core.settings_registry import SettingsStore
 from app.db.models import Role, Status, User
@@ -39,6 +39,30 @@ def _unique_ref(db: Session) -> str:
     raise Conflict("Could not allocate a referral code, please retry.")
 
 
+def _resolve_parent(db: Session, actor: User, role: Role, parent_id: int | None) -> User | None:
+    """Who the new account reports to.
+
+    A Cavo always sits under a Master and a Kubrador under a Cavo. Master/Cavo creating their own
+    downline are the upline. The Admin (and a Pawn allowed to create accounts) are not part of the
+    tree, so they must name the upline; if exactly one candidate exists it is used."""
+    if role == Role.ADMIN:
+        return None
+    if role in (Role.CAVO, Role.KUBRADOR) and actor.role in (Role.ADMIN, Role.PAWN):
+        need = Role.MASTER if role == Role.CAVO else Role.CAVO
+        if parent_id:
+            parent = db.get(User, parent_id)
+        else:
+            candidates = db.scalars(select(User).where(User.role == need, User.status == Status.ACTIVE)
+                                    .order_by(User.id).limit(2)).all()
+            parent = candidates[0] if len(candidates) == 1 else None
+        if parent is None or parent.role != need or parent.status != Status.ACTIVE:
+            raise ValidationError(f"Choose the active {need.label} this {role.label} reports to.")
+        return parent
+    if actor.role == Role.ADMIN and role == Role.MASTER:
+        return db.get(User, parent_id) if parent_id else actor
+    return actor
+
+
 def create_agent(
     db: Session,
     actor: User,
@@ -55,6 +79,8 @@ def create_agent(
     full_name = full_name.strip()
     if not full_name or len(full_name) > 120:
         raise ValidationError("Full name is required (max 120 characters).")
+    if role == Role.ADMIN:
+        raise Forbidden("There is only one Admin account; it cannot be duplicated.")
     if not can_create_role(actor, role):
         raise Forbidden(f"A {actor.role_label} cannot create a {role.label}.")
     _unique_username(db, username)
@@ -66,12 +92,7 @@ def create_agent(
     if problems:
         raise ValidationError(" ".join(dict.fromkeys(problems)))
 
-    if role == Role.ADMIN:
-        parent = None
-    elif actor.role == Role.ADMIN and role == Role.MASTER:
-        parent = db.get(User, parent_id) if parent_id else actor
-    else:
-        parent = actor
+    parent = _resolve_parent(db, actor, role, parent_id)
     if parent is not None and parent.status != Status.ACTIVE:
         raise ValidationError("The upline account is not active.")
 
@@ -89,8 +110,9 @@ def create_agent(
     )
     db.add(user)
     db.flush()
-    accounts.wallet_for_user(db, user)
-    accounts.commission_for_user(db, user)
+    if user.has_wallet:                     # declarators and pawns never get a balance
+        accounts.wallet_for_user(db, user)
+        accounts.commission_for_user(db, user)
     audit.record(db, actor, "agent.create", entity_type="user", entity_id=user.id,
                  after={"username": user.username, "role": role.value, "parent_id": user.parent_id,
                         "full_name": full_name, "contact": contact})
@@ -147,6 +169,27 @@ def reset_password(db: Session, actor: User, target_id: int, new_password: str,
     return target
 
 
+def set_pawn_grants(db: Session, actor: User, pawn_id: int, grants) -> User:
+    """The Admin decides what a Pawn may see and change in the Admin Panel. Audited."""
+    from app.core.rbac import Perm, has_perm, normalize_grants
+    if not has_perm(actor, Perm.PAWNS_MANAGE):
+        raise Forbidden("Only the Admin can change what a Pawn may see.")
+    pawn = db.get(User, pawn_id)
+    if pawn is None or pawn.role != Role.PAWN:
+        raise NotFound("Pawn not found.")
+    before = list(pawn.grants or [])
+    pawn.grants = normalize_grants(grants)
+    db.flush()
+    audit.record(db, actor, "pawn.grants", entity_type="user", entity_id=pawn.id,
+                 before={"grants": before, "username": pawn.username},
+                 after={"grants": pawn.grants, "username": pawn.username})
+    return pawn
+
+
+def list_pawns(db: Session) -> list[User]:
+    return list(db.scalars(select(User).where(User.role == Role.PAWN).order_by(User.username)).all())
+
+
 def revoke_sessions(db: Session, user: User) -> None:
     from app.db.models import Session as DbSession
     now = dt.datetime.now(dt.timezone.utc)
@@ -159,44 +202,22 @@ def transfer_credit(
     db: Session, actor: User, *, target_id: int, amount_cents: int,
     settings: SettingsStore, note: str | None = None, idempotency_key: str | None = None,
 ) -> ledger.LedgerTxn:
-    """Move wallet credit down (or back up) the tree. Atomic and audited."""
-    target = assert_user_in_scope(db, actor, target_id)
-    if target.id == actor.id:
-        raise ValidationError("You cannot transfer load credit to yourself.")
-    if target.status != Status.ACTIVE:
-        raise ValidationError("Target account is not active.")
-    if actor.role != Role.ADMIN and target.id not in downline_ids(db, actor):
-        raise Forbidden("You may only transfer load credit to your own downline.")
-    if target.role == Role.TELLER:
-        raise ValidationError("Station accounts are funded through the cash desk, not load credit transfer.")
-
-    minimum = int(settings.get("wallet.min_transfer_cents"))
-    maximum = int(settings.get("wallet.max_transfer_cents"))
-    if amount_cents < minimum or amount_cents > maximum:
-        from app.core.money import fmt
-        raise ValidationError(f"Transfer must be between {fmt(minimum)} and {fmt(maximum)}.")
-
-    sender = accounts.wallet_for_user(db, actor)
-    receiver = accounts.wallet_for_user(db, target)
-    txn = ledger.post(
-        db, kind="credit.transfer",
-        entries=[(sender, +amount_cents), (receiver, -amount_cents)],
-        actor=actor, memo=f"Credit transfer to {target.username}",
-        ref_type="user", ref_id=target.id, idempotency_key=idempotency_key,
-        reason=note,
-    )
-    audit.record(db, actor, "credit.transfer", entity_type="user", entity_id=target.id,
-                 after={"amount_cents": amount_cents, "to": target.username, "txn": txn.uuid}, reason=note)
-    return txn
+    """Move wallet credit to another account. Kept as the stable entry point; the rules (who may
+    receive credit, limits, no-balance roles) live in services.wallet."""
+    from app.services import wallet as wallet_service
+    return wallet_service.transfer(db, actor, target_id=target_id, amount_cents=amount_cents,
+                                   settings=settings, note=note, idempotency_key=idempotency_key)
 
 
 def list_agents(db: Session, actor: User, *, search: str | None = None,
                 role: Role | None = None, limit: int = 200, offset: int = 0) -> list[User]:
     stmt = select(User)
-    if actor.role != Role.ADMIN:
-        stmt = stmt.where(User.id.in_(scope_ids(db, actor) - {actor.id}))
+    if has_global_scope(actor):
+        stmt = stmt.where(User.role != Role.TELLER, User.id != actor.id)   # TELLER = retired legacy role
+        if actor.role != Role.ADMIN:
+            stmt = stmt.where(User.role != Role.ADMIN)      # the hidden account is never listed
     else:
-        stmt = stmt.where(User.role != Role.TELLER)
+        stmt = stmt.where(User.id.in_(scope_ids(db, actor) - {actor.id}))
     if role:
         stmt = stmt.where(User.role == role)
     if search:
@@ -215,16 +236,22 @@ def get_agent(db: Session, actor: User, agent_id: int) -> User:
 
 
 def wallet_balance(db: Session, user: User) -> int:
+    if not user.has_wallet:
+        return 0
     return accounts.wallet_for_user(db, user).balance_cents
 
 
 def commission_balance(db: Session, user: User) -> int:
+    if not user.has_wallet:
+        return 0
     return accounts.commission_for_user(db, user).balance_cents
 
 
 def tree(db: Session, actor: User) -> list[dict]:
     """Nested downline for the dashboard tree widget."""
     ids = scope_ids(db, actor)
+    if actor.role != Role.ADMIN:
+        ids = {i for i in ids if i == actor.id or db.get(User, i).role != Role.ADMIN}
     users = list(db.scalars(select(User).where(User.id.in_(ids)).order_by(User.id)))
     by_parent: dict[int | None, list[User]] = {}
     for user in users:
@@ -238,4 +265,4 @@ def tree(db: Session, actor: User) -> list[dict]:
             for u in by_parent.get(parent_id, [])
         ]
 
-    return build(actor.id) if actor.role != Role.ADMIN else build(None)
+    return build(None) if actor.role == Role.ADMIN else build(actor.id)

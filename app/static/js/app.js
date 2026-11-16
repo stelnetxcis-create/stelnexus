@@ -65,11 +65,13 @@
         const value = trigger.getAttribute('data-' + el.getAttribute('data-text'));
         if (value !== null) el.textContent = value;
       });
+      document.documentElement.classList.add('modal-open');
       if (typeof dialog.showModal === 'function') dialog.showModal();
       else dialog.setAttribute('open', '');
     });
   });
   $$('dialog.modal').forEach((dialog) => {
+    dialog.addEventListener('close', () => document.documentElement.classList.remove('modal-open'));
     dialog.addEventListener('click', (e) => {
       if (e.target === dialog) dialog.close();
     });
@@ -239,19 +241,26 @@
     });
   }
   let deferredPrompt = null;
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    deferredPrompt = e;
-    const button = $('[data-install]');
-    if (button) {
-      button.hidden = false;
-      button.addEventListener('click', async () => {
-        if (!deferredPrompt) return;
-        deferredPrompt.prompt();
-        await deferredPrompt.userChoice;
-        deferredPrompt = null;
-        button.hidden = true;
-      });
+  const installBtns = $$('[data-install]');
+  const installHint = $('[data-install-hint]');
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  const foot = $('.sidebar-install');
+  if (standalone && foot) foot.hidden = true;           // already installed: nothing to offer
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; });
+  window.addEventListener('appinstalled', () => { if (foot) foot.hidden = true; });
+  installBtns.forEach((button) => button.addEventListener('click', async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      return;
     }
-  });
+    // No install prompt available (iOS, or the browser already declined): say how to do it by hand.
+    if (installHint) {
+      const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      installHint.textContent = ios ? 'Tap Share, then “Add to Home Screen”.'
+                                    : 'Open your browser menu and choose “Install app” or “Add to Home screen”.';
+      installHint.hidden = !installHint.hidden;
+    }
+  }));
 })();

@@ -9,6 +9,8 @@ No database access is needed in the middleware, so it never blocks the event loo
 """
 from __future__ import annotations
 
+import re
+
 import hashlib
 import hmac
 import secrets
@@ -26,6 +28,8 @@ _cfg = get_settings()
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS", "TRACE"}
 CSRF_COOKIE = "snx_csrf"
 MAX_BODY = 1_000_000
+MULTIPART_OVERHEAD = 256 * 1024   # form fields and boundaries around an uploaded picture
+_MULTIPART_CSRF = re.compile(rb'name="csrf_token"\r\n\r\n([^\r\n]{1,200})\r\n')
 EXEMPT_PREFIXES = ("/static/", "/healthz")
 # Credentials are in the body and no cookie is used, so there is nothing for CSRF to protect.
 # Brute force is limited by ratelimit + account lockout inside auth.authenticate().
@@ -197,6 +201,10 @@ class CsrfMiddleware:
 
         buffered: list[Message] = []
         body = b""
+        content_type = headers.get("content-type", "")
+        is_multipart = content_type.startswith("multipart/form-data")
+        # Only a multipart form (the result-picture upload) may be bigger than a normal form.
+        limit = (_cfg.MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD) if is_multipart else MAX_BODY
         if presented is None:
             while True:
                 message = await receive()
@@ -204,13 +212,15 @@ class CsrfMiddleware:
                 if message["type"] != "http.request":
                     break
                 body += message.get("body", b"")
-                if len(body) > MAX_BODY:
+                if len(body) > limit:
                     response = PlainTextResponse("Request body too large", status_code=413)
                     return await response(scope, receive, send)
                 if not message.get("more_body", False):
                     break
-            content_type = headers.get("content-type", "")
-            if content_type.startswith("application/x-www-form-urlencoded"):
+            if is_multipart:
+                match = _MULTIPART_CSRF.search(body)
+                presented = match.group(1).decode("ascii", "ignore") if match else None
+            elif content_type.startswith("application/x-www-form-urlencoded"):
                 fields = parse_qs(body.decode("utf-8", "replace"))
                 presented = (fields.get("csrf_token") or [None])[0]
             elif content_type.startswith("application/json"):

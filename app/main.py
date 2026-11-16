@@ -61,11 +61,12 @@ def create_app() -> FastAPI:
 
     from app.web import (
         routes_admin, routes_agents, routes_auth, routes_bets, routes_dashboard,
-        routes_extra, routes_fights, routes_money, routes_players, routes_referrals,
+        routes_cuts, routes_extra, routes_fights, routes_money, routes_players, routes_referrals,
+        routes_wallet, routes_dev,
     )
     for module in (routes_auth, routes_dashboard, routes_agents, routes_players,
                    routes_fights, routes_bets, routes_money, routes_admin, routes_referrals,
-                   routes_extra):
+                   routes_cuts, routes_extra, routes_wallet, routes_dev):
         app.include_router(module.router)
 
     from app.api.v1 import routes as api_routes

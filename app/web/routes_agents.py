@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
+from sqlalchemy import select
 
 from app.core.errors import ValidationError
-from app.core.money import to_cents
-from app.core.rbac import CHILD_ROLE, Perm, scope_ids
+from app.core.rbac import Perm, creatable_roles, hides_totals, scope_ids
 from app.db.models import Role, Status, User
 from app.services import agents
 from app.web.deps import Ctx, form_data, flash_redirect, render, require_ctx
@@ -12,11 +12,22 @@ from app.web.deps import Ctx, form_data, flash_redirect, render, require_ctx
 router = APIRouter()
 
 
-def _creatable_roles(user: User) -> list[Role]:
-    if user.role == Role.ADMIN:
-        return [Role.MASTER, Role.ADMIN, Role.TELLER, Role.DECLARATOR]
-    child = CHILD_ROLE.get(Role(user.role))
-    return [child] if child else []
+def _int(raw: str | None) -> int | None:
+    try:
+        return int(raw) if raw not in (None, "") else None
+    except (TypeError, ValueError) as exc:
+        raise ValidationError("Choose a valid upline.") from exc
+
+
+def _uplines(ctx: Ctx, creatable: list[Role]) -> list[User]:
+    """Masters and Cavos the Admin / a Pawn may attach a new Cavo / Kubrador to."""
+    if ctx.user.role not in (Role.ADMIN, Role.PAWN):
+        return []
+    wanted = [r for r, need in ((Role.MASTER, Role.CAVO), (Role.CAVO, Role.KUBRADOR)) if need in creatable]
+    if not wanted:
+        return []
+    return list(ctx.db.scalars(select(User).where(User.role.in_(wanted), User.status == Status.ACTIVE)
+                               .order_by(User.role, User.username)).all())
 
 
 @router.get("/agents")
@@ -24,11 +35,12 @@ async def agents_page(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.AGENTS_VIEW)
     search = request.query_params.get("q", "")[:60]
     rows = agents.list_agents(ctx.db, ctx.user, search=search or None)
-    wallets = {row.id: agents.wallet_balance(ctx.db, row) for row in rows}
-    commissions = {row.id: agents.commission_balance(ctx.db, row) for row in rows}
-    return render(ctx, "agents.html", active="agents", rows=rows, wallets=wallets,
-                  commissions=commissions, search=search, creatable=_creatable_roles(ctx.user),
-                  my_wallet=agents.wallet_balance(ctx.db, ctx.user),
+    hide = hides_totals(ctx.user)           # a Pawn without 'see stakes, pools and payouts' sees no balances
+    wallets = {row.id: (agents.wallet_balance(ctx.db, row) if row.has_wallet and not hide else None) for row in rows}
+    commissions = {row.id: (agents.commission_balance(ctx.db, row) if row.has_wallet and not hide else None) for row in rows}
+    creatable = creatable_roles(ctx.user)
+    return render(ctx, "agents.html", active="agents", rows=rows, wallets=wallets, hide_balances=hide,
+                  commissions=commissions, search=search, creatable=creatable, uplines=_uplines(ctx, creatable),
                   downline=sorted(scope_ids(ctx.db, ctx.user) - {ctx.user.id}))
 
 
@@ -43,7 +55,7 @@ async def agents_create(request: Request, ctx: Ctx = Depends(require_ctx)):
     user = agents.create_agent(
         ctx.db, ctx.user, username=data.get("username", ""), password=data.get("password", ""),
         role=role, full_name=data.get("full_name", ""), contact=data.get("contact"),
-        settings=ctx.store,
+        parent_id=_int(data.get("parent_id")), settings=ctx.store,
     )
     return flash_redirect("/agents", f"{user.role_label} '{user.username}' created. Ref code {user.ref_code}.")
 
@@ -67,18 +79,3 @@ async def agents_password(agent_id: int, request: Request, ctx: Ctx = Depends(re
     data = await form_data(request)
     agents.reset_password(ctx.db, ctx.user, agent_id, data.get("password", ""), settings=ctx.store)
     return flash_redirect("/agents", "Password reset. The agent must change it at next sign-in.")
-
-
-@router.post("/agents/transfer")
-async def agents_transfer(request: Request, ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.AGENTS_TRANSFER)
-    data = await form_data(request)
-    try:
-        target_id = int(data.get("target_id", "0"))
-    except ValueError as exc:
-        raise ValidationError("Choose a target agent.") from exc
-    amount = to_cents(data.get("amount", "0"))
-    agents.transfer_credit(ctx.db, ctx.user, target_id=target_id, amount_cents=amount,
-                           settings=ctx.store, note=data.get("note"),
-                           idempotency_key=data.get("idempotency_key") or None)
-    return flash_redirect("/agents", "Load credit transferred.")

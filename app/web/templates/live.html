@@ -34,9 +34,9 @@
     <small class="muted">refreshes every 5 seconds</small>
   </div>
   {% if not board.event %}
-    <div class="card"><div class="card-body"><h2>No main event is running right now.</h2></div></div>
+    <div class="card"><div class="card-body"><h2>No event is running right now.</h2></div></div>
   {% elif not board.fight %}
-    <div class="card"><div class="card-body"><h2>All games in this main event are finished.</h2></div></div>
+    <div class="card"><div class="card-body"><h2>All games in this event are finished.</h2></div></div>
   {% else %}
     {% set f = board.fight %}{% set snap = board.snapshot %}{% set mult = board.multipliers %}
     <div class="live-head">

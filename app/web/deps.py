@@ -17,9 +17,9 @@ from app.core.config import get_settings
 from app.core.errors import AuthError, Forbidden
 from app.core.middleware import CSRF_COOKIE, cookie_header, make_csrf_cookie
 from app.core.money import fmt, pesos
-from app.core.rbac import Perm, permissions_for
+from app.core.rbac import Perm, permissions_of
 from app.core.settings_registry import SettingsStore
-from app.db.models import Notification, User
+from app.db.models import Notification, Role, Status, User
 from app.db.models import Session as SessionRow
 from app.db.session import get_db
 from app.services import auth
@@ -31,6 +31,12 @@ templates.env.autoescape = True
 templates.env.trim_blocks = True
 templates.env.lstrip_blocks = True
 _flash_serializer = URLSafeTimedSerializer(_cfg.SECRET_KEY, salt="stelnexus.flash")
+_viewas_serializer = URLSafeTimedSerializer(_cfg.SECRET_KEY, salt="stelnexus.viewas")
+
+# Dev "view as": the hidden Admin can look at the console through another account's eyes, read-only.
+VIEWAS_COOKIE = "snx_viewas"
+VIEWAS_MAX_AGE = 8 * 3600
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 templates.env.globals.update(
     fmt=fmt, pesos=pesos, Perm=Perm,
@@ -48,13 +54,19 @@ class Ctx:
     db: DbSession
     store: SettingsStore
     user: User | None = None
+    real_user: User | None = None      # the signed-in Admin while 'viewing as' someone else
     session_row: SessionRow | None = None
     csrf_token: str = ""
     flashes: list[dict] = field(default_factory=list)
 
     @property
     def perms(self) -> set[str]:
-        return {p.value for p in permissions_for(self.user.role)} if self.user else set()
+        return {p.value for p in permissions_of(self.user)} if self.user else set()
+
+    @property
+    def viewing_as(self) -> User | None:
+        """The account being simulated, or None when the Admin sees the console as themselves."""
+        return self.user if self.real_user is not None else None
 
     def can(self, perm: Perm | str) -> bool:
         value = perm.value if isinstance(perm, Perm) else perm
@@ -63,6 +75,14 @@ class Ctx:
     def need(self, perm: Perm) -> None:
         if not self.can(perm):
             raise Forbidden("Your role is not allowed to perform this action.")
+
+    def who(self, other: User | None, empty: str = "—") -> str:
+        """Username to display for `other`. The hidden Admin shows as 'System' to everyone else."""
+        if other is None:
+            return empty
+        if other.is_hidden and not (self.user and self.user.role == other.role):
+            return "System"
+        return other.username
 
     @property
     def ip(self) -> str | None:
@@ -89,7 +109,39 @@ def optional_ctx(request: Request, db: DbSession = Depends(get_db)) -> Ctx:
     resolved = auth.resolve_session(db, request.cookies.get(_cfg.SESSION_COOKIE), ctx.store)
     if resolved:
         ctx.session_row, ctx.user = resolved
+        _apply_view_as(ctx)
     return ctx
+
+
+def make_viewas_cookie_value(admin_id: int, target_id: int) -> str:
+    return _viewas_serializer.dumps({"a": admin_id, "t": target_id})
+
+
+def _apply_view_as(ctx: Ctx) -> None:
+    """Swap in the simulated account when the signed-in hidden Admin asked for it.
+
+    The cookie is signed, expires, and is bound to this Admin's id; anyone else's cookie is ignored.
+    While simulating, every non-GET request is refused so a preview can never move money or change
+    data. /dev/* and /logout always act as the real Admin so the person can always get out."""
+    user = ctx.user
+    raw = ctx.request.cookies.get(VIEWAS_COOKIE)
+    if user is None or user.role != Role.ADMIN or not raw:
+        return
+    path = ctx.request.url.path
+    if path.startswith("/dev/") or path == "/logout":
+        return
+    try:
+        data = _viewas_serializer.loads(raw, max_age=VIEWAS_MAX_AGE)
+        if int(data.get("a", 0)) != user.id:
+            return
+        target = ctx.db.get(User, int(data.get("t", 0)))
+    except (BadSignature, SignatureExpired, TypeError, ValueError, AttributeError):
+        return
+    if target is None or target.role in (Role.ADMIN, Role.TELLER) or target.status != Status.ACTIVE:
+        return
+    if ctx.request.method not in _SAFE_METHODS:
+        raise Forbidden(f"Read-only while viewing as {target.username}. Exit the preview from the DEV menu to make changes.")
+    ctx.real_user, ctx.user = user, target
 
 
 def require_ctx(request: Request, db: DbSession = Depends(get_db)) -> Ctx:
@@ -110,12 +162,26 @@ def render(ctx: Ctx, template: str, status_code: int = 200, **extra: Any):
         notifications = list(ctx.db.scalars(
             select(Notification).where(Notification.user_id == ctx.user.id, Notification.is_read.is_(False))
             .order_by(Notification.id.desc()).limit(8)).all())
+    real = ctx.real_user or ctx.user
+    is_dev = bool(real is not None and real.role == Role.ADMIN)
+    my_balance = None
+    wallet_pending = 0
+    if ctx.user is not None and ctx.user.has_wallet:
+        from sqlalchemy import select as _select
+        from app.db.models import Account as _Account
+        _row = ctx.db.scalar(_select(_Account.balance_cents).where(_Account.code == f"wallet:user:{ctx.user.id}"))
+        my_balance = int(_row or 0)
+        if Perm.REQUESTS_REVIEW.value in ctx.perms:
+            from app.services import cashdesk as _cashdesk
+            wallet_pending = _cashdesk.pending_count(ctx.db, ctx.user)
     context = {
-        "request": ctx.request, "ctx": ctx, "user": ctx.user, "perms": ctx.perms,
+        "my_balance": my_balance, "wallet_pending": wallet_pending, "request": ctx.request, "ctx": ctx, "user": ctx.user, "perms": ctx.perms,
         "settings": settings, "brand": settings.get("brand.name", "StelNexus"),
         "tagline": settings.get("brand.tagline", ""), "csrf_token": ctx.csrf_token,
         "flashes": ctx.flashes, "notifications": notifications,
         "active": extra.pop("active", ""), "now": dt.datetime.now(dt.timezone.utc),
+        "who": ctx.who, "is_dev": is_dev, "viewing_as": ctx.viewing_as,
+        "dev": _dev_context(ctx) if is_dev else None,
         **extra,
     }
     response = templates.TemplateResponse(ctx.request, template, context, status_code=status_code)
@@ -135,11 +201,34 @@ def make_csrf_cookie_from(token: str, request: Request) -> tuple[str, str]:
     return token, f"{token}.{sign_csrf(token, session_cookie)}"
 
 
+_DEV_ROLE_ORDER = (Role.MASTER, Role.CAVO, Role.KUBRADOR, Role.DECLARATOR, Role.PAWN)
+
+
+def _dev_context(ctx: Ctx) -> dict:
+    """Everything the DEV menu shows: accounts to preview, what the previewed account may do, env."""
+    from sqlalchemy import select as _select
+    rows = ctx.db.scalars(_select(User).where(User.role.in_(_DEV_ROLE_ORDER), User.status == Status.ACTIVE)
+                          .order_by(User.username)).all()
+    groups = [{"role": role.value, "label": role.label,
+               "users": [u for u in rows if u.role == role]} for role in _DEV_ROLE_ORDER]
+    return {
+        "groups": groups,
+        "perms": sorted(ctx.perms),
+        "env": _cfg.ENV,
+        "db": ctx.db.get_bind().dialect.name,
+    }
+
+
 def home_for(user: User | None) -> str:
-    """Landing page after sign-in. A declarator has no dashboard."""
+    """Landing page after sign-in. Declarators and Pawns have no dashboard: a Pawn with Admin Panel
+    access lands there, everyone else of that kind lands on the fights."""
     if user is None:
         return "/login"
-    return "/games" if user.role.value == "declarator" else "/dashboard"
+    if user.role.value == "declarator":
+        return "/change_name"
+    if user.role.value == "pawn":
+        return "/admin" if Perm.PANEL_VIEW in permissions_of(user) else "/change_name"
+    return "/dashboard"
 
 
 def flash_redirect(url: str, message: str | None = None, level: str = "success",
@@ -165,9 +254,9 @@ def attach_session_cookie(response, raw_token: str) -> None:
 
 
 def clear_session_cookie(response) -> None:
-    for name in (_cfg.SESSION_COOKIE, CSRF_COOKIE):
+    for name in (_cfg.SESSION_COOKIE, CSRF_COOKIE, VIEWAS_COOKIE):
         response.headers.append("Set-Cookie", cookie_header(
-            name, "", max_age=0, http_only=name == _cfg.SESSION_COOKIE,
+            name, "", max_age=0, http_only=name != CSRF_COOKIE,
             secure=_cfg.COOKIE_SECURE, same_site=_cfg.COOKIE_SAMESITE))
 
 

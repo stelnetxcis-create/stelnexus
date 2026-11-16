@@ -5,7 +5,7 @@
 {% block actions %}<a class="btn" href="/clp">Back to players</a>{% endblock %}
 {% block content %}
 <div class="grid grid-3">
-  {{ ui.stat('Balance', balance | money, 'load credit / card load') }}
+  {{ ui.stat('Balance', balance | money, 'credit / card load') }}
   {{ ui.stat('Tickets', tickets | length, 'last 200') }}
   {{ ui.stat('Status', player.status.value | upper, 'KYC ' ~ ('verified' if player.kyc_verified else 'not verified')) }}
 </div>
@@ -20,7 +20,7 @@
       <dt>Gender</dt><dd>{{ player.gender or '—' }}</dd>
       <dt>Address</dt><dd>{{ address or '—' }}</dd>
       <dt>GCash</dt><dd>{{ gcash or '—' }}</dd>
-      <dt>Agent</dt><dd>{{ player.agent.username if player.agent else '—' }}</dd>
+      <dt>Agent</dt><dd>{{ who(player.agent) }}</dd>
       <dt>Daily limit</dt><dd>{{ player.daily_bet_limit_cents | money if player.daily_bet_limit_cents else 'system default' }}</dd>
       <dt>Self-excluded until</dt><dd>{{ player.self_excluded_until | datetime }}</dd>
     </dl>
@@ -47,11 +47,11 @@
 </div>
 
 <div class="card">
-  <div class="card-head"><h2>Betting List</h2></div>
+  <div class="card-head"><h2>Bet history</h2></div>
   <div class="card-body tight">
     {% if tickets %}
     <div class="table-wrap"><table class="table" data-table data-page-size="20">
-      <thead><tr><th>Bar code</th><th>Side</th><th class="right">Amount</th><th class="right">Winning</th><th>Game #</th><th>Station</th><th>Status</th><th>DIY</th><th>Placed</th></tr></thead>
+      <thead><tr><th>Bar code</th><th>Side</th><th class="right">Amount</th><th class="right">Winning</th><th>Game #</th><th>Status</th><th>Self-service</th><th>Placed</th></tr></thead>
       <tbody>
       {% for t in tickets %}
         <tr>
@@ -60,7 +60,6 @@
           <td class="right num">{{ t.stake_cents | money }}</td>
           <td class="right num">{{ t.payout_cents | money }}</td>
           <td class="num">{{ t.fight.number }}</td>
-          <td>{{ t.station.code if t.station else '—' }}</td>
           <td>{{ ui.status_badge(t.status) }}</td>
           <td>{{ 'yes' if t.is_diy else '' }}</td>
           <td class="small nowrap">{{ t.placed_at | datetime }}</td>
@@ -73,7 +72,7 @@
 </div>
 
 <div class="card">
-  <div class="card-head"><h2>Load credit ledger</h2><span class="muted small">latest 40 entries</span></div>
+  <div class="card-head"><h2>Credit ledger</h2><span class="muted small">latest 40 entries</span></div>
   <div class="card-body tight">
     {% if entries %}
     <div class="table-wrap"><table class="table">
