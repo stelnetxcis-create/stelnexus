@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 200" fill="none">
+<defs>
+<radialGradient id="a" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#fff3c4"/><stop offset=".5" stop-color="#d9b155"/><stop offset="1" stop-color="#6f5016"/></radialGradient>
+<radialGradient id="b" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#ff9aa8"/><stop offset=".5" stop-color="#e5384f"/><stop offset="1" stop-color="#6d0f20"/></radialGradient>
+<radialGradient id="c" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#bfe0ff"/><stop offset=".5" stop-color="#4aa3ff"/><stop offset="1" stop-color="#12417a"/></radialGradient>
+<radialGradient id="s" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#d9b155" stop-opacity=".32"/><stop offset="1" stop-color="#d9b155" stop-opacity="0"/></radialGradient>
+</defs>
+<ellipse cx="130" cy="176" rx="112" ry="16" fill="url(#s)"/>
+<g stroke="#8f6b1e" stroke-width="1.4"><path d="M24 176h212"/><path d="M40 176V158M220 176V158" opacity=".6"/></g>
+<circle cx="84" cy="128" r="40" fill="url(#c)"/><circle cx="176" cy="122" r="44" fill="url(#b)"/><circle cx="130" cy="82" r="46" fill="url(#a)"/>
+<g fill="#fff" opacity=".92"><circle cx="84" cy="128" r="17"/><circle cx="176" cy="122" r="18"/><circle cx="130" cy="82" r="19"/></g>
+<g font-family="Georgia,serif" font-weight="700" text-anchor="middle" fill="#17110a"><text x="84" y="136" font-size="22">07</text><text x="176" y="130" font-size="23">21</text><text x="130" y="90" font-size="24">13</text></g>
+<g fill="#f7de93"><path d="M222 40l2.2 5.6 5.6 2.2-5.6 2.2-2.2 5.6-2.2-5.6-5.6-2.2 5.6-2.2z" opacity=".9"/><path d="M34 70l1.6 4 4 1.6-4 1.6-1.6 4-1.6-4-4-1.6 4-1.6z" opacity=".6"/></g>
+</svg>

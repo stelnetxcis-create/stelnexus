@@ -1,17 +1,18 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
 {% import "_lobby.html" as lobby %}
-{% block title %}Games · {{ brand }}{% endblock %}
-{% block heading %}Games{% endblock %}
+{% block title %}Sabong Events · {{ brand }}{% endblock %}
+{% block heading %}Sabong Events{% endblock %}
 {% block actions %}
+{% if 'sell.desk' in perms %}<a class="btn btn-sm btn-ghost" href="/sell"><svg class="ico"><use href="#i-coins"/></svg><span class="lbl">Seller desk</span></a>{% endif %}
 {% if 'events.create' in perms %}<button class="btn btn-sm btn-brand" data-modal="event-modal"><svg class="ico"><use href="#i-plus"/></svg>Create event</button>{% endif %}
 {% endblock %}
 {% block content %}
 {% if rows %}
-<p class="muted small" style="margin:0 0 12px">Tap an event to see its games. Each box shows where it is held, its date and how far along it is.</p>
+<p class="muted small" style="margin:0 0 12px">Tap an event to open its games. Each box shows where it is held, its date and how far along it is.</p>
 {{ lobby.event_cards(rows, stats, '/events/') }}
 {% else %}
-<div class="card"><div class="card-body">{{ ui.empty('No events yet.') }}</div></div>
+<div class="card"><div class="card-body">{{ ui.empty('Create an event to start taking Meron / Wala bets.', kind='arena', title='No events yet', modal='event-modal' if 'events.create' in perms else '', cta='Create an event') }}</div></div>
 {% endif %}
 
 {% if 'events.create' in perms %}

@@ -6,14 +6,28 @@
 {% if 'events.manage' in perms %}<a class="btn btn-sm btn-brand" href="/events" title="New event"><svg class="ico"><use href="#i-plus"/></svg><span class="lbl">New event</span></a>{% endif %}
 {% endblock %}
 
-{% macro kpi(icon, label, value, hint='', tone='', delta=none) %}
-<div class="kpi {{ tone }}">
+{% macro spark(values) %}
+{% set n = values | length %}
+{% if n > 1 %}
+{% set hi = values | max %}{% set lo = values | min %}{% set span = (hi - lo) or 1 %}
+{% set pts = [] %}
+{% for v in values %}{% set _ = pts.append(((loop.index0 * 120 / (n - 1)) | round(1) | string) ~ ',' ~ ((31 - ((v - lo) / span * 27)) | round(1) | string)) %}{% endfor %}
+<svg class="kpi-spark" viewBox="0 0 120 36" preserveAspectRatio="none" aria-hidden="true">
+  <path class="spark-area" d="M0,36 L{{ pts | join(' L') }} L120,36Z"/>
+  <polyline class="spark-line" pathLength="1" points="{{ pts | join(' ') }}"/>
+</svg>
+{% endif %}
+{% endmacro %}
+
+{% macro kpi(icon, label, value, hint='', tone='', delta=none, series=none, live='') %}
+<div class="kpi {{ tone }}{{ ' has-spark' if series }}">
   <span class="kpi-ico"><svg class="ico"><use href="#{{ icon }}"/></svg></span>
   <div class="kpi-body">
     <span class="kpi-label">{{ label }}</span>
-    <strong class="stat-value kpi-value">{{ value }}</strong>
+    <strong class="stat-value kpi-value"{% if live %} data-live-kpi="{{ live }}"{% endif %}>{{ value }}</strong>
     <span class="kpi-hint">{{ hint }}{% if delta is not none %} <i class="delta {{ 'up' if delta >= 0 else 'down' }}">{{ '▲' if delta >= 0 else '▼' }} {{ delta | abs }}%</i>{% endif %}</span>
   </div>
+  {% if series %}{{ spark(series) }}{% endif %}
 </div>
 {% endmacro %}
 
@@ -40,13 +54,13 @@
     <p class="hero-kicker" data-today>{{ now | date }}</p>
     <h2><span data-greet>Welcome</span>, {{ (user.full_name or user.username).split()[0] }}</h2>
     <p class="muted">
-      {{ stats.open_fights }} game{{ '' if stats.open_fights == 1 else 's' }} open
+      {{ stats.open_fights }} Sabong game{{ '' if stats.open_fights == 1 else 's' }} open
       · {{ stats.tickets_today }} ticket{{ '' if stats.tickets_today == 1 else 's' }} sold today
       {% if stats.locked_fights %}· <b class="hero-warn">{{ stats.locked_fights }} waiting for a result</b>{% endif %}
     </p>
   </div>
   <div class="hero-actions">
-    {% if 'bets.place' in perms %}<a class="btn btn-sm btn-brand" href="/events"><svg class="ico"><use href="#i-list"/></svg>Sell ticket</a>{% endif %}
+    {% if 'sell.desk' in perms %}<a class="btn btn-sm btn-brand" href="/sell"><svg class="ico"><use href="#i-list"/></svg>Sell ticket</a>{% endif %}
     {% if 'requests.review' in perms %}<a class="btn btn-sm" href="/wallet?t=approvals"><svg class="ico"><use href="#i-check"/></svg>Review requests{% if stats.pending_requests %}<span class="pill">{{ stats.pending_requests }}</span>{% endif %}</a>{% endif %}
     {% if 'wallet.view' in perms %}<a class="btn btn-sm" href="/wallet"><svg class="ico"><use href="#i-coins"/></svg>Wallet</a>{% endif %}
   </div>
@@ -54,7 +68,7 @@
 
 <section class="games" aria-label="Available games">
   {% if sabong_tile %}
-  <a class="game-tile is-live" href="{{ sabong_tile.href }}">
+  <a class="game-tile is-live" href="{{ sabong_tile.href }}" data-game="sabong">
     <span class="game-ico"><svg class="ico"><use href="#i-target"/></svg></span>
     <span class="game-body">
       <span class="game-label">Sabong</span>
@@ -66,7 +80,7 @@
   {% endif %}
   {% if number_tile %}
   {% if number_tile.state == 'live' %}
-  <a class="game-tile is-live" href="{{ number_tile.href }}">
+  <a class="game-tile is-live" href="{{ number_tile.href }}" data-game="number">
     <span class="game-ico"><svg class="ico"><use href="#i-hash"/></svg></span>
     <span class="game-body">
       <span class="game-label">Number game</span>
@@ -76,7 +90,7 @@
     <span class="game-go" aria-hidden="true">→</span>
   </a>
   {% else %}
-  <div class="game-tile is-soon" aria-disabled="true">
+  <div class="game-tile is-soon" aria-disabled="true" data-game="number">
     <span class="game-ico"><svg class="ico"><use href="#i-hash"/></svg></span>
     <span class="game-body">
       <span class="game-label">Number game</span>
@@ -87,6 +101,15 @@
   </div>
   {% endif %}
   {% endif %}
+  <div class="game-tile is-soon" aria-disabled="true" data-game="esports">
+    <span class="game-ico"><svg class="ico"><use href="#i-trophy"/></svg></span>
+    <span class="game-body">
+      <span class="game-label">Esports</span>
+      <strong class="game-name">Tournament</strong>
+      <span class="game-hint">Coming soon · Battle Pass chat</span>
+    </span>
+    <span class="game-soon">Soon</span>
+  </div>
 </section>
 
 <div class="kpis">
@@ -94,23 +117,23 @@
   {{ kpi('i-coins', 'My credit', mine.credit | money, 'available credit', 'gold') }}
   {{ kpi('i-users', 'My agents', mine.downline, 'in my downline') }}
   {{ kpi('i-card', 'My players', mine.players, 'in my network') }}
-  {{ kpi('i-target', 'Open games', stats.open_fights, stats.events ~ ' events on file') }}
+  {{ kpi('i-target', 'Open Sabong games', stats.open_fights, stats.events ~ ' events on file', live='open') }}
 {% elif show_money %}
-  {{ kpi('i-chart', 'Stake today', stats.stake_today | money, stats.tickets_today ~ ' tickets sold', 'gold', stats.stake_delta_pct) }}
+  {{ kpi('i-chart', 'Stake today', stats.stake_today | money, stats.tickets_today ~ ' tickets sold', 'gold', stats.stake_delta_pct, series=stats.series | map(attribute='stake') | list, live='stake') }}
   {{ kpi('i-coins', 'Player balances', stats.cashflow.player_balances | money, 'owed to players', 'blue') }}
   {{ kpi('i-shield', 'House revenue', stats.cashflow.house_revenue | money, 'tong + rounding', 'green') }}
-  {{ kpi('i-target', 'Open games', stats.open_fights, stats.locked_fights ~ ' locked · ' ~ stats.events ~ ' events') }}
+  {{ kpi('i-target', 'Open Sabong games', stats.open_fights, stats.locked_fights ~ ' locked · ' ~ stats.events ~ ' events', live='open') }}
 {% else %}
-  {{ kpi('i-target', 'Open games', stats.open_fights, stats.events ~ ' events on file', 'gold') }}
+  {{ kpi('i-target', 'Open Sabong games', stats.open_fights, stats.events ~ ' events on file', 'gold', live='open') }}
   {{ kpi('i-lock', 'Awaiting result', stats.locked_fights, 'locked, not yet declared', 'amber' if stats.locked_fights else '') }}
-  {{ kpi('i-list', 'Tickets today', stats.tickets_today, 'sold since midnight') }}
+  {{ kpi('i-list', 'Tickets today', stats.tickets_today, 'sold since midnight', series=stats.series | map(attribute='tickets') | list, live='tickets') }}
   {{ kpi('i-users', 'Agents', stats.active_agents ~ ' / ' ~ stats.agents, 'active / total', 'green') }}
 {% endif %}
 </div>
 
 {% if bola_card %}
 <div class="card" id="bola-card">
-  <div class="card-head"><h2>Number game (Bola){% if bola_dev_only() %} <small class="muted">· dev only</small>{% endif %}</h2>
+  <div class="card-head"><h2>Number game (Bola){% if bola_dev_only() %} <small class="muted">· dev only</small>{% endif %}</h2><span class="sect sect-number">Number game</span>
     <a class="btn btn-sm btn-ghost" href="/bola">Open →</a></div>
   <div class="card-body">
     {% if not bola_card.enabled %}<p class="small muted">Switched off (<code>bola.enabled</code>). Draws are visible but nobody can bet.</p>{% endif %}
@@ -180,12 +203,12 @@
     {% endif %}
 
     <div class="card">
-      <div class="card-head"><h2>Live games</h2>{% if 'fights.view' in perms %}<a class="btn btn-sm btn-ghost" href="/change_name">Fight view →</a>{% endif %}</div>
+      <div class="card-head"><h2>Live games</h2><span class="sect sect-sabong">Sabong</span>{% if 'fights.view' in perms %}<a class="btn btn-sm btn-ghost" href="/change_name">Fight view →</a>{% endif %}</div>
       <div class="card-body tight">
         {% if stats.live_fights %}
-        <ul class="live-list">
+        <ul class="live-list" data-live-list>
           {% for f in stats.live_fights %}
-          <li>
+          <li data-fight="{{ f.id }}" data-st="{{ f.status.value }}">
             <span class="live-no">#{{ f.number }}</span>
             <div class="live-main">
               <div class="live-vs"><b class="side-meron">{{ f.meron }}</b><em>vs</em><b class="side-wala">{{ f.wala }}</b></div>
@@ -196,12 +219,12 @@
           </li>
           {% endfor %}
         </ul>
-        {% else %}{{ ui.empty('No games are open right now.') }}{% endif %}
+        {% else %}{{ ui.empty('Open an event to start taking bets.', kind='rooster', title='No games are open', href='/events' if 'events.view' in perms else '', cta='See events', compact=true) }}{% endif %}
       </div>
     </div>
 
     <div class="card">
-      <div class="card-head"><h2>Recent events</h2><a class="btn btn-sm btn-ghost" href="/events">All events →</a></div>
+      <div class="card-head"><h2>Recent events</h2><span class="sect sect-sabong">Sabong</span><a class="btn btn-sm btn-ghost" href="/events">All events →</a></div>
       <div class="card-body tight">
         {% if recent_events %}
         <div class="table-wrap"><table class="table">
@@ -218,7 +241,7 @@
           {% endfor %}
           </tbody>
         </table></div>
-        {% else %}{{ ui.empty('No events yet. Create one to open betting.') }}{% endif %}
+        {% else %}{{ ui.empty('Create your first event to open betting.', kind='arena', title='No events yet', href='/events' if 'events.view' in perms else '', cta='Go to events', compact=true) }}{% endif %}
       </div>
     </div>
   </div>

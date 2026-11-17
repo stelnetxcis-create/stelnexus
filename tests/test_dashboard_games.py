@@ -59,24 +59,26 @@ def test_meron_wala_tile_is_a_live_link_to_the_games_lobby():
     assert "Wala" in tile and "game" in tile and "open" in tile
 
 
-def test_number_game_says_coming_soon_and_is_not_clickable_while_dev_only():
-    assert get_settings().BOLA_DEV_ONLY is True
-    tile = _tile(_dash(), "Number game")
-    assert tile is not None
-    assert tile.startswith('<div class="game-tile is-soon"') and 'aria-disabled="true"' in tile
-    assert "Coming soon" in tile and "<a " not in tile and "/bola" not in tile
-
-
-def test_number_game_stays_coming_soon_when_gate_is_lifted_but_game_is_switched_off(gate_off):
-    before = _set_bola_enabled(False)
+def test_number_game_is_a_live_link_when_switched_on_and_never_says_coming_soon():
+    before = _set_bola_enabled(True)
     try:
         tile = _tile(_dash(), "Number game")
-        assert tile.startswith('<div class="game-tile is-soon"') and "Coming soon" in tile
+        assert tile is not None and tile.startswith('<a class="game-tile is-live"')
+        assert 'href="/bola"' in tile and "Coming soon" not in tile
     finally:
         _set_bola_enabled(before)
 
 
-def test_number_game_becomes_a_link_once_launched(gate_off):
+def test_number_game_tile_is_absent_when_switched_off():
+    before = _set_bola_enabled(False)
+    try:
+        html = _dash()
+        assert _tile(html, "Number game") is None and "Tumbok" not in html
+    finally:
+        _set_bola_enabled(before)
+
+
+def test_number_game_becomes_a_link_once_launched():
     before = _set_bola_enabled(True)
     try:
         tile = _tile(_dash(), "Number game")
@@ -86,8 +88,9 @@ def test_number_game_becomes_a_link_once_launched(gate_off):
         _set_bola_enabled(before)
 
 
-def test_non_dev_roles_get_no_number_game_tile_while_dev_only_but_keep_meron_wala():
-    """Ships dark: only the dev (Admin) sees 'Coming soon'. Everyone else sees nothing about it."""
+def test_non_dev_roles_get_no_number_game_tile_while_the_dev_gate_is_on_but_keep_meron_wala(monkeypatch):
+    """With BOLA_DEV_ONLY switched on, only the Admin has the tile; everyone else sees nothing."""
+    monkeypatch.setattr(get_settings(), "BOLA_DEV_ONLY", True)
     import datetime as dt
     tag = f"{dt.datetime.now().timestamp():.6f}".replace(".", "")[-9:]
     with session_scope() as db:
@@ -102,16 +105,14 @@ def test_non_dev_roles_get_no_number_game_tile_while_dev_only_but_keep_meron_wal
     for who in (f"dm{tag}", f"dk{tag}"):
         html = _dash(who)
         assert 'href="/events"' in _tile(html, "Meron"), who
-        assert "Number game" not in html and "Coming soon" not in html and "Tumbok" not in html, who
+        # The Esports tile also says "Coming soon", so assert on the number-game tile itself.
+        assert _tile(html, "Number game") is None and "Tumbok" not in html, who
 
 
-def test_number_game_is_coming_soon_even_when_switched_on_while_dev_only():
-    """The dev gate alone must keep the tile dark: bola.enabled=true must not open it."""
-    assert get_settings().BOLA_DEV_ONLY is True
+def test_admin_still_has_the_tile_while_the_dev_gate_is_on(monkeypatch):
+    monkeypatch.setattr(get_settings(), "BOLA_DEV_ONLY", True)
     before = _set_bola_enabled(True)
     try:
-        tile = _tile(_dash(), "Number game")
-        assert tile.startswith('<div class="game-tile is-soon"') and "Coming soon" in tile
-        assert "<a " not in tile and "/bola" not in tile
+        assert _tile(_dash(), "Number game") is not None          # the Admin still has it
     finally:
         _set_bola_enabled(before)

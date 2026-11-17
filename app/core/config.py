@@ -67,10 +67,10 @@ class Settings(BaseSettings):
     BRAND_NAME: str = "StelNexus"
     BRAND_TAGLINE: str = "Every fight, settled to the centavo"
 
-    # The number game (Bola) is unfinished: while true, only the hidden developer (Admin)
-    # account sees or reaches it. Every other role, Pawn grants, the public live board and the
-    # Admin Panel's Bola variables stay dark. Set BOLA_DEV_ONLY=false only when it ships.
-    BOLA_DEV_ONLY: bool = True
+    # The number game (Bola) is open to every role that holds its permissions (default). Set
+    # BOLA_DEV_ONLY=true to pull it back behind the hidden developer (Admin) account: every other
+    # role, Pawn grants, the public live board and the Bola variables then go dark again.
+    BOLA_DEV_ONLY: bool = False
 
     RATE_LIMIT_ENABLED: bool = True
     SEED_DEMO: bool = False

@@ -2,6 +2,7 @@
 {% import "_macros.html" as ui %}
 {% block title %}Bola draw · {{ brand }}{% endblock %}
 {% block heading %}{{ draw.location.name }} · slot {{ draw.slot }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/bola-ui.css?v=2">{% endblock %}
 {% block actions %}
 {% if can_report %}<a class="btn btn-sm" href="/bola/draws/{{ draw.id }}/report.csv">Report CSV</a><a class="btn btn-sm" href="/bola/reports?date={{ draw.draw_date }}">Reports</a>{% endif %}
 <a class="btn btn-sm" href="/bola">All draws</a>
@@ -14,12 +15,22 @@
   {% if exposure %}{{ ui.stat('Staked', exposure.staked_cents | money, exposure.line_count ~ ' lines', 'dark') }}{% endif %}
 </div>
 
+{% if draw.ball_first is not none and draw.ball_second is not none %}
+<div class="bs-result" role="status">
+  <div><small>Drawn result</small><span class="muted small">tumbok / sahod</span></div>
+  <span class="bball c{{ ((draw.ball_first - 1) // 10) % 5 + 1 }}">{{ draw.ball_first }}</span>
+  <span class="bs-sep">/</span>
+  <span class="bball c{{ ((draw.ball_second - 1) // 10) % 5 + 1 }}">{{ draw.ball_second }}</span>
+</div>
+{% endif %}
+
 {% if not enabled %}<div class="card"><div class="card-body small">The number game is switched off, so no bets can be placed.</div></div>{% endif %}
 
 {# ----------------------------------------------------------- bet slip #}
 {% if can_place and bettable and enabled and not hide_totals %}
 <div class="card">
-  <div class="card-head"><h2>Bet slip</h2></div>
+  <div class="card-head bs-head"><h2>Bet slip</h2>
+    <span class="bs-clock" data-cutoff="{{ draw.cutoff_at.isoformat() }}"><i></i><span data-clock-text>Closes at {{ local(draw.cutoff_at) | datetime('%H:%M') }}</span></span></div>
   <div class="card-body">
     {% if odds.show %}
     <p class="small muted">Each ₱1 staked pays ₱{{ '%g' | format(odds.multiplier) }} if it hits. There are {{ '{:,}'.format(odds.outcomes) }} possible ordered results, so any one pair comes in about 1 time in {{ '{:,}'.format(odds.outcomes) }}. Average return to the player is about {{ odds.rtp }}%.</p>
@@ -31,24 +42,47 @@
         <label class="field"><span>Player <em>*</em></span>
           <select name="player_id" required><option value="">— choose a player —</option>
             {% for p in my_players %}<option value="{{ p.id }}">{{ p.full_name }} ({{ p.username or p.card_number }})</option>{% endfor %}</select></label>
-        <label class="field"><span>Ticket type</span>
-          <select name="kind">{% for value, label in kinds %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></label>
       </div>
-      <div class="bola-grid" data-bola-grid data-max="{{ odds.max_number }}" role="group" aria-label="Tap the numbers to play"></div>
-      <div class="inline-form">
-        {% for i in range(1, 6) %}
-        <label class="field"><span>Number {{ i }}</span><input data-num type="number" name="n{{ i }}" min="1" max="{{ odds.max_number }}" inputmode="numeric"></label>
+
+      <select name="kind" hidden aria-hidden="true" tabindex="-1">{% for value, label in kinds %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>
+      <div class="bs-kinds" role="group" aria-label="Ticket type">
+        {% for value, label in kinds %}
+        <button type="button" class="bs-kind" data-kind="{{ value }}" aria-pressed="{{ 'true' if loop.first else 'false' }}"><small>{{ [2, 3, 4, 5][loop.index0] }} numbers · {{ [1, 3, 6, 10][loop.index0] }} line{{ '' if loop.first else 's' }}</small><strong>{{ label }}</strong></button>
         {% endfor %}
       </div>
-      <div class="inline-form">
-        {{ ui.field('Tumbok ₱ (per line)', 'tumbok', 'number', '', false, attrs='min=0 step=1 inputmode=decimal') }}
-        {{ ui.field('Sahod ₱ (per line)', 'sahod', 'number', '', false, attrs='min=0 step=1 inputmode=decimal') }}
-        {{ ui.field('Note (optional)', 'note', 'text', '', false, attrs='maxlength=60') }}
+
+      <div class="bs-picks">
+        <div class="bs-tray" data-bola-tray aria-live="polite"></div>
+        <div class="bs-tools">
+          <button class="btn btn-sm" type="button" data-bola-lucky>Lucky pick</button>
+          <button class="btn btn-sm btn-ghost" type="button" data-bola-clear>Clear</button>
+        </div>
       </div>
-      <div data-bola-preview class="small muted"></div>
-      <div class="table-actions">
-        <button class="btn btn-brand" type="submit">Place bet</button>
-        <button class="btn" type="submit" name="print" value="1">Place bet and print</button>
+      <div class="bola-grid" data-bola-grid data-max="{{ odds.max_number }}" role="group" aria-label="Tap the numbers to play"></div>
+
+      <details class="bs-manual"><summary>Type the numbers instead</summary>
+        <div class="inline-form">
+          {% for i in range(1, 6) %}
+          <label class="field"><span>Number {{ i }}</span><input data-num type="number" name="n{{ i }}" min="1" max="{{ odds.max_number }}" inputmode="numeric"></label>
+          {% endfor %}
+        </div>
+      </details>
+
+      <div class="bs-stake">
+        <div class="bs-seg" role="group" aria-label="Apply amount to"><button type="button" data-target="both" aria-pressed="true">Tumbok + Sahod</button><button type="button" data-target="tumbok" aria-pressed="false">Tumbok</button><button type="button" data-target="sahod" aria-pressed="false">Sahod</button></div>
+        <div class="bs-chips" aria-label="Quick amounts">{% for v in [5, 10, 20, 50, 100, 200] %}<button type="button" class="bs-chip" data-chip="{{ v }}">₱{{ v }}</button>{% endfor %}</div>
+        <div class="inline-form">
+          {{ ui.field('Tumbok ₱ (per line)', 'tumbok', 'number', '', false, attrs='min=0 step=1 inputmode=decimal') }}
+          {{ ui.field('Sahod ₱ (per line)', 'sahod', 'number', '', false, attrs='min=0 step=1 inputmode=decimal') }}
+          {{ ui.field('Note (optional)', 'note', 'text', '', false, attrs='maxlength=60') }}
+        </div>
+      </div>
+
+      <div data-bola-preview class="bs-preview small muted"></div>
+      <div class="bs-bar">
+        <div class="bs-sum"><div><small>Lines</small><strong data-sum-lines>0</strong></div><div><small>Total stake</small><strong data-sum-stake>₱0.00</strong></div><div><small>Best win</small><strong data-sum-win>₱0.00</strong></div></div>
+        <button class="btn btn-brand" type="submit" disabled>Place bet</button>
+        <button class="btn" type="submit" name="print" value="1" disabled>Place and print</button>
       </div>
     </form>
   </div>
@@ -207,4 +241,4 @@
 </div>
 {% endif %}
 {% endblock %}
-{% block scripts %}<script src="/static/js/bola.js" defer></script>{% endblock %}
+{% block scripts %}<script src="/static/js/bola.js?v=2" defer></script>{% endblock %}

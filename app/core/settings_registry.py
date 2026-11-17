@@ -113,17 +113,19 @@ DEFS: tuple[SettingDef, ...] = (
                "Total commission per game can never exceed this share of the house win. 10000 = 100%.", 0, 10000),
     SettingDef("commission.pay_on_refund", "Pay commission on refunded bets", "bool", False, "Commissions"),
     # ---- bola: the two-number draw game (Tumbok-Sahod) ---------------------
-    # Ships DARK. Only switch bola.enabled on once the operator has confirmed it is authorised
+    # Now on by default (open to all roles). Only take real money once the operator has confirmed it is authorised
     # to run a numbers game (PCSO / PAGCOR / a licensed operator). Nothing here implies any
     # government affiliation: branding comes from brand.name / ticket.header.
-    SettingDef("bola.enabled", "Number game (Bola) enabled", "bool", False, "Bola",
-               "Master switch. Off hides the game everywhere and refuses every bet. Turn it on only "
-               "after confirming you are licensed/authorised to run a numbers game."),
+    SettingDef("bola.enabled", "Number game (Bola) enabled", "bool", True, "Bola",
+               "Master switch. Off hides the game and refuses every bet. Confirm you are licensed/"
+               "authorised to run a numbers game, and set both liability caps below, before real money."),
     SettingDef("bola.max_number", "Highest ball", "int", 40, "Bola",
                "Numbers run from 1 to this. The legacy game used 40.", 2, 90),
     SettingDef("bola.allow_duplicate_balls", "The two balls may be the same number", "bool", False, "Bola",
                "Off (default) = the two balls are distinct, so there are 40 x 39 = 1,560 ordered "
-               "outcomes and a bet like 5,5 is refused. On changes the true odds."),
+               "outcomes and a bet like 5,5 is refused. Keep it OFF: tickets can never hold a pair like 5,5, so "
+               "turning it on makes a doubled draw a guaranteed house win and the shown odds wrong "
+               "(the pre-launch check fails while it is on)."),
     SettingDef("bola.payout_multiplier_x100", "Payout multiplier", "int", 80000, "Bola",
                "80000 = 800.00x on both tumbok and sahod. At 40 distinct numbers the return to "
                "player is 800/1560 = 51.3%; disclose it to players.", 100, 500000),
@@ -158,6 +160,22 @@ DEFS: tuple[SettingDef, ...] = (
                "whole pool is paid out."),
     SettingDef("bola.show_odds_to_players", "Show the multiplier and odds on the bet slip", "bool", True, "Bola",
                "Responsible-play disclosure: the payout multiplier and the chance per ordered pair."),
+    # ---- chat store ----------------------------------------------------------
+    SettingDef("store.enabled", "Store open", "bool", True, "Store",
+               "Off hides the store and stops new purchases. Passes and tokens already bought keep working."),
+    SettingDef("store.pass_price_cents", "Battle Pass price", "money", 99900, "Store",
+               "Centavos. Unlocks livestream chat on every game for the pass length.", 100, 10**9),
+    SettingDef("store.pass_days", "Battle Pass length (days)", "int", 30, "Store", "", 1, 365),
+    SettingDef("store.token_price_cents", "Chat token price", "money", 9900, "Store",
+               "Centavos. One purchase gives store.token_uses chat tokens (99 PHP = 30 chats).", 100, 10**9),
+    SettingDef("store.token_uses", "Chat uses per token purchase", "int", 30, "Store",
+               "How many games one token purchase unlocks (each use = one game).", 1, 500),
+    SettingDef("store.token_events", "Events one token purchase can be used on", "int", 3, "Store",
+               "One purchase of chat tokens works on games from this many different events only. "
+               "Once it has been used in that many events, the leftover chats stay with those events.", 1, 50),
+    SettingDef("store.lux_price_cents", "Lux VIP Battle Pass price", "money", 299900, "Store",
+               "Centavos. Same features as the Battle Pass plus flashy, highlighted chat. Supports the server.", 100, 10**9),
+    SettingDef("store.lux_days", "Lux VIP Battle Pass length (days)", "int", 30, "Store", "", 1, 365),
     # ---- wallet / transfers ----------------------------------------------
     SettingDef("wallet.min_transfer_cents", "Minimum credit transfer", "money", 1000, "Credit", "Centavos.", 100, 10**9),
     SettingDef("wallet.max_transfer_cents", "Maximum credit transfer", "money", 50000000, "Credit", "Centavos.", 100, 10**11),

@@ -386,6 +386,18 @@ class LoginAttempt(Base):
 # Ledger
 # ---------------------------------------------------------------------------
 
+class IpBan(TimestampMixin, Base):
+    """A blocked address (or CIDR range). Requests from it get a 403 before anything else runs.
+    Rows are deleted on unban; the audit trail keeps who banned what and why."""
+    __tablename__ = "ip_bans"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    network: Mapped[str] = mapped_column(String(64), unique=True, index=True)   # "203.0.113.9" or "203.0.113.0/24"
+    reason: Mapped[str] = mapped_column(String(255))
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    expires_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())       # NULL = until lifted
+
+
 class Account(TimestampMixin, Base):
     __tablename__ = "accounts"
 
@@ -705,7 +717,42 @@ class ChatMessage(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     body: Mapped[str] = mapped_column(String(300))
+    # NULL = the staff operations room (/chat). Set = that game's livestream chat in the fight view.
+    fight_id: Mapped[int | None] = mapped_column(ForeignKey("fights.id", ondelete="CASCADE"), index=True)
     created_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow, index=True)
+
+    user: Mapped[User] = relationship()
+
+
+class ChatPass(Base):
+    """Battle Pass: unlocks livestream chat on every game for a fixed window (30 days by default).
+    One row per purchase; buying again while a pass is running extends it from its end."""
+    __tablename__ = "chat_passes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    starts_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow)
+    expires_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), index=True)
+    price_cents: Mapped[int] = mapped_column(Money)
+    txn_uuid: Mapped[str | None] = mapped_column(String(32))
+    # "battle" = Battle Pass, "lux" = Lux VIP Battle Pass (same perks, flashy highlighted chat)
+    tier: Mapped[str] = mapped_column(String(10), default="battle", server_default="battle")
+    created_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow)
+
+    user: Mapped[User] = relationship()
+
+
+class ChatToken(Base):
+    """Consumable chat ticket. One token unlocks chat for ONE game; once spent it is tied to that game."""
+    __tablename__ = "chat_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    price_cents: Mapped[int] = mapped_column(Money)
+    txn_uuid: Mapped[str | None] = mapped_column(String(32))
+    used_fight_id: Mapped[int | None] = mapped_column(ForeignKey("fights.id", ondelete="SET NULL"), index=True)
+    used_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+    created_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow)
 
     user: Mapped[User] = relationship()
 

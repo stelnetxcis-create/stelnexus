@@ -114,6 +114,21 @@ def network_names(db: Session, agent_id: int | None) -> tuple[str | None, str | 
     return kubrador, cavo
 
 
+def _replay(existing: Ticket, *, fight_id, side, stake_cents, player_id) -> Ticket:
+    """An idempotency-key hit is a double tap only when it is the same bet. A reused key on a
+    different bet must fail loudly, not hand back the old ticket as if the new one was placed."""
+    try:
+        same = (existing.fight_id == int(fight_id) and existing.side == Side(side)
+                and existing.stake_cents == int(stake_cents)
+                and existing.player_id == (int(player_id) if player_id is not None else None))
+    except (TypeError, ValueError):
+        same = False
+    if not same:
+        raise Conflict("That idempotency key was already used for a different bet. "
+                       "Reload the slip and try again.")
+    return existing
+
+
 def place_bet(
     db: Session, actor: User, *, fight_id: int, side: Side, stake_cents: int,
     settings: SettingsStore, player_id: int | None = None,
@@ -124,7 +139,8 @@ def place_bet(
     if idempotency_key:
         existing = db.scalar(select(Ticket).where(Ticket.idempotency_key == idempotency_key))
         if existing is not None:
-            return existing
+            return _replay(existing, fight_id=fight_id, side=side, stake_cents=stake_cents,
+                           player_id=player_id)
 
     fight = db.scalar(select(Fight).where(Fight.id == fight_id).with_for_update())
     if fight is None:
@@ -134,7 +150,8 @@ def place_bet(
         # so hand back its ticket instead of tripping the unique key (a double tap is not an error).
         existing = db.scalar(select(Ticket).where(Ticket.idempotency_key == idempotency_key))
         if existing is not None:
-            return existing
+            return _replay(existing, fight_id=fight_id, side=side, stake_cents=stake_cents,
+                           player_id=player_id)
     event = events.get_event(db, fight.event_id)
     if event.status != EventStatus.OPEN:
         raise LockedState("This event is not open for betting.")

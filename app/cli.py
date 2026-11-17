@@ -6,6 +6,7 @@
     python -m app.cli seed-demo          # dev only: sample agents, an online player, an event
     python -m app.cli seed-locations     # dev only: 5 sample Batangas venues with pictures
     python -m app.cli gen-keys           # prints SECRET_KEY and PII_KEY values
+    python -m app.cli unban-ip 203.0.113.9            # lift an IP ban from the server shell (lock-out recovery)
     python -m app.cli bola-generate --days 2          # create the number-game draws from schedules
     python -m app.cli bola-tick                       # cron, every minute: open/lock draws on time
     python -m app.cli bola-convert-cuts --rates r.csv # legacy % -> Volume/SOP bps (prints; --apply writes)
@@ -198,6 +199,21 @@ def bola_preflight(_args) -> None:
         sys.exit(1)
 
 
+def unban_ip(args) -> None:
+    """Recovery path if an IP ban ever shuts you out of the web panel. Prints what it lifted."""
+    from app.db.models import IpBan
+    from app.services import ipbans
+    with session_scope() as db:
+        rows = db.scalars(select(IpBan).where(IpBan.network == args.address.strip())).all()
+        if not rows:
+            print(f"No ban found for {args.address!r}. Current bans: "
+                  f"{', '.join(r.network for r in ipbans.list_bans(db)) or 'none'}")
+            return
+        for row in rows:
+            ipbans.unban(db, None, row.id)
+            print(f"Lifted ban on {row.network}.")
+
+
 def bola_tick(_args) -> None:
     from app.services import bola
     with session_scope() as db:
@@ -289,6 +305,9 @@ def main() -> None:
     bg.add_argument("--date", help="YYYY-MM-DD (default: today, Manila)")
     bg.add_argument("--days", type=int, default=1)
     bg.set_defaults(fn=bola_generate)
+    ub = sub.add_parser("unban-ip")
+    ub.add_argument("address")
+    ub.set_defaults(fn=unban_ip)
     sub.add_parser("bola-tick").set_defaults(fn=bola_tick)
     sub.add_parser("bola-preflight").set_defaults(fn=bola_preflight)
     bc = sub.add_parser("bola-convert-cuts")

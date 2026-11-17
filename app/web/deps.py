@@ -238,11 +238,18 @@ def home_for(user: User | None) -> str:
 
 
 def flash_redirect(url: str, message: str | None = None, level: str = "success",
-                   status_code: int = 303):
+                   status_code: int = 303, undo: dict | None = None):
+    """Redirect with a one-shot toast. `undo` = {"action": "/fights/3/lock", "fields": {"locked": "0"}}
+    adds an Undo button to the toast that re-posts that (inverse) action with the page's CSRF token.
+    Only offer it for actions that are safely reversible (lock / mode / status switches)."""
     from starlette.responses import RedirectResponse
     response = RedirectResponse(url, status_code=status_code)
     if message:
-        payload = _flash_serializer.dumps([{"level": level, "message": message}])
+        note = {"level": level, "message": message}
+        if undo and undo.get("action", "").startswith("/") and not undo["action"].startswith("//"):
+            note["undo"] = {"action": undo["action"],
+                            "fields": {str(k): str(v) for k, v in (undo.get("fields") or {}).items()}}
+        payload = _flash_serializer.dumps([note])
         response.headers.append("Set-Cookie", cookie_header(
             "snx_flash", payload, max_age=60, http_only=True,
             secure=_cfg.COOKIE_SECURE, same_site=_cfg.COOKIE_SAMESITE))

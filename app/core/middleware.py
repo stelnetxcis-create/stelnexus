@@ -255,3 +255,25 @@ def _parse_cookies(raw: str) -> dict[str, str]:
             name, value = chunk.split("=", 1)
             out[name.strip()] = value.strip()
     return out
+
+
+class IpBanMiddleware:
+    """403 for banned addresses, before CSRF, auth or any route. Needs RequestContextMiddleware
+    outside it (it sets ``state.client_ip``). /healthz is exempt so a load balancer is never banned
+    by accident; the snapshot refresh runs in a worker thread so the event loop is never blocked."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        from starlette.concurrency import run_in_threadpool
+        from app.services import ipbans
+        if ipbans.snapshot_stale():
+            await run_in_threadpool(ipbans.refresh)
+        ip = scope.get("state", {}).get("client_ip")
+        if ip and not scope["path"].startswith("/healthz") and ipbans.is_banned(ip):
+            response = PlainTextResponse("Access from your address has been blocked.", status_code=403)
+            return await response(scope, receive, send)
+        await self.app(scope, receive, send)

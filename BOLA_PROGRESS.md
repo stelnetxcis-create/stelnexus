@@ -1,7 +1,8 @@
 # Bola progress handoff
 
-Full suite: 208 passed, 1 skipped (`python -m pytest -q`; the skip is the Postgres run, see below).
-Feature is dark: `bola.enabled=false` by default, and `BOLA_DEV_ONLY=true` hides it from every role but the Admin.
+Full suite: 237 passed, 1 skipped (`python -m pytest -q`; the skip is the Postgres run, see below).
+Feature is OPEN (Nov 17): `bola.enabled=true` and `BOLA_DEV_ONLY=false` by default, so every role with Bola permissions sees it. `BOLA_DEV_ONLY=true` still pulls it back behind the Admin.
+No liability cap is set by default (0 = none): set both before real money. `bola-preflight` now fails until caps + `BOLA_LIVE_ACK=1` are in place.
 This file supersedes `STELNEXUS_NUMBER_GAME_PROGRESS.md` (written earlier; it still lists items that are now done).
 
 ## Done
@@ -28,6 +29,33 @@ This file supersedes `STELNEXUS_NUMBER_GAME_PROGRESS.md` (written earlier; it st
   - Pawn proof (`fight.pawn_proof_required`) on the Bola declare route is now tested (refused without a picture).
   - Ruling (a) is pinned by a test: a house-losing draw pays no commission, even with `pay_master` on.
     Ruling (b) was already pinned by `test_liability_cap_boundary`.
+
+## Review pass (Nov 17) - read of `bola.py`, `bola_settlement.py`, `ledger.py`
+A second read of the money paths by a different reviewer than the author. It is NOT the independent
+pre-launch review (item 2 below): it never ran on PostgreSQL and no human signed it off.
+Checked and found sound: ledger sign maths of stake/settle/refund/reversal (each txn sums to zero), exposure vs
+settlement agree on what an outcome owes, per-ticket payout cap only lowers payouts, void/redeclare roll back
+before re-settling, run status re-checked under the draw lock, wallet floor enforced under the account lock.
+Fixed:
+- `cancel_bola_ticket` locked ticket -> draw while settlement locks draw -> tickets: a cancel racing a declare could
+  deadlock (PostgreSQL aborts one with a 500, no money lost). Now draw -> ticket, same as bet and settlement.
+  Visibility is checked before any lock so an outsider cannot stall a draw. Test: `test_cancel_takes_the_draw_lock_before_the_ticket_lock`.
+- Idempotency replay returned the first ticket for ANY request carrying the key. A reused key on a different bet
+  (other numbers/stake/draw/player) looked like success but placed nothing. Now Conflict unless it is the same bet.
+  Test: `test_reused_idempotency_key_on_a_different_bet_is_refused`.
+- `test_dashboard_games` was stale since the UI upgrade (Esports tile also says "Coming soon"); it now checks the
+  number-game tile itself. The dev-only gate was verified not to leak.
+Noted, not changed:
+- Sabong `betting.place_bet` has the same replay-without-comparison behaviour as Bola had.
+- `bola.allow_duplicate_balls=true` is a trap: tickets can never hold (n,n), so a doubled draw always favours the
+  house, and the shown RTP (n*n outcomes) overstates what players can win. Leave it off.
+
+## Open launch + admin tools (Nov 17)
+- Bola open to all roles; the dashboard "Coming soon" tile is gone (tile is a link when on, absent when off).
+- Seller Desk (`/sell`) is experimental: new `sell.desk` permission, Admin only, no Pawn grant.
+- Admin Panel: Accounts (edit details / remove = close) and IP bans, both grantable to a Pawn. See README.
+- Fixed: sabong idempotency replay now checks it is the same bet; `bola.allow_duplicate_balls` fails the preflight.
+- New table `ip_bans` (created on start by the existing schema upgrade; no data migration).
 
 ## Still open
 1. Rulings: (a) and (b) are decided in code and pinned by tests; change them only on purpose.

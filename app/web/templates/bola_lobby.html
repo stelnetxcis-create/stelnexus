@@ -2,6 +2,7 @@
 {% import "_macros.html" as ui %}
 {% block title %}Bola · {{ brand }}{% endblock %}
 {% block heading %}Bola{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/bola-ui.css?v=2">{% endblock %}
 {% block actions %}
 <a class="btn btn-sm" href="/bola/results">Results</a>
 {% if can_manage %}
@@ -25,29 +26,32 @@
 
 {% if board.areas %}
 {% for area in board.areas %}
-<div class="card">
-  <div class="card-head"><h2>{{ area.location.name }}</h2>
+<div class="card area-card">
+  <div class="card-head area-head" style="--card-img: url('{{ area.location.image_url or '/static/img/arena/' ~ ['dusk', 'night', 'dawn', 'ember'][area.location.id % 4] ~ '.svg' }}')"><span class="area-balls" aria-hidden="true"></span><h2>{{ area.location.name }}</h2>
     {% if area.last %}<span class="chip">last: {{ area.last.result_label }}</span>{% endif %}</div>
   <div class="card-body tight">
     {% if area.draws %}
-    <div class="table-wrap"><table class="table"><thead><tr><th>Slot</th><th>Draw time</th><th>Cut-off</th><th>Status</th><th>Result</th><th></th></tr></thead><tbody>
+    <div class="bd-grid">
     {% for d in area.draws %}
-      <tr>
-        <td class="num">{{ d.slot }}</td>
-        <td class="small nowrap">{{ local(d.scheduled_at) | datetime('%H:%M') }}</td>
-        <td class="small nowrap">{{ local(d.cutoff_at) | datetime('%H:%M') }}</td>
-        <td>{{ ui.status_badge(d.status) }}</td>
-        <td class="num"><strong>{{ d.result_label or '—' }}</strong></td>
-        <td class="right"><a class="btn btn-sm" href="/bola/draws/{{ d.id }}">Open</a></td>
-      </tr>
+      <a class="bd-card {{ 'is-open' if d.status.value == 'open' }}" href="/bola/draws/{{ d.id }}">
+        <div class="bd-top"><span class="bd-slot">Slot<b>{{ d.slot }}</b></span>{{ ui.status_badge(d.status) }}</div>
+        <div class="bd-time">Draw <b>{{ local(d.scheduled_at) | datetime('%H:%M') }}</b> · cut-off {{ local(d.cutoff_at) | datetime('%H:%M') }}</div>
+        {% if d.status.value == 'open' %}<div class="bs-clock" data-cutoff="{{ d.cutoff_at.isoformat() }}"><i></i><span data-clock-text></span></div>{% endif %}
+        <div class="bd-res">
+          {% if d.ball_first is not none and d.ball_second is not none %}
+          <span class="mini c{{ ((d.ball_first - 1) // 10) % 5 + 1 }}">{{ d.ball_first }}</span><span class="muted">/</span><span class="mini c{{ ((d.ball_second - 1) // 10) % 5 + 1 }}">{{ d.ball_second }}</span>
+          {% else %}<span class="none">No result yet</span>{% endif %}
+        </div>
+        <div class="bd-foot"><span class="muted">{{ 'Tap to bet' if d.status.value == 'open' else 'View draw' }}</span><span class="bd-cta">Open →</span></div>
+      </a>
     {% endfor %}
-    </tbody></table></div>
-    {% else %}{{ ui.empty('No draws today for this area.') }}{% endif %}
+    </div>
+    {% else %}{{ ui.empty('Draws for this area will appear here once they are scheduled.', kind='balls', title='No draws today', compact=true) }}{% endif %}
   </div>
 </div>
 {% endfor %}
 {% else %}
-<div class="card"><div class="card-body">{{ ui.empty('No draws for this date yet.') }}</div></div>
+<div class="card"><div class="card-body">{{ ui.empty('Nothing was drawn on this date. Try another day.', kind='balls', title='No draws') }}</div></div>
 {% endif %}
 
 {% if can_manage %}
@@ -67,3 +71,4 @@
 </div>
 {% endif %}
 {% endblock %}
+{% block scripts %}<script src="/static/js/bola.js?v=2" defer></script>{% endblock %}

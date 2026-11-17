@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
 {% import "_lobby.html" as lobby %}
+{% import "_player.html" as pl %}
 {% block title %}Game View · {{ brand }}{% endblock %}
 {% block heading %}Fight View{% if event %} — {{ event.title }}{% endif %}{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/store.css?v=3">{% endblock %}
 {% block actions %}
 {% if event %}<a class="btn btn-sm" href="/events/{{ event.id }}">Betting sheet</a>{% endif %}
 {% endblock %}
@@ -13,7 +15,7 @@
 <p class="muted small" style="margin:0 0 12px">Choose an event to open its games.</p>
 {{ lobby.event_cards(events, stats, '/change_name?event_id=') }}
 {% else %}
-<div class="card"><div class="card-body">{{ ui.empty('Create an event first.') }}</div></div>
+<div class="card"><div class="card-body">{{ ui.empty('Create an event first, then its games appear here.', kind='arena', title='No events yet', href='/events', cta='Go to events') }}</div></div>
 {% endif %}
 {% else %}
 
@@ -49,6 +51,45 @@
 
   <div>
     {% if fight %}
+    {# ----------------------------------------------------------- livestream chat #}
+    {% set pass_price = settings['store.pass_price_cents'] %}{% set pass_days = settings['store.pass_days'] %}{% set tok_price = settings['store.token_price_cents'] %}
+    <section class="fc {{ 'is-closed' if chat_access.reason == 'closed' else ('is-locked' if not chat_access.can_send) }}" data-fightchat
+             data-url="/fights/{{ fight.id }}/chat" data-fight="{{ fight.id }}" data-tokens="{{ chat_tokens }}" aria-label="Livestream chat for game {{ fight.number }}">
+      <div class="fc-head">
+        <span class="fc-air"><i></i><span data-fc-air>{{ 'ENDED' if chat_access.reason == 'closed' else 'ON AIR' }}</span></span>
+        <div class="fc-title"><b>Livestream chat</b><small>Game #{{ fight.number }} · {{ fight.entry_name_meron }} vs {{ fight.entry_name_wala }}</small></div>
+        <span class="fc-conn" data-fc-conn data-state="wait">connecting</span>
+      </div>
+      {{ pl.stream_player('fight', 'Game #' ~ fight.number ~ ' · Live match video', fight.entry_name_meron, fight.entry_name_wala, stream_pass, chat_access.reason == 'closed') }}
+      <div class="fc-result {{ fight.result.value if fight.result and chat_access.reason == 'closed' }}" data-fc-result>
+        <span class="crown"><svg class="ico"><use href="#i-crown"/></svg></span>
+        <div><small>Declarator announced</small><strong data-fc-winner>{% if chat_access.reason == 'closed' %}{% if fight.result and fight.result.value == 'meron' %}{{ fight.entry_name_meron }} wins{% elif fight.result and fight.result.value == 'wala' %}{{ fight.entry_name_wala }} wins{% elif fight.result and fight.result.value == 'draw' %}Draw: stakes refunded{% else %}Game cancelled{% endif %}{% endif %}</strong></div>
+      </div>
+      <div class="fc-log" data-fc-log aria-live="polite"><div class="fc-empty" data-fc-empty><strong>Room is warming up</strong>Messages from this fight show here as they happen.</div></div>
+      <button type="button" class="fc-jump" data-fc-jump hidden>Jump to latest</button>
+      <div class="fc-foot">
+        <form class="fc-compose" data-fc-form autocomplete="off">
+          <input name="body" maxlength="300" placeholder="Say something about the fight…" aria-label="Chat message" required>
+          <button class="btn btn-brand" type="submit">Send</button>
+        </form>
+        <div class="fc-count" data-fc-count>0 / 300</div>
+        <div class="fc-lock">
+          <div class="fc-lock-top"><svg class="ico"><use href="#i-lock"/></svg><div><b>Chat is locked.</b> You can read along. Unlock it to talk on this fight.</div></div>
+          <div class="fc-lock-opts">
+            <a class="fc-opt is-pass" href="/store"><small>Battle Pass</small><strong>{{ pass_price | money }}</strong><span>{{ pass_days }} days, every game</span></a>
+            {% if chat_tokens %}
+            <button type="button" class="fc-opt" data-fc-unlock><small>Chats left: <span data-fc-tokens>{{ chat_tokens }}</span></small><strong>Use 1 on this game</strong><span>Unlocks Game #{{ fight.number }} only</span></button>
+            {% else %}
+            <a class="fc-opt" href="/store"><small>Chat tokens</small><strong>{{ tok_price | money }}</strong><span>{{ settings['store.token_uses'] }} chats, 1 per game, {{ settings['store.token_events'] }} events</span></a>
+            {% endif %}
+          </div>
+        </div>
+        <div class="fc-closed-note"><svg class="ico"><use href="#i-lock"/></svg>The result is announced, so this chat is closed. History stays here.</div>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if fight %}
     <div class="card">
       <div class="card-head">
         <h2>Game #{{ fight.number }}</h2>
@@ -56,6 +97,17 @@
         {% if fight.settlement_version %}<span class="tag">settlement v{{ fight.settlement_version }}</span>{% endif %}
       </div>
       <div class="card-body">
+        {% if fight.result and fight.status.value in ('settled', 'void') %}
+        {% set r = fight.result.value %}
+        <div class="winner {{ r }}" data-fight="{{ fight.id }}" data-side="{{ r }}" data-declared="{{ fight.declared_at.isoformat() if fight.declared_at else '' }}" role="status">
+          <span class="winner-crown"><svg class="ico"><use href="#{{ 'i-x' if r == 'canceled' else 'i-crown' }}"/></svg></span>
+          <div>
+            <small>{{ 'RESULT' if r in ('draw', 'canceled') else 'WINNER' }}</small>
+            <span class="winner-name">{% if r == 'meron' %}{{ fight.entry_name_meron }}{% elif r == 'wala' %}{{ fight.entry_name_wala }}{% elif r == 'draw' %}Draw: stakes refunded{% else %}Game cancelled: stakes refunded{% endif %}</span>
+          </div>
+          {% if r in ('meron', 'wala') %}<div class="winner-side"><b>{{ r | upper }}</b></div>{% endif %}
+        </div>
+        {% endif %}
         {% if snapshot %}
         <div class="pool">
           <div class="pool-side meron">
@@ -281,7 +333,7 @@
           {% endfor %}
           </tbody>
         </table></div>
-        {% else %}{{ ui.empty('No tickets sold on this game yet.') }}{% endif %}
+        {% else %}{{ ui.empty('The first ticket on this game will show up here.', kind='ticket', title='No tickets yet', compact=true) }}{% endif %}
       </div>
     </div>
     {% endif %}
@@ -299,3 +351,4 @@
 </form>
 {% endcall %}
 {% endblock %}
+{% block scripts %}{% if fight %}<script src="/static/js/fightchat.js?v=3" defer></script><script src="/static/js/stream.js?v=1" defer></script>{% endif %}{% endblock %}

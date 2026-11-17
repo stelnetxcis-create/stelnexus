@@ -19,6 +19,7 @@ from app.core.config import get_settings
 from app.core.errors import AuthError, StelError
 from app.core.middleware import (
     CsrfMiddleware,
+    IpBanMiddleware,
     RequestContextMiddleware,
     SecurityHeadersMiddleware,
 )
@@ -44,6 +45,7 @@ def create_app() -> FastAPI:
 
     # Order matters: context -> security headers -> CSRF -> routes.
     app.add_middleware(CsrfMiddleware)
+    app.add_middleware(IpBanMiddleware)      # inside RequestContext (needs client_ip), outside CSRF
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestContextMiddleware)
     # Outermost: reject unknown Host headers before anything else runs (prod requires explicit hosts).
@@ -62,11 +64,12 @@ def create_app() -> FastAPI:
     from app.web import (
         routes_admin, routes_agents, routes_auth, routes_bets, routes_dashboard,
         routes_cuts, routes_extra, routes_fights, routes_money, routes_players, routes_referrals,
-        routes_wallet, routes_dev, routes_bola,
+        routes_wallet, routes_dev, routes_bola, routes_live, routes_sell, routes_store,
     )
     for module in (routes_auth, routes_dashboard, routes_agents, routes_players,
                    routes_fights, routes_bets, routes_money, routes_admin, routes_referrals,
-                   routes_cuts, routes_extra, routes_wallet, routes_dev, routes_bola):
+                   routes_cuts, routes_extra, routes_wallet, routes_dev, routes_bola,
+                   routes_live, routes_sell, routes_store):
         app.include_router(module.router)
 
     from app.api.v1 import routes as api_routes

@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Store · {{ brand }}{% endblock %}
+{% block heading %}Store{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/store.css?v=3">{% endblock %}
+{% block actions %}<a class="btn btn-sm" href="/wallet?t=history">Money history</a>{% endblock %}
+{% block content %}
+
+{% if not st.enabled %}
+<div class="alert alert-warning">The store is closed right now. Passes and tokens you already own keep working.</div>
+{% elif not user.has_wallet %}
+<div class="alert alert-warning">A {{ user.role_label }} account has no balance, so it cannot buy from the store.</div>
+{% endif %}
+
+<div class="st-hero">
+  <div>
+    <span class="st-kicker">Livestream chat</span>
+    <h2>Talk during the fight. Watch the room go quiet when the winner is announced.</h2>
+    <p class="muted small">Chat is read-only until you unlock it. It closes for everyone as soon as the declarator announces the result of that game. Passes work on every stream, including Esports when it opens.</p>
+  </div>
+  <div class="st-wallet"><small>Your credit</small><strong>{{ st.balance | money }}</strong>
+    <span class="small muted">{{ st.tokens }} chat{{ '' if st.tokens == 1 else 's' }} left{% if st.has_lux %} · Lux VIP{% elif st.has_pass %} · pass active{% endif %}</span></div>
+</div>
+
+<div class="st-grid">
+  <section class="st-card st-pass {{ 'is-owned' if st.has_pass }}">
+    <div class="st-ribbon">Best value</div>
+    <header>
+      <span class="st-ico"><svg class="ico"><use href="#i-crown"/></svg></span>
+      <div><h3>Battle Pass</h3><span class="st-sub">Last {{ st.pass_days }} days</span></div>
+    </header>
+    <div class="st-price"><strong>{{ st.pass_price | money }}</strong><span>for {{ st.pass_days }} days of chat</span></div>
+    <ul class="st-perks">
+      {% for p in perks %}<li><svg class="ico"><use href="#i-crown"/></svg>{{ p }}</li>{% endfor %}
+      <li><svg class="ico"><use href="#i-crown"/></svg>Renewing stacks: days are added to the end of your current pass</li>
+    </ul>
+    {% if st.has_pass %}
+    <div class="st-status"><b>{{ st.pass_days_left }} day{{ '' if st.pass_days_left == 1 else 's' }} left</b><span>until {{ st.pass_expires | datetime('%b %d, %Y') }}</span>
+      <div class="st-meter"><i style="width: {{ ([st.pass_days_left / st.pass_days * 100, 100] | min) | round(1) }}%"></i></div></div>
+    {% endif %}
+    <form method="post" action="/store/pass" data-confirm="Buy a {{ st.pass_days }}-day Battle Pass for {{ st.pass_price | money }}? This is taken from your credit.">
+      {{ ui.csrf(csrf_token) }}{{ ui.idem() }}
+      <button class="btn btn-brand st-buy" type="submit" {{ 'disabled' if not can_buy or st.balance < st.pass_price }}>
+        {{ 'Extend pass' if st.has_pass else 'Get Battle Pass' }} · {{ st.pass_price | money }}</button>
+    </form>
+    {% if can_buy and st.balance < st.pass_price %}<p class="small st-need">You need {{ (st.pass_price - st.balance) | money }} more credit. <a href="/wallet?t=load">Load credit</a></p>{% endif %}
+  </section>
+
+  <section class="st-card st-lux {{ 'is-owned' if st.has_lux }}">
+    <div class="st-ribbon st-ribbon-lux">Lux VIP</div>
+    <header>
+      <span class="st-ico st-ico-lux"><svg class="ico"><use href="#i-crown"/></svg></span>
+      <div><h3>Lux VIP Battle Pass</h3><span class="st-sub">Last {{ st.lux_days }} days</span></div>
+    </header>
+    <div class="st-price"><strong>{{ st.lux_price | money }}</strong><span>for {{ st.lux_days }} days, flex and support</span></div>
+    <ul class="st-perks">
+      {% for p in lux_perks %}<li><svg class="ico"><use href="#i-crown"/></svg>{{ p }}</li>{% endfor %}
+      <li><svg class="ico"><use href="#i-crown"/></svg>Renewing stacks: days are added to the end of your current Lux VIP</li>
+    </ul>
+    {% if st.has_lux %}
+    <div class="st-thanks"><b>Thank you.</b> {{ lux_thanks }}</div>
+    <div class="st-status"><b>{{ st.lux_days_left }} day{{ '' if st.lux_days_left == 1 else 's' }} left</b><span>until {{ st.lux_expires | datetime('%b %d, %Y') }}</span>
+      <div class="st-meter"><i style="width: {{ ([st.lux_days_left / st.lux_days * 100, 100] | min) | round(1) }}%"></i></div></div>
+    {% endif %}
+    <form method="post" action="/store/lux" data-confirm="Buy the Lux VIP Battle Pass for {{ st.lux_price | money }}? This is taken from your credit and helps keep the server running.">
+      {{ ui.csrf(csrf_token) }}{{ ui.idem() }}
+      <button class="btn btn-brand st-buy st-buy-lux" type="submit" {{ 'disabled' if not can_buy or st.balance < st.lux_price }}>
+        {{ 'Extend Lux VIP' if st.has_lux else 'Get Lux VIP' }} · {{ st.lux_price | money }}</button>
+    </form>
+    {% if can_buy and st.balance < st.lux_price %}<p class="small st-need">You need {{ (st.lux_price - st.balance) | money }} more credit. <a href="/wallet?t=load">Load credit</a></p>{% endif %}
+  </section>
+
+  <section class="st-card">
+    <header>
+      <span class="st-ico st-ico-tok"><svg class="ico"><use href="#i-chat"/></svg></span>
+      <div><h3>Chat Tokens</h3><span class="st-sub">{{ st.token_uses }} chats · one game each</span></div>
+    </header>
+    <div class="st-price"><strong>{{ st.token_price | money }}</strong><span>for {{ st.token_uses }} chats</span></div>
+    <ul class="st-perks st-perks-soft">
+      <li><svg class="ico"><use href="#i-chat"/></svg>Each chat unlocks one game until its result is announced</li>
+      <li><svg class="ico"><use href="#i-chat"/></svg>{{ st.token_uses }} chats for one price: pick the fights you want to talk on</li>
+      <li><svg class="ico"><use href="#i-chat"/></svg>One pack works on games from {{ st.token_events }} events. After it has been used in {{ st.token_events }} events, the leftover chats stay with those events</li>
+      
+    </ul>
+    <div class="st-status st-have"><b>{{ st.tokens }}</b><span>chat use{{ '' if st.tokens == 1 else 's' }} left</span></div>
+    <form method="post" action="/store/token" data-confirm="Buy {{ st.token_uses }} chat uses for {{ st.token_price | money }}?">
+      {{ ui.csrf(csrf_token) }}{{ ui.idem() }}
+      <button class="btn st-buy" type="submit" {{ 'disabled' if not can_buy or st.balance < st.token_price }}>Buy {{ st.token_uses }} chats · {{ st.token_price | money }}</button>
+    </form>
+    {% if can_buy and st.balance < st.token_price %}<p class="small st-need">You need {{ (st.token_price - st.balance) | money }} more credit. <a href="/wallet?t=load">Load credit</a></p>{% endif %}
+  </section>
+</div>
+
+<p class="small muted st-foot">Purchases are final and are not refunded if a game is cancelled. They show in your money history as <em>Battle Pass (chat)</em> and <em>Chat token</em>. Open a game in <a href="/change_name">Fight view</a> to use them.</p>
+{% endblock %}

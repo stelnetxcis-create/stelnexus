@@ -16,12 +16,12 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func, select
 
 from app.core import audit
-from app.core.errors import NotFound
+from app.core.errors import NotFound, ValidationError
 from app.core.rbac import (GRANTS, Perm, normalize_grants, offered_grants, variable_groups_editable,
                            variable_groups_visible)
 from app.core.settings_registry import BY_KEY, DEFS, GROUPS
 from app.db.models import AuditLog, Event, EventStatus, Location, Role, Status, User
-from app.services import agents, bola, locations, presence, reports
+from app.services import account_admin, agents, bola, ipbans, locations, presence, reports
 from app.web.deps import Ctx, flash_redirect, form_data, render, require_ctx
 
 router = APIRouter()
@@ -33,6 +33,8 @@ SECTIONS = (
     ("locations", "/admin/locations", "Locations", Perm.LOCATIONS_VIEW),
     ("bola", "/admin/bola/schedules", "Bola draw times", Perm.BOLA_MANAGE),
     ("cuts", "/admin/cuts", "Cuts", Perm.CUTS_VIEW),
+    ("accounts", "/admin/accounts", "Accounts", Perm.ACCOUNTS_VIEW),
+    ("ipbans", "/admin/ipbans", "IP bans", Perm.IPBANS_MANAGE),
     ("pawns", "/admin/pawns", "Pawns", Perm.PAWNS_MANAGE),
     ("audit", "/admin/audit", "Audit trail", Perm.AUDIT_VIEW),
 )
@@ -263,6 +265,91 @@ async def pawns_password(pawn_id: int, request: Request, ctx: Ctx = Depends(requ
         raise NotFound("Pawn not found.")
     agents.reset_password(ctx.db, ctx.user, pawn_id, data.get("password", ""), settings=ctx.store)
     return flash_redirect("/admin/pawns", f"Password reset for {pawn.username}.")
+
+
+# --------------------------------------------------------------------------- accounts
+
+@router.get("/admin/accounts")
+async def accounts_page(request: Request, ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.ACCOUNTS_VIEW)
+    q = request.query_params
+    kind = q.get("kind") if q.get("kind") in ("all", "users", "players") else "all"
+    found = account_admin.list_accounts(ctx.db, search=q.get("q", "")[:60] or None, kind=kind,
+                                        include_removed=q.get("removed") == "1")
+    viewer_is_admin = ctx.user.role == Role.ADMIN
+    # Pawns are the Admin's to manage; a Pawn never even sees the controls for another Pawn.
+    users = [u for u in found["users"] if viewer_is_admin or u.role != Role.PAWN]
+    return panel(ctx, "accounts", "admin_accounts.html", users=users, players=found["players"],
+                 search=q.get("q", "")[:60], kind=kind, removed=q.get("removed") == "1",
+                 can_edit=ctx.can(Perm.ACCOUNTS_EDIT), can_remove=ctx.can(Perm.ACCOUNTS_REMOVE),
+                 me=ctx.user.id)
+
+
+@router.post("/admin/accounts/user/{user_id}/edit")
+async def accounts_user_edit(user_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.ACCOUNTS_EDIT)
+    data = await form_data(request)
+    user = account_admin.edit_user(ctx.db, ctx.user, user_id, username=data.get("username"),
+                                   full_name=data.get("full_name"), contact=data.get("contact", ""),
+                                   reason=data.get("reason"))
+    return flash_redirect("/admin/accounts", f"Saved {user.username}.")
+
+
+@router.post("/admin/accounts/user/{user_id}/remove")
+async def accounts_user_remove(user_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.ACCOUNTS_REMOVE)
+    data = await form_data(request)
+    user = account_admin.remove_user(ctx.db, ctx.user, user_id, reason=data.get("reason", ""))
+    return flash_redirect("/admin/accounts", f"{user.username} was removed and signed out.")
+
+
+@router.post("/admin/accounts/player/{player_id}/edit")
+async def accounts_player_edit(player_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.ACCOUNTS_EDIT)
+    data = await form_data(request)
+    player = account_admin.edit_player(
+        ctx.db, ctx.user, player_id, username=data.get("username"), full_name=data.get("full_name"),
+        gcash_number=data.get("gcash") or None, address=data.get("address") or None,
+        notes=data.get("notes", ""), reason=data.get("reason"))
+    return flash_redirect("/admin/accounts?kind=players", f"Saved {player.full_name}.")
+
+
+@router.post("/admin/accounts/player/{player_id}/remove")
+async def accounts_player_remove(player_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.ACCOUNTS_REMOVE)
+    data = await form_data(request)
+    player = account_admin.remove_player(ctx.db, ctx.user, player_id, reason=data.get("reason", ""))
+    return flash_redirect("/admin/accounts?kind=players", f"{player.full_name} was removed.")
+
+
+# --------------------------------------------------------------------------- IP bans
+
+@router.get("/admin/ipbans")
+async def ipbans_page(ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.IPBANS_MANAGE)
+    return panel(ctx, "ipbans", "admin_ipbans.html", bans=ipbans.list_bans(ctx.db),
+                 my_ip=ctx.request.scope.get("state", {}).get("client_ip"))
+
+
+@router.post("/admin/ipbans/create")
+async def ipbans_create(request: Request, ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.IPBANS_MANAGE)
+    data = await form_data(request)
+    hours = data.get("hours")
+    try:
+        hours = int(hours) if hours else None
+    except ValueError as exc:
+        raise ValidationError("Duration must be a whole number of hours.") from exc
+    row = ipbans.ban(ctx.db, ctx.user, network=data.get("network", ""), reason=data.get("reason", ""),
+                     hours=hours, actor_ip=ctx.request.scope.get("state", {}).get("client_ip"))
+    return flash_redirect("/admin/ipbans", f"{row.network} is now blocked.")
+
+
+@router.post("/admin/ipbans/{ban_id}/delete")
+async def ipbans_delete(ban_id: int, ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.IPBANS_MANAGE)
+    row = ipbans.unban(ctx.db, ctx.user, ban_id)
+    return flash_redirect("/admin/ipbans", f"{row.network} is unblocked.")
 
 
 # --------------------------------------------------------------------------- audit & integrity

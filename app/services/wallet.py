@@ -34,6 +34,9 @@ KIND_LABELS: dict[str, str] = {
     "bola.stake": "Bola bet placed",
     "bola.settle": "Bola winnings",
     "bola.refund": "Bola refund",
+    "store.pass": "Battle Pass (chat)",
+    "store.lux": "Lux VIP Battle Pass",
+    "store.token": "Chat token",
 }
 PERIODS = {"all": None, "today": 1, "7d": 7, "30d": 30}
 FLOWS = ("all", "in", "out")

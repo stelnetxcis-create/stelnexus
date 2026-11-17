@@ -121,7 +121,7 @@ Settings are read from environment variables or `.env`. Settings that are lists 
 | `TRUSTED_PROXIES` | JSON list of proxy IPs whose forwarded headers are trusted, for example `["127.0.0.1"]` |
 | `FRAME_ANCESTORS` | CSP frame-ancestors value, for example `'self'` |
 | `DEBUG` | Must be `false` in production |
-| `BOLA_DEV_ONLY` | Default `true`: only the hidden Admin account can see or reach the number game. Set `false` only when it ships |
+| `BOLA_DEV_ONLY` | Default `false`: the number game is open to every role that holds its permissions. Set `true` to pull it back behind the hidden Admin account |
 | `BOLA_LIVE_ACK` | Not read by the app. Set to `1` when running `bola-preflight` to confirm the legal gate for a live launch |
 | `UPLOAD_DIR` | Where result pictures and payment proofs are stored (default `var/uploads`) |
 | `BACKUP_DIR` | Used by `deploy/backup.sh` (default `/var/backups/stelnexus`) |
@@ -216,10 +216,12 @@ Tests use their own temporary SQLite database and never touch `dev.db`.
 
 The two-number draw game (Tumbok-Sahod, numbers 1 to 40, pays 800x by default). It shares the wallet, ledger, agent tree, audit log and settings with the sabong game, in its own `bola_*` tables.
 
-**It ships dark.** Two independent locks:
+**It is open to everyone.** Two switches remain, both on by default:
 
-1. `BOLA_DEV_ONLY=true` (environment, default): only the hidden Admin account can see or reach the game. No role grant can lift this. The public `/live` board and the Admin Panel variables for it also stay hidden.
-2. `bola.enabled=false` (Admin Panel variables, default): the master switch.
+1. `bola.enabled=true` (Admin Panel variables): the master switch. Off hides the game and refuses every bet.
+2. `BOLA_DEV_ONLY=false` (environment): set it to `true` to pull the game back behind the hidden Admin account (no role grant can lift that, and `/live` and the Bola variables go dark again).
+
+Before taking real money: set both liability caps (`bola.max_liability_per_outcome_cents`, `bola.max_liability_per_draw_cents`; 0 means no cap) and run the preflight below. The **Seller Desk** (`/sell`) is experimental and Admin-only.
 
 **Setup**
 
@@ -233,7 +235,7 @@ The two-number draw game (Tumbok-Sahod, numbers 1 to 40, pays 800x by default). 
    ```
 
    `stelnexus-bola-tick` runs every minute; `stelnexus-bola-generate` creates the next two days of draws at 00:05 Manila time. Betting does not depend on the tick: every bet checks the clock itself. Both do nothing while `bola.enabled` is false.
-3. Run `python -m app.cli bola-preflight` (also run by `scripts/security_check.sh`). While the game is off or dev-only it passes. For a **live** launch (`BOLA_DEV_ONLY=false`, `bola.enabled=true`) it fails unless: `BOLA_LIVE_ACK=1` is set, both liability caps are above zero, the odds are shown to players, and the ticket header carries no "PCSO", "OFFICIAL" or "PAGCOR" wording.
+3. Run `python -m app.cli bola-preflight` (also run by `scripts/security_check.sh`). While the game is off or dev-only it passes. For a **live** game (`BOLA_DEV_ONLY=false`, `bola.enabled=true`, the default) it fails unless: `BOLA_LIVE_ACK=1` is set, both liability caps are above zero, the odds are shown to players, and the ticket header carries no "PCSO", "OFFICIAL" or "PAGCOR" wording.
 
 4. **Master's share (plan D4).** By default the Master's remainder of the commission pool stays with the house. Set `bola.commission.pay_master` (Admin Panel, Bola group) to pay it to the Master as a commission line instead.
 
@@ -290,3 +292,10 @@ Starting the app or running `python -m app.cli init-db` runs `app/db/migrate.py`
 ## Legal and compliance
 
 Online betting is regulated or prohibited in many jurisdictions, including parts of the Philippines. This repository is software only. You are responsible for making sure that your use of it is lawful where you operate and where your players are, including any licensing, age verification, anti-money-laundering and tax obligations.
+
+
+## Admin Panel: accounts and IP bans
+
+* **Accounts** (`/admin/accounts`): edit a Master, Cavo, Kubrador, Declarator or player's name, username, contact and GCash number, or **remove** it. Remove is a close, never a delete: the account is signed out and cannot sign in, history stays, the username stays reserved. It is refused while the account holds credit, has open bets or pending cash requests, or still has active downline or players. The Admin account can never be changed here, and only the Admin can touch a Pawn.
+* **IP bans** (`/admin/ipbans`): block an address or a small range (IPv4 /16 or narrower) from every URL, with a reason and an optional expiry. You cannot ban your own address or the one the Admin last signed in from. Lock-out recovery from the server shell: `python -m app.cli unban-ip ADDRESS`. Behind a proxy, set `TRUSTED_PROXIES` so the real client address is used.
+* **Pawns** get these only when the Admin ticks "Edit account details", "Remove accounts" or "Ban and unban IP addresses" on the Pawn.

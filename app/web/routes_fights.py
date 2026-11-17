@@ -11,6 +11,7 @@ from app.core.money import to_cents
 from app.core.rbac import Perm, hides_totals
 from app.db.models import EventStatus, PayoutModel, Result
 from app.services import betting, events, locations, proofs, reports, settlement
+from app.services import store as store_svc
 from app.web.deps import Ctx, form_data, flash_redirect, render, require_ctx
 
 router = APIRouter()
@@ -82,8 +83,10 @@ async def location_quick(request: Request, ctx: Ctx = Depends(require_ctx)):
 async def events_status(event_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.EVENTS_MANAGE)
     data = await form_data(request)
+    previous = events.get_event(ctx.db, event_id).status.value
     events.set_event_status(ctx.db, ctx.user, event_id, EventStatus(data.get("status", "open")))
-    return flash_redirect(f"/events/{event_id}", "Event status updated.")
+    undo = {"action": f"/events/{event_id}/status", "fields": {"status": previous}} if previous != "canceled" else None
+    return flash_redirect(f"/events/{event_id}", "Event status updated.", undo=undo)
 
 
 @router.get("/events/{event_id}")
@@ -152,6 +155,9 @@ async def change_name(request: Request, ctx: Ctx = Depends(require_ctx)):
                   fights=fights, events=[], snapshot=snapshot, runs=runs, tickets=tickets,
                   preview=plan, figures=figures, multipliers=multipliers, hide_totals=hide,
                   role_of=events.role_of, proof_required=proofs.required_for(ctx.user, ctx.store),
+                  chat_access=store_svc.access(ctx.db, ctx.user, fight) if fight is not None else None,
+                  chat_tokens=store_svc.tokens_for_fight(ctx.db, ctx.user, fight) if fight is not None else 0,
+                  stream_pass=store_svc.has_stream_perks(ctx.db, ctx.user) if fight is not None else False,
                   pending=settlement.pending_runs(ctx.db) if ctx.user.is_top else [])
 
 
@@ -168,9 +174,11 @@ async def rename(request: Request, ctx: Ctx = Depends(require_ctx)):
 async def lock(fight_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.FIGHTS_LOCK)
     data = await form_data(request)
-    fight = events.lock_fight(ctx.db, ctx.user, fight_id, locked=data.get("locked", "1") == "1")
+    locking = data.get("locked", "1") == "1"
+    fight = events.lock_fight(ctx.db, ctx.user, fight_id, locked=locking)
     return flash_redirect(f"/change_name?event_id={fight.event_id}&fight_id={fight.id}",
-                          "Betting closed for this fight." if data.get("locked", "1") == "1" else "Betting re-opened.")
+                          "Betting closed for this fight." if locking else "Betting re-opened.",
+                          undo={"action": f"/fights/{fight.id}/lock", "fields": {"locked": "0" if locking else "1"}})
 
 
 @router.post("/fights/{fight_id}/odds")
@@ -186,19 +194,23 @@ async def odds(fight_id: int, request: Request, ctx: Ctx = Depends(require_ctx))
 async def betmode(fight_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.EVENTS_MANAGE)
     data = await form_data(request)
+    previous_mode = events.get_fight(ctx.db, fight_id).bet_mode
     fight = events.set_bet_mode(ctx.db, ctx.user, fight_id, data.get("mode", "all"))
     text = {"all": "All sides open.", "meron": "Only MERON is open.", "wala": "Only WALA is open."}[fight.bet_mode]
-    return flash_redirect(f"/change_name?event_id={fight.event_id}&fight_id={fight.id}", text)
+    return flash_redirect(f"/change_name?event_id={fight.event_id}&fight_id={fight.id}", text,
+                          undo={"action": f"/fights/{fight.id}/betmode", "fields": {"mode": previous_mode}})
 
 
 @router.post("/fights/{fight_id}/llamado")
 async def llamado(fight_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.EVENTS_MANAGE)
     data = await form_data(request)
+    previous_side = events.get_fight(ctx.db, fight_id).llamado_side or ""
     fight = events.set_llamado(ctx.db, ctx.user, fight_id, data.get("side"))
     return flash_redirect(f"/change_name?event_id={fight.event_id}&fight_id={fight.id}",
                           f"Llamado set to {fight.llamado_side.upper()}." if fight.llamado_side
-                          else "Llamado cleared.")
+                          else "Llamado cleared.",
+                          undo={"action": f"/fights/{fight.id}/llamado", "fields": {"side": previous_side}})
 
 
 @router.post("/events/{event_id}/cancel")

@@ -89,7 +89,7 @@ def test_games_events_label_and_install_in_sidebar(admin_c):
     for path in ("/dashboard", "/events", "/agents"):
         html = c.get(path).text
         aside = html[html.index('<aside class="sidebar"'):html.index("</aside>")]
-        assert "<span>Games</span>" in aside and "Games Events" not in html and "Main Event" not in html
+        assert "<span>Events</span>" in aside and "Sabong" in aside and "Games Events" not in html and "Main Event" not in html
         assert aside.count("data-install") >= 1 and "sidebar-install" in aside
         topbar = html[html.index('<header class="topbar">'):html.index("</header>")]
         assert "data-install" not in topbar

@@ -28,18 +28,13 @@ def _sabong_tile(ctx: Ctx, open_games: int) -> dict | None:
 
 
 def _number_game_tile(ctx: Ctx, bola_card: dict | None) -> dict | None:
-    """Number game tile.
-
-    While the game is dev-only it ships dark: only the dev (the account that holds a Bola
-    permission under the gate, i.e. the Admin) sees a 'Coming soon' tile; every other role gets
-    no tile at all, so nothing about the game leaks. After launch the tile is a link when the
-    game is on and this account can see it, and 'Coming soon' otherwise."""
-    if bola_dev_only():
-        return {"state": "soon", "href": None, "hint": "Coming soon"} if ctx.can(Perm.BOLA_VIEW) else None
+    """Number game tile: a link for every account that may see the game while it is switched on.
+    Nothing is shown when it is off, or when BOLA_DEV_ONLY hides it from this account (no
+    'Coming soon' placeholder any more)."""
     if bool(ctx.store.get("bola.enabled")) and ctx.can(Perm.BOLA_VIEW):
         n = int(bola_card["open"]) if bola_card else 0
         return {"state": "live", "href": "/bola", "hint": f"{n} draw{'' if n == 1 else 's'} open"}
-    return {"state": "soon", "href": None, "hint": "Coming soon"}
+    return None
 
 
 @router.get("/dashboard")

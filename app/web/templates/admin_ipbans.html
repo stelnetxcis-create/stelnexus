@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}IP bans · {{ brand }}{% endblock %}
+{% block heading %}Admin Panel{% endblock %}
+{% block content %}
+{% include "_panel_nav.html" %}
+<p class="notice">A banned address (or small range) gets a blocked page on every URL, including sign-in. You cannot ban the address you are using now{% if my_ip %} (<code>{{ my_ip }}</code>){% endif %}, or the one the Admin last signed in from. Ranges wider than /16 (IPv4) are refused. If you are ever locked out, run <code>python -m app.cli unban-ip ADDRESS</code> on the server.</p>
+
+<div class="card">
+  <div class="card-head"><h2>Ban an address</h2></div>
+  <div class="card-body">
+    <form method="post" action="/admin/ipbans/create">{{ ui.csrf(csrf_token) }}
+      <div class="form-grid">
+        {{ ui.field('IP address or range', 'network', required=true, help='203.0.113.9 or 203.0.113.0/24', attrs='maxlength=64 autocapitalize=none') }}
+        {{ ui.field('Reason', 'reason', required=true, attrs='maxlength=255') }}
+        {{ ui.field('Hours (empty = until lifted)', 'hours', 'number', attrs='min=1 max=8760') }}
+      </div>
+      <div class="form-actions"><button class="btn btn-primary" type="submit">Ban</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Banned now</h2></div>
+  <div class="card-body">
+  {% if bans %}
+    {{ ui.table_start(['Address', 'Reason', 'Since', 'Expires', '']) }}
+    {% for b in bans %}
+    <tr>
+      <td><code>{{ b.network }}</code></td>
+      <td>{{ b.reason }}</td>
+      <td>{{ b.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+      <td>{{ b.expires_at.strftime('%Y-%m-%d %H:%M') if b.expires_at else 'until lifted' }}</td>
+      <td><form method="post" action="/admin/ipbans/{{ b.id }}/delete" class="inline-form" data-confirm="Unblock {{ b.network }}?">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm btn-ghost" type="submit">Unban</button></form></td>
+    </tr>
+    {% endfor %}
+    {{ ui.table_end() }}
+  {% else %}{{ ui.empty('No addresses are banned.') }}{% endif %}
+  </div>
+</div>
+{% endblock %}

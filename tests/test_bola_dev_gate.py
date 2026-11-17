@@ -1,4 +1,5 @@
-"""The number game is unfinished: while BOLA_DEV_ONLY is on, only the hidden dev (Admin) sees it."""
+"""BOLA_DEV_ONLY is an opt-in switch (default off since the game opened to everyone). While it is
+on, only the hidden dev (Admin) sees the number game. Every test here runs with it switched on."""
 import datetime as dt
 
 import pytest
@@ -16,13 +17,18 @@ from tests.test_bola import _web_setup, _web_teardown
 from tests.test_web import login
 
 
+@pytest.fixture(autouse=True)
+def gate_on(monkeypatch):
+    monkeypatch.setattr(get_settings(), "BOLA_DEV_ONLY", True)
+
+
 @pytest.fixture()
-def gate_off(monkeypatch):
+def gate_off(monkeypatch, gate_on):
     monkeypatch.setattr(get_settings(), "BOLA_DEV_ONLY", False)
 
 
-def test_default_is_dev_only():
-    assert get_settings().BOLA_DEV_ONLY is True and rbac.bola_dev_only()
+def test_gate_can_be_switched_on():
+    assert rbac.bola_dev_only()
 
 
 @pytest.mark.parametrize("role", [Role.MASTER, Role.CAVO, Role.KUBRADOR, Role.DECLARATOR, Role.PAWN])

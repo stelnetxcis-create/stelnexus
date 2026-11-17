@@ -22,7 +22,8 @@ class FakeSettings:
         self.values = {"bola.enabled": True, "ticket.header": "StelNexus",
                        "bola.max_liability_per_outcome_cents": 100_000,
                        "bola.max_liability_per_draw_cents": 500_000,
-                       "bola.show_odds_to_players": True, **values}
+                       "bola.show_odds_to_players": True,
+                       "bola.allow_duplicate_balls": False, **values}
 
     def get(self, key):
         return self.values[key]
@@ -117,3 +118,10 @@ def test_deploy_units_run_the_cli_commands_that_exist():
         assert exec_line and exec_line.group(1) in commands, name
         assert "OnCalendar=" in timer and "[Install]" in timer
     assert "bola-preflight" in (ROOT / "scripts/security_check.sh").read_text()
+
+
+def test_duplicate_balls_setting_fails_the_check():
+    """A ticket can never hold (5,5), so allowing doubled draws is a guaranteed house win and
+    the shown odds are wrong: the pre-launch check refuses it."""
+    assert "fail" in levels(run(True, **{"bola.allow_duplicate_balls": True}))
+    assert "fail" in levels(run(False, live_ack=True, **{"bola.allow_duplicate_balls": True}))

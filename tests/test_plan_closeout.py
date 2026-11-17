@@ -101,3 +101,45 @@ def test_pawn_declaring_bola_without_a_picture_is_refused_when_proof_is_required
             assert db.get(BolaDraw, ids["draw"]).status != DrawStatus.SETTLED
     finally:
         _web_teardown(ids)
+
+
+# ---------------------------------------------------------------- review fixes (Nov 17)
+def test_reused_idempotency_key_on_a_different_bet_is_refused(bw):
+    """A key is a double-tap guard, not a ticket lookup: same key + different numbers/stake must
+    not hand back the old ticket as if the new bet had been placed."""
+    from app.core.errors import Conflict
+    w = bw
+    base = dict(draw_id=w.draw.id, kind=BolaKind.PAIR, tumbok_cents=1000, sahod_cents=0,
+                player_id=w.player.id, settings=w.store, idempotency_key=f"reuse-{w.tag}")
+    first = bola.place_bola_bet(w.db, w.kub, numbers=[1, 2], **base)
+    again = bola.place_bola_bet(w.db, w.kub, numbers=["1", "2"], **base)       # same bet, form strings
+    assert again.id == first.id
+    for change in ({"numbers": [1, 3]}, {"tumbok_cents": 2000}, {"sahod_cents": 500}):
+        with pytest.raises(Conflict):
+            bola.place_bola_bet(w.db, w.kub, **{**base, "numbers": [1, 2], **change})
+    n = w.db.scalar(select(func.count()).select_from(bola.BolaTicket)
+                    .where(bola.BolaTicket.idempotency_key == base["idempotency_key"]))
+    assert n == 1
+
+
+def test_cancel_takes_the_draw_lock_before_the_ticket_lock(bw):
+    """Settlement locks draw -> tickets. If cancel locked ticket -> draw, a cancel and a declare on
+    the same draw could wait on each other forever (PostgreSQL aborts one with a 500). SQLite
+    ignores FOR UPDATE, so look at the statements the ORM is asked to run."""
+    from sqlalchemy import event
+    from sqlalchemy.orm import Session
+    w = bw
+    ticket = _bet(w, [4, 5], BolaKind.PAIR, 1000, 0)
+    locked: list[str] = []
+
+    @event.listens_for(Session, "do_orm_execute")
+    def spy(state):
+        stmt = state.statement
+        if getattr(stmt, "_for_update_arg", None) is not None:
+            locked.append(state.bind_mapper.class_.__name__ if state.bind_mapper else "?")
+
+    try:
+        bola.cancel_bola_ticket(w.db, w.kub, ticket_id=ticket.id, reason="test", settings=w.store)
+    finally:
+        event.remove(Session, "do_orm_execute", spy)
+    assert locked[:2] == ["BolaDraw", "BolaTicket"], locked

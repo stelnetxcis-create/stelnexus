@@ -80,6 +80,13 @@ class Perm(str, Enum):
     PANEL_VIEW = "panel.view"
     PAWNS_MANAGE = "pawns.manage"          # only the Admin creates Pawns and sets what they may see
     ONLINE_VIEW = "online.view"            # who is signed in right now
+    # Account tools in the Admin Panel. Admin always; a Pawn only through the matching grant.
+    ACCOUNTS_VIEW = "accounts.view"        # the Accounts page (names, roles, status; no balances)
+    ACCOUNTS_EDIT = "accounts.edit"        # change name / username / contact / GCash of an account
+    ACCOUNTS_REMOVE = "accounts.remove"    # close an account (never a delete; see account_admin)
+    IPBANS_MANAGE = "ipbans.manage"        # ban / unban IP addresses
+    # Seller Desk (/sell) is experimental: Admin (the developer account) only, no grant lifts it.
+    SELL_DESK = "sell.desk"
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +127,8 @@ _ADMIN_ONLY = {
     Perm.CUTS_VIEW, Perm.CUTS_MANAGE,
     Perm.PLAYERS_VIEW, Perm.PLAYERS_CREATE, Perm.PLAYERS_EDIT,
     Perm.ONLINE_VIEW, Perm.PANEL_VIEW, Perm.PAWNS_MANAGE,
+    Perm.ACCOUNTS_VIEW, Perm.ACCOUNTS_EDIT, Perm.ACCOUNTS_REMOVE, Perm.IPBANS_MANAGE,
+    Perm.SELL_DESK,
     Perm.LOCATIONS_VIEW, Perm.LOCATIONS_MANAGE,
     # House money is dev-only: the cashflow page, house totals on the dashboard, event P&L and the
     # report archives. A Pawn can still be granted them one by one ("cashflow:view", "reports:view").
@@ -194,6 +203,17 @@ def _build_grants() -> tuple[Grant, ...]:
               "People", frozenset({Perm.AGENTS_VIEW, Perm.AGENTS_CREATE})),
         Grant("online:view", "See who is online", "Live list of signed-in accounts.", "People",
               frozenset({Perm.ONLINE_VIEW})),
+        Grant("accounts:edit", "Edit account details",
+              "Name, username, contact and GCash number of any Master, Cavo, Kubrador, Declarator or player. "
+              "Never the Admin or another Pawn.", "People",
+              frozenset({Perm.PANEL_VIEW, Perm.ACCOUNTS_VIEW, Perm.ACCOUNTS_EDIT})),
+        Grant("accounts:remove", "Remove accounts",
+              "Closes the account and signs it out. Refused while it holds credit, has open bets or a "
+              "downline. Never the Admin or another Pawn.", "People",
+              frozenset({Perm.PANEL_VIEW, Perm.ACCOUNTS_VIEW, Perm.ACCOUNTS_REMOVE})),
+        Grant("ipbans:manage", "Ban and unban IP addresses",
+              "Blocks an address or small range from the whole site. Cannot ban its own address or the Admin's.",
+              "Security", frozenset({Perm.PANEL_VIEW, Perm.IPBANS_MANAGE})),
         Grant("audit:view", "See the audit trail and ledger integrity", "", "Reports",
               frozenset({Perm.PANEL_VIEW, Perm.AUDIT_VIEW})),
         Grant("cashflow:view", "See cashflow", "House position and money totals.", "Reports",

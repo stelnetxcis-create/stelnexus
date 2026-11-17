@@ -54,8 +54,8 @@ svg.ico,.icon-btn svg,.tab svg{width:18px;height:18px;fill:none;stroke:currentCo
 .topbar-actions{display:flex;align-items:center;gap:8px}
 .icon-btn.open-nav{display:none}
 .icon-btn.collapse-btn{display:inline-grid}
-.content{padding:20px;flex:1;max-width:1500px;width:100%}
-.foot{padding:14px 20px 26px;color:var(--ink-3);font-size:12px;border-top:1px solid var(--line)}
+.content{padding:20px;flex:1;max-width:1500px;width:100%;margin-inline:auto}
+.foot{padding:14px 20px 26px;color:var(--ink-3);font-size:12px;border-top:1px solid var(--line);text-align:center}
 .backdrop{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:39}
 
 /* buttons */

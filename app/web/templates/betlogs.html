@@ -42,7 +42,7 @@
       {% endfor %}
       </tbody>
     </table></div>
-    {% else %}{{ ui.empty('No tickets match this filter.') }}{% endif %}
+    {% else %}{{ ui.empty('Try a wider date range or clear the filter.', kind='ticket', title='No tickets match', compact=true) }}{% endif %}
   </div>
 </div>
 <p class="notice">“Numbers”, “Kubrador” and “Cavo” are retained from the legacy number-game layout for continuity; they are optional on Meron/Wala tickets.</p>

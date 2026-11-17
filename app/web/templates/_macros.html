@@ -25,7 +25,17 @@
 <span class="badge badge-{{ 'meron' if v == 'meron' else 'wala' }}">{{ v | upper }}</span>
 {% endmacro %}
 
-{% macro empty(text='Nothing here yet.') %}<div class="empty">{{ text }}</div>{% endmacro %}
+{# Plain: empty('text'). With artwork: empty('text', kind='rooster'|'arena'|'balls'|'ticket', title='...', href='/x', cta='Do it', modal='modal-id', compact=true) #}
+{% macro empty(text='Nothing here yet.', kind='', title='', href='', cta='', modal='', compact=false) %}
+{% if kind %}
+<div class="empty empty-art{{ ' is-compact' if compact }}">
+  <img src="/static/img/empty/{{ kind }}.svg" alt="" width="250" height="210" loading="lazy">
+  {% if title %}<h3>{{ title }}</h3>{% endif %}
+  <p>{{ text }}</p>
+  {% if href and cta %}<a class="btn btn-brand" href="{{ href }}">{{ cta }}</a>{% elif modal and cta %}<button class="btn btn-brand" type="button" data-modal="{{ modal }}">{{ cta }}</button>{% endif %}
+</div>
+{% else %}<div class="empty">{{ text }}</div>{% endif %}
+{% endmacro %}
 
 {% macro table_start(headers, id='') %}
 <div class="table-wrap">

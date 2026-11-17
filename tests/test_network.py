@@ -174,6 +174,9 @@ def test_permissions_master_is_admin_minus_admin_panel(monkeypatch):
                   Perm.CASHFLOW_VIEW, Perm.REPORTS_VIEW,
                   # livestream chat: Admin, and Pawns it was granted to
                   Perm.CHAT_USE,
+                  # account tools, IP bans and the experimental Seller Desk
+                  Perm.ACCOUNTS_VIEW, Perm.ACCOUNTS_EDIT, Perm.ACCOUNTS_REMOVE, Perm.IPBANS_MANAGE,
+                  Perm.SELL_DESK,
                   # Master never enters or changes a result
                   Perm.FIGHTS_DECLARE, Perm.FIGHTS_REDECLARE,
                   Perm.BOLA_DECLARE, Perm.BOLA_REDECLARE}

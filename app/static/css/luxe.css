@@ -393,7 +393,7 @@ input[type=checkbox]{accent-color:var(--gold)}
 .hero-actions{display:flex;flex-wrap:wrap;gap:8px}
 /* dashboard: available games */
 .games{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:16px}
-.game-tile{position:relative;display:flex;align-items:center;gap:14px;padding:16px 18px;min-width:0;border:1px solid var(--line-2);border-radius:var(--radius);
+.games .game-tile{position:relative;display:flex;align-items:center;gap:14px;padding:16px 18px;min-width:0;border:1px solid var(--line-2);border-radius:var(--radius);
   background:linear-gradient(160deg,#141216,#0e0d10);box-shadow:var(--shadow);color:var(--ink);text-decoration:none}
 .game-ico{flex:0 0 auto;display:grid;place-items:center;width:44px;height:44px;border-radius:12px;background:rgba(217,177,85,.12);color:var(--gold-hi)}
 .game-body{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 auto}
@@ -403,14 +403,14 @@ input[type=checkbox]{accent-color:var(--gold)}
 .game-name .side-meron{color:var(--meron)}.game-name .side-wala{color:var(--wala)}
 .game-hint{font-size:12.5px;color:var(--ink-3)}
 .game-go{flex:0 0 auto;font-size:20px;color:var(--gold-hi);transition:transform .25s var(--ease)}
-.game-tile.is-live{border-color:var(--gold-lo);box-shadow:var(--shadow),0 0 30px -18px var(--gold-glow);transition:border-color .25s,transform .25s var(--ease)}
-.game-tile.is-live:hover{border-color:var(--gold);transform:translateY(-2px)}
-.game-tile.is-live:hover .game-go{transform:translateX(4px)}
-.game-tile.is-live:focus-visible{outline:2px solid var(--gold-hi);outline-offset:2px}
-.game-tile.is-live .game-hint{color:var(--green)}
-.game-tile.is-soon{border-style:dashed;cursor:default;box-shadow:none}
-.game-tile.is-soon .game-ico{background:var(--slate-bg);color:var(--ink-3)}
-.game-tile.is-soon .game-name{color:var(--ink-2)}
+.games .game-tile.is-live{border-color:var(--gold-lo);box-shadow:var(--shadow),0 0 30px -18px var(--gold-glow);transition:border-color .25s,transform .25s var(--ease)}
+.games .game-tile.is-live:hover{border-color:var(--gold);transform:translateY(-2px)}
+.games .game-tile.is-live:hover .game-go{transform:translateX(4px)}
+.games .game-tile.is-live:focus-visible{outline:2px solid var(--gold-hi);outline-offset:2px}
+.games .game-tile.is-live .game-hint{color:var(--green)}
+.games .game-tile.is-soon{border-style:dashed;cursor:default;box-shadow:none}
+.games .game-tile.is-soon .game-ico{background:var(--slate-bg);color:var(--ink-3)}
+.games .game-tile.is-soon .game-name{color:var(--ink-2)}
 .game-soon{flex:0 0 auto;padding:4px 10px;border-radius:999px;border:1px solid var(--line-2);background:var(--slate-bg);color:var(--ink-3);
   font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
 @media (max-width:640px){.games{grid-template-columns:1fr;gap:10px}.game-tile{padding:14px}.game-name{font-size:19px}}
@@ -509,19 +509,19 @@ input[type=checkbox]{accent-color:var(--gold)}
 .lobby-nums b{color:var(--ink)} .lobby-nums .n-open b{color:var(--green)} .lobby-nums .n-locked b{color:var(--amber)}
 
 .game-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:10px}
-.game-tile{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:84px;padding:10px 6px;text-align:center;border-radius:var(--radius-sm);background:var(--panel-2);border:1px solid var(--line-2);color:var(--ink);text-decoration:none;transition:transform .15s var(--ease),border-color .15s,box-shadow .15s}
-.game-tile:hover,.game-tile:focus-visible{transform:translateY(-2px);box-shadow:0 8px 18px -10px rgba(0,0,0,.9)}
-.game-tile b{font-family:var(--serif);font-size:24px;line-height:1}
-.game-tile .tile-state{font-size:10.5px;font-weight:800;letter-spacing:.08em;color:var(--ink-3)}
-.game-tile small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:var(--ink-3)}
-.game-tile.is-active{outline:2px solid var(--gold);outline-offset:1px}
-.game-tile.st-open{border-color:var(--green);background:var(--green-bg)} .game-tile.st-open .tile-state{color:var(--green)}
-.game-tile.st-locked{border-color:var(--amber);background:var(--amber-bg)} .game-tile.st-locked .tile-state{color:var(--amber)}
-.game-tile.st-void{opacity:.6}
-.game-tile.res-meron{border-color:var(--meron);background:var(--red-bg)} .game-tile.res-meron .tile-state{color:var(--meron)}
-.game-tile.res-wala{border-color:var(--wala);background:var(--blue-bg)} .game-tile.res-wala .tile-state{color:var(--wala)}
-.game-tile.res-draw{border-color:var(--purple);background:var(--purple-bg)} .game-tile.res-draw .tile-state{color:var(--purple)}
-.game-tile.res-canceled{opacity:.6}
+.game-tiles .game-tile{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:84px;padding:10px 6px;text-align:center;border-radius:var(--radius-sm);background:var(--panel-2);border:1px solid var(--line-2);color:var(--ink);text-decoration:none;transition:transform .15s var(--ease),border-color .15s,box-shadow .15s}
+.game-tiles .game-tile:hover,.game-tiles .game-tile:focus-visible{transform:translateY(-2px);box-shadow:0 8px 18px -10px rgba(0,0,0,.9)}
+.game-tiles .game-tile b{font-family:var(--serif);font-size:24px;line-height:1}
+.game-tiles .game-tile .tile-state{font-size:10.5px;font-weight:800;letter-spacing:.08em;color:var(--ink-3)}
+.game-tiles .game-tile small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;color:var(--ink-3)}
+.game-tiles .game-tile.is-active{outline:2px solid var(--gold);outline-offset:1px}
+.game-tiles .game-tile.st-open{border-color:var(--green);background:var(--green-bg)} .game-tiles .game-tile.st-open .tile-state{color:var(--green)}
+.game-tiles .game-tile.st-locked{border-color:var(--amber);background:var(--amber-bg)} .game-tiles .game-tile.st-locked .tile-state{color:var(--amber)}
+.game-tiles .game-tile.st-void{opacity:.6}
+.game-tiles .game-tile.res-meron{border-color:var(--meron);background:var(--red-bg)} .game-tiles .game-tile.res-meron .tile-state{color:var(--meron)}
+.game-tiles .game-tile.res-wala{border-color:var(--wala);background:var(--blue-bg)} .game-tiles .game-tile.res-wala .tile-state{color:var(--wala)}
+.game-tiles .game-tile.res-draw{border-color:var(--purple);background:var(--purple-bg)} .game-tiles .game-tile.res-draw .tile-state{color:var(--purple)}
+.game-tiles .game-tile.res-canceled{opacity:.6}
 .tile-cam{position:absolute;top:6px;right:6px;width:14px;height:14px;color:var(--gold)}
 .tile-legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:12px;font-size:12px;color:var(--ink-3)}
 .tile-legend .lg::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px;background:var(--ink-3)}

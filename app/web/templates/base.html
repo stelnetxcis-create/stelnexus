@@ -15,6 +15,8 @@
 <link rel="apple-touch-icon" href="/static/icons/icon-180.png">
 <link rel="stylesheet" href="/static/css/app.css">
 <link rel="stylesheet" href="/static/css/luxe.css?v=fix4">
+<link rel="stylesheet" href="/static/css/arena.css?v=1">
+<link rel="stylesheet" href="/static/css/royale.css?v=4">
 {% block head %}{% endblock %}
 <script src="/static/js/nav-init.js"></script>
 </head>
@@ -41,6 +43,12 @@
 <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
 <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
 <symbol id="i-print" viewBox="0 0 24 24"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></symbol>
+<symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 2c1 4 5 6 5 11a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-4-1-6 1-10z"/></symbol>
+<symbol id="i-sound" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4zM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></symbol>
+<symbol id="i-sound-off" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4zM22 9l-6 6M16 9l6 6"/></symbol>
+<symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></symbol>
+<symbol id="i-crown" viewBox="0 0 24 24"><path d="m3 8 4.5 4L12 5l4.5 7L21 8l-2 11H5z"/></symbol>
+<symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
 <symbol id="i-check" viewBox="0 0 24 24"><path d="m20 6-11 11-5-5"/></symbol>
 <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
 <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M16 7l3 3M14 9l2 2"/></symbol>
@@ -67,15 +75,18 @@
     <nav class="nav">
       {% set groups = [
         ('', [
-          ('dashboard', '/dashboard', 'i-grid', 'Dashboard', 'dashboard.view')]),
-        ('Events', [
-          ('events', '/events', 'i-calendar', 'Games', 'events.view'),
+          ('dashboard', '/dashboard', 'i-grid', 'Dashboard', 'dashboard.view'),
+          ('store', '/store', 'i-crown', 'Store', 'wallet.transfer'),
+          ('admin', '/admin', 'i-sliders', 'Admin Panel', 'panel.view')]),
+        ('Sabong · Meron / Wala', [
+          ('events', '/events', 'i-calendar', 'Events', 'events.view'),
+          ('sell', '/sell', 'i-coins', 'Seller Desk (dev)', 'sell.desk'),
           ('change_name', '/change_name', 'i-target', 'Fight View', 'fights.view'),
           ('history', '/history', 'i-clock', 'Game History', 'fights.view'),
           ('betlogs', '/betlogs', 'i-list', 'Betting List', 'bets.view'),
           ('cancelT', '/cancelT', 'i-ban', 'Cancel Ticket', 'bets.view')]),
         ('Number game', [
-          ('bola', '/bola', 'i-target', 'Bola', 'bola.view'),
+          ('bola', '/bola', 'i-hash', 'Bola', 'bola.view'),
           ('bola_logs', '/bola/betlogs', 'i-list', 'Bola Tickets', 'bola.place'),
           ('bola_cancelled', '/bola/cancelled', 'i-ban', 'Bola Cancelled', 'bola.view'),
           ('bola_agents', '/bola/agents', 'i-users', 'Agent Statements', 'bola.view'),
@@ -83,20 +94,15 @@
         ('Network', [
           ('agents', '/agents', 'i-users', 'Users', 'agents.view'),
           ('clp', '/clp', 'i-card', 'Players', 'players.view'),
-          ('referrals', '/referrals', 'i-key', 'Referral Codes', 'referrals.manage'),
-          ('commissions', '/commissions', 'i-coins', 'Commission', 'commissions.view')]),
-        ('Staff', [
-          ('chat', '/chat', 'i-chat', 'Livestream Chat', 'chat.use'),
-          ('admin', '/admin', 'i-sliders', 'Admin Panel', 'panel.view')])
+          ]),
       ] %}
       {% for title, items in groups %}
         {% set shown = items | selectattr(4, 'in', perms) | list %}
         {% if shown %}
-        {% if title %}<div class="nav-title">{{ title }}{% if title == 'Number game' and bola_dev_only() %} · dev only{% endif %}</div>{% endif %}
+        {% if title %}<div class="nav-title {{ 'is-sabong' if title.startswith('Sabong') else 'is-number' if title == 'Number game' }}"><span>{{ title }}{% if title == 'Number game' and bola_dev_only() %} · dev only{% endif %}</span>{% if title.startswith('Sabong') %}<i class="nav-dots" aria-hidden="true"><b class="m"></b><b class="w"></b></i>{% endif %}</div>{% endif %}
         {% for key, href, icon, label, perm in shown %}
         <a class="nav-link {{ 'is-active' if active == key }}" href="{{ href }}" title="{{ label }}">
           <svg class="ico"><use href="#{{ icon }}"/></svg><span>{{ label }}</span>
-          {% if key == 'chat' %}<em class="nav-exp" title="Experimental">exp</em>{% endif %}
         </a>
         {% endfor %}
         {% endif %}
@@ -118,6 +124,9 @@
       <h1>{% block heading %}{{ brand }}{% endblock %}</h1>
       <div class="topbar-actions">
         {% block actions %}{% endblock %}
+        <button class="icon-btn snd-btn" type="button" data-sound-toggle aria-pressed="false" aria-label="Live sounds" title="Live sounds on / off">
+          <svg class="ico on"><use href="#i-sound"/></svg><svg class="ico off"><use href="#i-sound-off"/></svg>
+        </button>
         {% if user %}
         {% if is_dev %}
         <details class="menu dev-menu">
@@ -195,6 +204,7 @@
               {% if 'wallet.transfer' in perms %}<a href="/wallet?t=transfer"><svg class="ico"><use href="#i-swap"/></svg>Transfer</a>{% endif %}
               <a href="/wallet?t=history"><svg class="ico"><use href="#i-clock"/></svg>History</a>
             </div>
+            {% if 'commissions.view' in perms %}<a class="account-item {{ 'is-active' if active == 'commissions' }}" href="/commissions"><svg class="ico"><use href="#i-coins"/></svg>Commission</a>{% endif %}
             <a class="account-item" href="/wallet">Open wallet{% if wallet_pending %} · {{ wallet_pending }} to review{% endif %}</a>
           </div>
         </details>
@@ -206,6 +216,7 @@
           <div class="menu-panel account-panel">
             <div class="account-who"><strong>{{ user.full_name }}</strong><small>{{ user.username }} · {{ user.role_label }}</small></div>
             <a class="account-item" href="/profile"><svg class="ico"><use href="#i-user"/></svg>Profile &amp; security</a>
+            {% if 'referrals.manage' in perms %}<a class="account-item {{ 'is-active' if active == 'referrals' }}" href="/referrals"><svg class="ico"><use href="#i-key"/></svg>Referral codes</a>{% endif %}
             {% set report_links = [('/cashflow', 'i-chart', 'Cashflow', 'cashflow.view'), ('/archives', 'i-archive', 'Report archives', 'reports.view')] %}
             {% set shown_reports = report_links | selectattr(3, 'in', perms) | list %}
             {% if shown_reports %}
@@ -234,18 +245,25 @@
     {% endif %}
     <main class="content" id="main">
       {% for flash in flashes %}
-      <div class="alert alert-{{ flash.level }}" role="status">{{ flash.message }}</div>
+      <div class="alert alert-{{ flash.level }}" role="status" data-flash data-level="{{ flash.level }}"{% if flash.undo %} data-undo-action="{{ flash.undo.action }}" data-undo-fields='{{ flash.undo.fields | tojson }}'{% endif %}>{{ flash.message }}</div>
       {% endfor %}
+      <noscript><style>.alert[data-flash]{display:block!important}</style></noscript>
       {% block content %}{% endblock %}
     </main>
-    <footer class="foot">{{ brand }} · secured console · <span class="muted">all amounts in PHP centavos, double-entry ledger</span></footer>
+    <footer class="foot">
+      <div class="foot-inner">
+        <span class="foot-badge"><svg class="ico"><use href="#i-shield"/></svg>{{ brand }} · secured console</span>
+        <span class="foot-sep" aria-hidden="true"></span>
+        <span class="foot-note">All amounts in PHP centavos <i aria-hidden="true">·</i> double-entry ledger</span>
+      </div>
+    </footer>
   </div>
 </div>
 
 {% if user %}
 <nav class="tabbar" aria-label="Quick navigation">
   {% for key, href, icon, label, perm in [('dashboard','/dashboard','i-grid','Home','dashboard.view'),
-                                          ('events','/events','i-calendar','Games','events.view'),
+                                          ('events','/events','i-calendar','Sabong','events.view'),
                                           ('wallet','/wallet','i-coins','Wallet','wallet.view'),
                                           ('betlogs','/betlogs','i-list','Bets','bets.view'),
                                           ('admin','/admin','i-sliders','Panel','panel.view')] %}
@@ -259,6 +277,11 @@
 <script src="/static/js/app.js?v=fix2" defer></script>
 <script src="/static/js/luxe.js?v=fix2" defer></script>
 <script src="/static/js/pages.js?v=1" defer></script>
+<script src="/static/js/arena.js?v=1" defer></script>
+<script src="/static/js/royale.js?v=1" defer></script>
+<script src="/static/js/menus.js?v=1" defer></script>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="spark-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9b155" stop-opacity=".28"/><stop offset="1" stop-color="#d9b155" stop-opacity="0"/></linearGradient></defs></svg>
+<div id="toasts" role="region" aria-label="Notifications" aria-live="polite"></div>
 {% block scripts %}{% endblock %}
 </body>
 </html>

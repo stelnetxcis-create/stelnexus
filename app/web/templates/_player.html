@@ -1,0 +1,40 @@
+{# Live video player (dummy feed for now). Reused by Meron/Wala games and, later, Esports.
+   Play/pause is for everyone. Previous / Forward are Battle Pass features: without one they show a lock
+   and point to the Store. When a real stream is wired, swap the .vp-scene for the <video> element; the
+   controls and the pass rule stay as they are. #}
+{% macro stream_player(kind, title, left, right, pass_ok, ended=false) %}
+<div class="vp{{ ' is-ended' if ended }}" data-player data-kind="{{ kind }}" data-pass="{{ 1 if pass_ok else 0 }}" data-ended="{{ 1 if ended else 0 }}" data-store="/store">
+  <div class="vp-screen" data-vp-screen tabindex="-1">
+    <div class="vp-scene" aria-hidden="true">
+      <div class="vp-ring"></div><div class="vp-sweep"></div>
+      <span class="vp-side vp-l">{{ left }}</span><span class="vp-vs">VS</span><span class="vp-side vp-r">{{ right }}</span>
+      <span class="vp-mark">SAMPLE FEED</span>
+    </div>
+    <span class="vp-badge" data-vp-badge><i></i><span data-vp-badge-text>{{ 'ENDED' if ended else 'LIVE' }}</span></span>
+    <span class="vp-title">{{ title }}</span>
+    <button type="button" class="vp-big" data-vp-big aria-label="Play">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>
+  </div>
+  <div class="vp-bar">
+    <div class="vp-track" data-vp-track role="slider" aria-label="Position in the live window" aria-valuemin="0" aria-valuemax="120" aria-valuenow="0" tabindex="0">
+      <i class="vp-fill" data-vp-fill></i><b class="vp-knob" data-vp-knob></b></div>
+    <div class="vp-row">
+      <button type="button" class="vp-btn vp-pass" data-vp-prev aria-label="Previous 10 seconds (Battle Pass)" title="Previous 10s{{ '' if pass_ok else ' · Battle Pass' }}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h2v12H6zM20 6v12L9.5 12z"/></svg>
+        {% if not pass_ok %}<em aria-hidden="true">PASS</em>{% endif %}</button>
+      <button type="button" class="vp-btn vp-main" data-vp-play aria-label="Play">
+        <svg data-vp-ico-play viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+        <svg data-vp-ico-pause viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg></button>
+      <button type="button" class="vp-btn vp-pass" data-vp-next aria-label="Forward 10 seconds (Battle Pass)" title="Forward 10s{{ '' if pass_ok else ' · Battle Pass' }}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 6h2v12h-2zM4 6l10.5 6L4 18z"/></svg>
+        {% if not pass_ok %}<em aria-hidden="true">PASS</em>{% endif %}</button>
+      <span class="vp-time" data-vp-time>LIVE</span>
+      <button type="button" class="vp-btn vp-golive" data-vp-live hidden>Go live</button>
+      <span class="vp-spacer"></span>
+      <button type="button" class="vp-btn" data-vp-full aria-label="Full screen" title="Full screen">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
+    </div>
+    {% if not pass_ok %}<p class="vp-hint"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.9 6.3L22 9.2l-5 4.8 1.2 7L12 17.8 5.8 21l1.2-7-5-4.8 7.1-.9z"/></svg>Previous and forward come with the <a href="/store">Battle Pass</a>.</p>{% endif %}
+  </div>
+</div>
+{% endmacro %}

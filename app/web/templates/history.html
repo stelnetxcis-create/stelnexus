@@ -26,7 +26,7 @@
       {% endfor %}
       </tbody>
     </table></div>
-    {% else %}{{ ui.empty('No game has been declared yet.') }}{% endif %}
+    {% else %}{{ ui.empty('Declared games and their results will be listed here.', kind='rooster', title='No results yet', compact=true) }}{% endif %}
   </div>
 </div>
 {% endblock %}

@@ -114,6 +114,10 @@ def preflight(settings: SettingsStore, *, dev_only: bool, live_ack: bool,
             out.append(("warn", "BOLA_DEV_ONLY=false: turning bola.enabled on would open the game "
                                 "to every role. Keep BOLA_DEV_ONLY=true until you mean to launch."))
         return out
+    if settings.get("bola.allow_duplicate_balls"):
+        out.append(("fail", "bola.allow_duplicate_balls is on, but a ticket can never hold a pair like 5,5: "
+                            "a doubled draw would always favour the house and the shown odds would be wrong. "
+                            "Turn it off."))
     header = str(settings.get("ticket.header") or "")
     if any(word in header.upper() for word in ("PCSO", "OFFICIAL", "PAGCOR")):
         out.append(("fail", f"ticket.header {header!r} implies a government affiliation. Use your own name."))
@@ -677,6 +681,26 @@ def network_names(db: Session, agent_id: int | None) -> tuple[str | None, str | 
     return kubrador, cavo
 
 
+def _replay(existing: BolaTicket, *, draw_id, kind, numbers, tumbok_cents, sahod_cents,
+            player_id) -> BolaTicket:
+    """An idempotency-key hit is only a "double tap" when it is the same bet. A reused key on a
+    different bet must fail loudly: silently returning the old ticket would tell the agent the
+    new bet was placed when it was not (and nothing was charged for it)."""
+    try:
+        same = (existing.draw_id == int(draw_id)
+                and existing.player_id == int(player_id)
+                and existing.kind == BolaKind(kind)
+                and list(existing.numbers) == [int(n) for n in numbers]
+                and existing.tumbok_cents == int(tumbok_cents)
+                and existing.sahod_cents == int(sahod_cents))
+    except (TypeError, ValueError):
+        same = False
+    if not same:
+        raise Conflict("That idempotency key was already used for a different bet. "
+                       "Reload the slip and try again.")
+    return existing
+
+
 def place_bola_bet(
     db: Session, actor: User, *, draw_id: int, kind: BolaKind | str, numbers,
     tumbok_cents: int, sahod_cents: int, player_id: int, settings: SettingsStore,
@@ -690,7 +714,8 @@ def place_bola_bet(
     if idempotency_key:
         existing = db.scalar(select(BolaTicket).where(BolaTicket.idempotency_key == idempotency_key))
         if existing is not None:
-            return existing
+            return _replay(existing, draw_id=draw_id, kind=kind, numbers=numbers,
+                           tumbok_cents=tumbok_cents, sahod_cents=sahod_cents, player_id=player_id)
 
     assert_enabled(settings)
     draw = _lock_draw(db, draw_id)
@@ -699,7 +724,8 @@ def place_bola_bet(
         # so hand back its ticket instead of tripping the unique key (a double tap is not an error).
         existing = db.scalar(select(BolaTicket).where(BolaTicket.idempotency_key == idempotency_key))
         if existing is not None:
-            return existing
+            return _replay(existing, draw_id=draw_id, kind=kind, numbers=numbers,
+                           tumbok_cents=tumbok_cents, sahod_cents=sahod_cents, player_id=player_id)
     now = utcnow()
     if draw.status != DrawStatus.OPEN:
         raise LockedState(f"Betting for this draw is {draw.status}.")
@@ -800,13 +826,19 @@ def cancel_bola_ticket(db: Session, actor: User, *, ticket_id: int, reason: str,
     reason = (reason or "").strip()
     if len(reason) < 3:
         raise ValidationError("A cancellation reason is required (min 3 characters).")
-    ticket = db.scalar(select(BolaTicket).where(BolaTicket.id == ticket_id).with_for_update())
+    # Lock order is draw -> ticket -> accounts, the same as place_bola_bet and settlement.
+    # Taking the ticket first let a cancel and a declare wait on each other (deadlock on PostgreSQL).
+    peek = db.get(BolaTicket, ticket_id)
+    if peek is None:
+        raise NotFound("Ticket not found.")
+    assert_ticket_visible(db, actor, peek)           # before any lock: outsiders must not stall a draw
+    draw = _lock_draw(db, peek.draw_id)
+    ticket = db.scalar(select(BolaTicket).where(BolaTicket.id == ticket_id).with_for_update()
+                       .execution_options(populate_existing=True))
     if ticket is None:
         raise NotFound("Ticket not found.")
-    assert_ticket_visible(db, actor, ticket)
     if ticket.status != TicketStatus.ACTIVE:
         raise LockedState(f"Ticket {ticket.code} is already {ticket.status}.")
-    draw = _lock_draw(db, ticket.draw_id)
     if draw.status != DrawStatus.OPEN:
         raise LockedState("Betting for this draw is closed; tickets can no longer be cancelled.")
     now = utcnow()

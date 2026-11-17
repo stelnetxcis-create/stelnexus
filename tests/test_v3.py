@@ -149,7 +149,8 @@ def test_livestream_chat_is_admin_and_granted_pawns_only(chain):
         assert c.get("/chat").status_code == 403, who
         assert c.get("/chat/messages?after=0", headers={"Accept": "application/json"}).status_code == 403
         assert c.post("/chat/send", data={"csrf_token": _csrf(c), "body": "hi"}).status_code in (303, 403)
-    assert 'href="/chat"' in _login(chat.username).get("/change_name").text
+    # the experimental staff room no longer has a menu entry: chat is shown through the games
+    assert 'title="Livestream Chat"' not in _login(chat.username).get("/change_name").text
     assert 'href="/chat"' not in _login(plain.username).get("/change_name").text
 
 
@@ -433,8 +434,10 @@ def test_lobby_box_uses_the_venue_picture_as_its_background(db):
                             fight_count=2, location_id=plain.id)
     stats = events.lobby_stats(db, [a.id, b.id])
     html = str(templates.env.get_template("_lobby.html").module.event_cards([a, b], stats, "/events/"))
-    assert html.count("has-img") == 1
+    # every box has a picture: the venue's own, or one of the bundled arena scenes when it has none
+    assert html.count("has-img") == 2
     assert "--card-img: url('/static/img/venues/lipa.svg')" in html
+    assert "--card-img: url('/static/img/arena/" in html
 
 
 def test_venue_picture_must_be_a_bundled_one_and_old_callers_keep_it(db):

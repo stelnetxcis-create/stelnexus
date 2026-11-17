@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Seller Desk{% endblock %}
+{% block heading %}Seller Desk{% endblock %}
+{% block actions %}
+<button class="icon-btn" type="button" data-sell-fullscreen aria-label="Full screen" title="Full screen"><svg class="ico"><use href="#i-expand"/></svg></button>
+{% endblock %}
+{% block content %}
+{% if not events %}
+<div class="card"><div class="card-body">{{ ui.empty('Open an event, then come back to sell tickets here.', kind='arena', title='No event is open for betting', href='/events', cta='Go to events') }}</div></div>
+{% else %}
+<div class="sell is-loading" id="sell" data-event="{{ event_id }}" data-draw="{{ 1 if draw_enabled else 0 }}" data-undo="{{ undo_window if can_undo else -1 }}">
+  <div class="sell-col">
+    <div class="sell-bar">
+      <select id="sell-event" class="grow" aria-label="Event">
+        {% for e in events %}<option value="{{ e.id }}" {{ 'selected' if e.id == event_id }}>{{ e.title }}</option>{% endfor %}
+      </select>
+      <input id="sell-player" class="grow" list="sell-players" placeholder="Player (type a name or card)" autocomplete="off" aria-label="Player">
+      <datalist id="sell-players">
+        {% for p in players %}<option value="{{ p.name }}{{ ' · ' ~ p.ref if p.ref }}" data-id="{{ p.id }}"></option>{% endfor %}
+      </datalist>
+    </div>
+    <div class="sell-games" id="sell-games" role="listbox" aria-label="Games"></div>
+    <div class="sell-card" id="sell-main">
+      <div class="sell-title"><h2 id="sell-name">Game</h2><span class="sell-state" id="sell-state"></span></div>
+      <div class="sell-sides">
+        <button class="side-btn m" type="button" id="side-meron" data-side="meron"><span class="sb-lab">MERON</span><span class="sb-name" id="nm-meron">Meron</span><span class="sb-pool"><span id="sh-meron"></span><b id="pl-meron"></b></span></button>
+        <button class="side-btn w" type="button" id="side-wala" data-side="wala"><span class="sb-lab">WALA</span><span class="sb-name" id="nm-wala">Wala</span><span class="sb-pool"><span id="sh-wala"></span><b id="pl-wala"></b></span></button>
+      </div>
+      {% if draw_enabled %}<div class="sell-draw"><button class="side-btn d" type="button" id="side-draw" data-side="draw"><span class="sb-lab">DRAW</span><span class="sb-name">Draw</span></button></div>{% endif %}
+      <div class="sell-split" id="sell-split" hidden><div class="bar"><i class="m"></i><i class="w"></i></div><small><span id="bar-m"></span><span id="bar-w"></span></small></div>
+      <div id="sell-closed" class="sell-closed" hidden><span id="sell-closed-text"></span><button class="btn btn-sm btn-brand" type="button" id="sell-next">Next open game</button></div>
+    </div>
+  </div>
+  <div class="sell-col">
+    <div class="sell-card">
+      <div class="sell-amt-wrap"><span class="muted small">Amount</span><div class="sell-amt" id="sell-amt"><i>&#8369;</i><span>0</span></div></div>
+      <div class="sell-chips">
+        {% for v in [50, 100, 200, 500, 1000] %}<button class="chip-key" type="button" data-amt="{{ v }}">{{ v }}</button>{% endfor %}
+      </div>
+      <div class="pad">
+        <button class="pad-key" type="button" data-key="1">1</button><button class="pad-key" type="button" data-key="2">2</button><button class="pad-key" type="button" data-key="3">3</button><button class="pad-key" type="button" data-key="4">4</button><button class="pad-key" type="button" data-key="5">5</button><button class="pad-key" type="button" data-key="6">6</button><button class="pad-key" type="button" data-key="7">7</button><button class="pad-key" type="button" data-key="8">8</button><button class="pad-key" type="button" data-key="9">9</button><button class="pad-key fn" type="button" data-key="C" aria-label="Clear">C</button><button class="pad-key" type="button" data-key="0">0</button><button class="pad-key fn" type="button" data-key="back" aria-label="Backspace">&#9003;</button>
+      </div>
+      <button class="sell-go" type="button" id="sell-go" disabled><span id="go-main">Choose a side</span><small id="go-sub"></small></button>
+      <p class="sell-hint"><kbd>M</kbd> Meron &nbsp;<kbd>W</kbd> Wala &nbsp;<kbd>0-9</kbd> amount &nbsp;<kbd>Enter</kbd> sell &nbsp;<kbd>Esc</kbd> clear</p>
+    </div>
+    <div class="sell-card">
+      <div class="sell-title"><h2 style="font-size:24px">Just sold</h2></div>
+      <ul class="sell-recent" id="sell-recent"><li style="grid-template-columns:1fr"><span class="meta">Tickets you sell here show up with a short Undo.</span></li></ul>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script src="/static/js/sell.js?v=1" defer></script>{% endblock %}

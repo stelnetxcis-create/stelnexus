@@ -156,7 +156,8 @@ def _on_air(db: Session, ctx: Ctx) -> dict:
 @router.get("/chat")
 async def chat_page(ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.CHAT_USE)
-    rows = list(ctx.db.scalars(select(ChatMessage).order_by(ChatMessage.id.desc()).limit(60)).all())
+    rows = list(ctx.db.scalars(select(ChatMessage).where(ChatMessage.fight_id.is_(None))
+                               .order_by(ChatMessage.id.desc()).limit(60)).all())
     return render(ctx, "chat.html", active="chat", messages=_chat_json(list(reversed(rows)), ctx),
                   room=_room(ctx.db, ctx), on_air=_on_air(ctx.db, ctx), typing=_typing_now(ctx))
 
@@ -164,7 +165,7 @@ async def chat_page(ctx: Ctx = Depends(require_ctx)):
 @router.get("/chat/messages")
 async def chat_messages(after: int = 0, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.CHAT_USE)
-    rows = list(ctx.db.scalars(select(ChatMessage).where(ChatMessage.id > max(after, 0))
+    rows = list(ctx.db.scalars(select(ChatMessage).where(ChatMessage.fight_id.is_(None), ChatMessage.id > max(after, 0))
                                .order_by(ChatMessage.id).limit(100)).all())
     return JSONResponse({"messages": _chat_json(rows, ctx), "typing": _typing_now(ctx),
                          "room": _room(ctx.db, ctx), "on_air": _on_air(ctx.db, ctx)},
