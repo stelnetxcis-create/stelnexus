@@ -38,9 +38,9 @@ def _mk(db, admin, store, role, name, parent=None, grants=None):
 
 def test_bola_is_open_to_every_role_by_default():
     assert get_settings().BOLA_DEV_ONLY is False and not rbac.bola_dev_only()
-    for role in (Role.MASTER, Role.CAVO, Role.KUBRADOR):
+    for role in (Role.MASTER, Role.AGENT, Role.SUB_AGENT):
         assert Perm.BOLA_VIEW in permissions_for(role), role
-    for role in (Role.CAVO, Role.KUBRADOR):
+    for role in (Role.AGENT, Role.SUB_AGENT):
         assert Perm.BOLA_PLACE in permissions_for(role), role
 
 
@@ -50,8 +50,8 @@ def test_bola_tile_and_nav_reach_a_kubrador_with_no_coming_soon():
         admin, store = _admin(db), SettingsStore(db)
         store.set("bola.enabled", "true", admin.id)
         master = _mk(db, admin, store, Role.MASTER, f"om{tag}")
-        cavo = _mk(db, admin, store, Role.CAVO, f"oc{tag}", parent=master)
-        _mk(db, admin, store, Role.KUBRADOR, f"ok{tag}", parent=cavo)
+        cavo = _mk(db, admin, store, Role.AGENT, f"oc{tag}", parent=master)
+        _mk(db, admin, store, Role.SUB_AGENT, f"ok{tag}", parent=cavo)
     c, r = login(f"ok{tag}")
     assert r.status_code == 303
     html = c.get("/dashboard").text
@@ -63,14 +63,14 @@ def test_bola_tile_and_nav_reach_a_kubrador_with_no_coming_soon():
 
 def test_seller_desk_is_admin_only():
     assert Perm.SELL_DESK in permissions_for(Role.ADMIN)
-    for role in (Role.MASTER, Role.CAVO, Role.KUBRADOR, Role.DECLARATOR, Role.PAWN):
+    for role in (Role.MASTER, Role.AGENT, Role.SUB_AGENT, Role.DECLARATOR, Role.PAWN):
         assert Perm.SELL_DESK not in permissions_for(role), role
     tag = _tag()
     with session_scope() as db:
         admin, store = _admin(db), SettingsStore(db)
         master = _mk(db, admin, store, Role.MASTER, f"sm{tag}")
-        cavo = _mk(db, admin, store, Role.CAVO, f"sc{tag}", parent=master)
-        _mk(db, admin, store, Role.KUBRADOR, f"sk{tag}", parent=cavo)
+        cavo = _mk(db, admin, store, Role.AGENT, f"sc{tag}", parent=master)
+        _mk(db, admin, store, Role.SUB_AGENT, f"sk{tag}", parent=cavo)
         _mk(db, admin, store, Role.PAWN, f"sw{tag}", grants=[g.key for g in rbac.GRANTS])
     for name in (f"sm{tag}", f"sc{tag}", f"sk{tag}", f"sw{tag}"):
         c, r = login(name)
@@ -205,7 +205,7 @@ def test_remove_user_closes_signs_out_and_is_refused_while_money_or_downline_rem
     with session_scope() as db:
         admin, store = _admin(db), SettingsStore(db)
         master = _mk(db, admin, store, Role.MASTER, f"rm{tag}")
-        cavo = _mk(db, admin, store, Role.CAVO, f"rc{tag}", parent=master)
+        cavo = _mk(db, admin, store, Role.AGENT, f"rc{tag}", parent=master)
         # a Master with an active Cavo cannot go
         with pytest.raises(Conflict):
             account_admin.remove_user(db, admin, master.id, reason="cleanup test")

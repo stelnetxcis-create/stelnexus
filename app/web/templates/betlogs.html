@@ -23,7 +23,7 @@
   <div class="card-body tight">
     {% if rows %}
     <div class="table-wrap"><table class="table" data-table data-page-size="30">
-      <thead><tr><th>Ticket #</th><th>Type</th><th class="right">Amount bet</th><th class="right">Payout</th><th>Numbers</th><th>Winner</th><th>Date</th><th>Kubrador</th><th>Cavo</th><th>Status</th><th class="right"></th></tr></thead>
+      <thead><tr><th>Ticket #</th><th>Type</th><th class="right">Amount bet</th><th class="right">Payout</th><th>Numbers</th><th>Winner</th><th>Date</th><th>Sub Agent</th><th>Agent</th><th>Status</th><th class="right"></th></tr></thead>
       <tbody>
       {% for ticket in rows %}
         <tr>
@@ -45,5 +45,5 @@
     {% else %}{{ ui.empty('Try a wider date range or clear the filter.', kind='ticket', title='No tickets match', compact=true) }}{% endif %}
   </div>
 </div>
-<p class="notice">“Numbers”, “Kubrador” and “Cavo” are retained from the legacy number-game layout for continuity; they are optional on Meron/Wala tickets.</p>
+<p class="notice">“Numbers” is retained from the legacy number-game layout; the Sub Agent and Agent columns show who sold the ticket and who is above them. Older tickets keep the Cavo / Kubrador names they were sold under.</p>
 {% endblock %}

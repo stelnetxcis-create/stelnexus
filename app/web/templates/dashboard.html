@@ -110,6 +110,15 @@
     </span>
     <span class="game-soon">Soon</span>
   </div>
+  <div class="game-tile is-soon" aria-disabled="true" data-game="nba">
+    <span class="game-ico"><svg class="ico"><use href="#i-trophy"/></svg></span>
+    <span class="game-body">
+      <span class="game-label">NBA</span>
+      <strong class="game-name">Tournament</strong>
+      <span class="game-hint">Coming soon</span>
+    </span>
+    <span class="game-soon">Soon</span>
+  </div>
 </section>
 
 <div class="kpis">
@@ -273,7 +282,7 @@
         <ul class="rank-list">
           {% for row in top_agents %}
           <li>
-            <div class="rank-head"><span class="rank-no">{{ loop.index }}</span><b>{{ row.username }}</b>{{ ui.badge(row.role) }}<span class="rank-val num">{{ row.earned | money }}</span></div>
+            <div class="rank-head"><span class="rank-no">{{ loop.index }}</span><b>{{ row.username }}</b>{{ ui.badge(row.role_label) }}<span class="rank-val num">{{ row.earned | money }}</span></div>
             <div class="rank-bar"><i style="width: {{ (row.earned / best * 100) | round(0) | int }}%"></i></div>
           </li>
           {% endfor %}

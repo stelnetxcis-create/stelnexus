@@ -21,7 +21,7 @@ def ids():
         admin = db.scalar(select(User).where(User.username == "admin"))
         master = agents.create_agent(db, admin, username="dt_master", password=PASSWORD, role=Role.MASTER,
                                      full_name="DT Master", settings=store)
-        cavo = agents.create_agent(db, master, username="dt_cavo", password=PASSWORD, role=Role.CAVO,
+        cavo = agents.create_agent(db, master, username="dt_cavo", password=PASSWORD, role=Role.AGENT,
                                    full_name="DT Cavo", settings=store)
         master.must_change_password = False
         cavo.must_change_password = False

@@ -180,6 +180,9 @@ def render(ctx: Ctx, template: str, status_code: int = 200, **extra: Any):
         if Perm.REQUESTS_REVIEW.value in ctx.perms:
             from app.services import cashdesk as _cashdesk
             wallet_pending = _cashdesk.pending_count(ctx.db, ctx.user)
+    elif ctx.user is not None and Perm.REQUESTS_REVIEW.value in ctx.perms:   # a Teller holds no balance
+        from app.services import cashdesk as _cashdesk
+        wallet_pending = _cashdesk.pending_count(ctx.db, ctx.user)
     context = {
         "my_balance": my_balance, "wallet_pending": wallet_pending, "request": ctx.request, "ctx": ctx, "user": ctx.user, "perms": ctx.perms,
         "settings": settings, "brand": settings.get("brand.name", "StelNexus"),
@@ -207,7 +210,7 @@ def make_csrf_cookie_from(token: str, request: Request) -> tuple[str, str]:
     return token, f"{token}.{sign_csrf(token, session_cookie)}"
 
 
-_DEV_ROLE_ORDER = (Role.MASTER, Role.CAVO, Role.KUBRADOR, Role.DECLARATOR, Role.PAWN)
+_DEV_ROLE_ORDER = (Role.MASTER, Role.AGENT, Role.SUB_AGENT, Role.DECLARATOR, Role.PAWN)
 
 
 def _dev_context(ctx: Ctx) -> dict:
@@ -232,6 +235,8 @@ def home_for(user: User | None) -> str:
         return "/login"
     if user.role.value == "declarator":
         return "/change_name"
+    if user.role.value == "teller":
+        return "/wallet?t=approvals"
     if user.role.value == "pawn":
         return "/admin" if Perm.PANEL_VIEW in permissions_of(user) else "/change_name"
     return "/dashboard"

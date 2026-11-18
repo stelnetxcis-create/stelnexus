@@ -3,6 +3,9 @@
 The chat is read-only for everybody who can open the fight view. Typing needs one of: staff
 access, a running Battle Pass, or a Chat Token spent on that game. When the declarator announces
 the result the room locks for good; the history stays readable.
+
+Slow mode applies to Battle Pass / Chat Token chatters (``store.slow_mode_seconds``); Lux VIP and staff
+are exempt. A bought alias replaces the username in chat; staff still see the real account on hover.
 """
 from __future__ import annotations
 
@@ -23,9 +26,8 @@ router = APIRouter()
 
 CHAT_LIMIT = 100          # messages returned per poll
 HISTORY = 80              # messages shown when the room is first opened
-SLOW_MODE_SECONDS = 2
 ROLE_TONE = {"admin": "gold", "master": "purple", "pawn": "blue", "declarator": "green",
-             "cavo": "amber", "kubrador": "amber"}
+             "cavo": "amber", "kubrador": "amber"}  # retired tiers: old chat rows only
 
 
 def _wants_json(request: Request) -> bool:
@@ -41,7 +43,7 @@ def _wants_json(request: Request) -> bool:
 async def store_page(ctx: Ctx = Depends(require_ctx)):
     st = store_svc.state(ctx.db, ctx.user, ctx.store)
     return render(ctx, "store.html", active="store", st=st, perks=store_svc.PASS_PERKS, lux_perks=store_svc.LUX_EXTRAS, lux_thanks=store_svc.LUX_THANKS,
-                  can_buy=ctx.user.has_wallet and st.enabled)
+                  alias_rules=store_svc.ALIAS_RULES, can_buy=ctx.user.has_wallet and st.enabled)
 
 
 @router.post("/store/pass")
@@ -64,6 +66,20 @@ async def buy_token(request: Request, ctx: Ctx = Depends(require_ctx)):
     store_svc.buy_token(ctx.db, ctx.user, ctx.store, idempotency_key=data.get("idempotency_key") or None)
     n = int(ctx.store.get("store.token_uses"))
     return flash_redirect(_back(data), f"{n} chats added. Spend one on a game to talk on it.")
+
+
+@router.post("/store/alias-token")
+async def buy_alias_token(request: Request, ctx: Ctx = Depends(require_ctx)):
+    data = await form_data(request)
+    store_svc.buy_alias_token(ctx.db, ctx.user, ctx.store, idempotency_key=data.get("idempotency_key") or None)
+    return flash_redirect(_back(data), "Alias token added. Type the name you want and press Use token.")
+
+
+@router.post("/store/alias")
+async def set_alias(request: Request, ctx: Ctx = Depends(require_ctx)):
+    data = await form_data(request)
+    alias = store_svc.set_alias(ctx.db, ctx.user, ctx.store, data.get("alias") or "")
+    return flash_redirect(_back(data), f"Done. Chat now shows you as {alias}.")
 
 
 def _back(data: dict) -> str:
@@ -95,15 +111,22 @@ def _pass_holders(ctx: Ctx, user_ids: set[int]) -> dict[int, str]:
 
 
 def _messages_json(ctx: Ctx, rows: list[ChatMessage]) -> list[dict]:
-    holders = _pass_holders(ctx, {m.user_id for m in rows})
+    ids = {m.user_id for m in rows}
+    holders = _pass_holders(ctx, ids)
+    aliases = store_svc.aliases_for(ctx.db, ids)
+    staff_view = store_svc.can_see_through_alias(ctx.user)      # Admin / Pawn only
+    show_roles = bool(ctx.store.get("store.chat_show_roles"))
     out = []
     for m in rows:
         name = ctx.who(m.user)
         system = name == "System"
+        alias = None if system else aliases.get(m.user_id)
+        real = name if (alias and staff_view) else ""        # only staff may see who is behind an alias
+        name = alias or name
         out.append({
-            "id": m.id, "user": name, "initial": (name[:1] or "?").upper(),
-            "role": "Management" if system else m.user.role_label,
-            "tone": "gold" if system else ROLE_TONE.get(str(m.user.role), "slate"),
+            "id": m.id, "user": name, "real": real, "aliased": bool(alias), "initial": (name[:1] or "?").upper(),
+            "role": "Management" if system else (m.user.role_label if show_roles else ""),
+            "tone": "gold" if system else (ROLE_TONE.get(str(m.user.role), "slate") if show_roles else "slate"),
             "pass": m.user_id in holders, "lux": holders.get(m.user_id) == "lux", "mine": m.user_id == ctx.user.id,
             "body": m.body, "at": m.created_at.strftime("%H:%M"),
         })
@@ -126,10 +149,26 @@ def _result_json(fight: Fight) -> dict | None:
     return {"side": res, "label": label}
 
 
+def _slow_left(ctx: Ctx, fight: Fight, secs: int) -> int:
+    """Whole seconds this person still has to wait before their next message in this game's chat."""
+    if secs <= 0:
+        return 0
+    last = ctx.db.scalar(select(func.max(ChatMessage.created_at)).where(
+        ChatMessage.user_id == ctx.user.id, ChatMessage.fight_id == fight.id))
+    if last is None:
+        return 0
+    last = last if last.tzinfo else last.replace(tzinfo=dt.timezone.utc)
+    left = secs - (dt.datetime.now(dt.timezone.utc) - last).total_seconds()
+    return max(0, int(left) + (1 if left % 1 else 0))
+
+
 def _state(ctx: Ctx, fight: Fight) -> dict:
     acc = store_svc.access(ctx.db, ctx.user, fight)
     st = store_svc.state(ctx.db, ctx.user, ctx.store)
+    slow = store_svc.slow_mode_seconds(ctx.db, ctx.user, ctx.store)
     return {
+        "slow": slow, "slow_left": _slow_left(ctx, fight, slow), "slow_global": st.slow_seconds,
+        "alias": st.alias or "",
         "fight": {"id": fight.id, "n": fight.number, "st": fight.status.value},
         "locked": store_svc.is_locked(fight), "result": _result_json(fight),
         "can_send": acc["can_send"], "reason": acc["reason"], "via": acc["via"],
@@ -171,13 +210,11 @@ async def chat_send(fight_id: int, request: Request, ctx: Ctx = Depends(require_
     body = " ".join(str(data.get("body") or "").split())[:300]
     if not body:
         raise ValidationError("Type a message first.")
-    ratelimit.check(f"fightchat:{ctx.user.id}", 40, 60)
-    last = ctx.db.scalar(select(func.max(ChatMessage.created_at)).where(
-        ChatMessage.user_id == ctx.user.id, ChatMessage.fight_id == fight.id))
-    if last is not None:
-        last = last if last.tzinfo else last.replace(tzinfo=dt.timezone.utc)
-        if (dt.datetime.now(dt.timezone.utc) - last).total_seconds() < SLOW_MODE_SECONDS:
-            raise ValidationError("Slow down a little.")
+    ratelimit.check(f"fightchat:{ctx.user.id}", 40, 60)          # spam guard for everybody, Lux included
+    secs = store_svc.slow_mode_seconds(ctx.db, ctx.user, ctx.store)
+    left = _slow_left(ctx, fight, secs)
+    if left > 0:
+        raise ValidationError(f"Slow mode is on: wait {left}s before your next message.")
     msg = ChatMessage(user_id=ctx.user.id, body=body, fight_id=fight.id)
     ctx.db.add(msg)
     ctx.db.flush()

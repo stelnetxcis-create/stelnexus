@@ -7,46 +7,49 @@
 {% if not can_edit %}<div class="alert alert-info">You can view cuts but not change them.</div>{% endif %}
 {% macro pct(bps) %}{{ ('%.2f' | format(bps / 100)).rstrip('0').rstrip('.') }}%{% endmacro %}
 <div class="notice" style="margin-bottom:16px">
-  Each game's commission pool is split <strong>Master → Cavo → Kubrador</strong>.
-  The Cavo side keeps <strong>Volume %</strong> of the pool and the Master gets the rest (Management).
-  The Kubrador's <strong>SOP %</strong> comes <em>out of the Cavo's cut</em>, not on top of it.
-  Blank = use the default ({{ pct(defaults.volume) }} Volume, {{ pct(defaults.sop) }} SOP).
+  Each game's commission pool is split <strong>Master Agent → Agent → Sub Agent</strong>.
+  The Agent side keeps <strong>Volume %</strong> of the pool and the Master Agent gets the rest (Management).
+  The Sub Agent's <strong>SOP %</strong> comes <em>out of the Agent's cut</em>, not on top of it.
+  Blank = use the game's default: Meron / Wala {{ pct(defaults.volume) }} Volume, {{ pct(defaults.sop) }} SOP ·
+  Bola {{ pct(defaults.bola_volume) }} Volume, {{ pct(defaults.bola_sop) }} SOP (Admin Panel → Variables).
+  A cut typed here applies to every game for that account.
   {% if not unlimited %}Limits: Volume up to {{ pct(defaults.max_volume) }}, SOP up to {{ pct(defaults.max_sop) }}.{% endif %}
   Every change is written to the audit trail.
 </div>
 {% if rows %}
 {% for row in rows %}
 <div class="card" style="margin-bottom:16px">
-  <div class="card-head"><h2>{{ row.cavo.full_name }} <small class="muted">Cavo · {{ row.cavo.username }}</small></h2>
-    {{ ui.badge(row.cavo.status.value, 'green' if row.cavo.status.value == 'active' else 'red') }}</div>
+  <div class="card-head"><h2>{{ row.agent.full_name }} <small class="muted">Agent · {{ row.agent.username }}</small></h2>
+    {{ ui.badge(row.agent.status.value, 'green' if row.agent.status.value == 'active' else 'red') }}</div>
   <div class="card-body">
-    <form method="post" action="/admin/cuts/{{ row.cavo.id }}" class="form-grid">
+    <form method="post" action="/admin/cuts/{{ row.agent.id }}" class="form-grid">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <label class="field"><span>Volume % <small>(now {{ pct(row.volume_bps) }}{% if row.volume_is_default %}, default{% endif %})</small></span>
+      <label class="field"><span>Volume % <small>(Meron / Wala now {{ pct(row.volume_bps) }}, Bola now {{ pct(row.bola_volume_bps) }}{% if row.volume_is_default %}, default{% endif %})</small></span>
         <input name="volume" inputmode="decimal" value="{{ '' if row.volume_is_default else (row.volume_bps / 100) | round(2) }}" placeholder="default"></label>
-      <label class="field"><span>SOP % for their Kubradors <small>(now {{ pct(row.sop_bps) }}{% if row.sop_is_default %}, default{% endif %})</small></span>
+      <label class="field"><span>SOP % for their Sub Agents <small>(Meron / Wala now {{ pct(row.sop_bps) }}, Bola now {{ pct(row.bola_sop_bps) }}{% if row.sop_is_default %}, default{% endif %})</small></span>
         <input name="sop" inputmode="decimal" value="{{ '' if row.sop_is_default else (row.sop_bps / 100) | round(2) }}" placeholder="default"></label>
       <label class="field"><span>Reason <small>(optional)</small></span><input name="reason" maxlength="200"></label>
       <div class="form-actions"><button class="btn btn-primary" type="submit">Save</button></div>
     </form>
-    <p class="small muted">Per ₱1,000 pool: Master {{ row.preview.master | money }} · Cavo {{ row.preview.cavo | money }} (before any Kubrador) · cavo side total {{ row.preview.cavo_gross | money }}</p>
+    <p class="small muted">Per ₱1,000 pool, Meron / Wala: Master {{ row.preview.master | money }} · Agent {{ row.preview.agent | money }} (before any Sub Agent) · Agent side total {{ row.preview.agent_gross | money }}</p>
+    <p class="small muted">Per ₱1,000 pool, Bola: Master {{ row.bola_preview.master | money }} · Agent {{ row.bola_preview.agent | money }} (before any Sub Agent) · Agent side total {{ row.bola_preview.agent_gross | money }}</p>
   </div>
-  {% if row.kubradors %}
+  {% if row.subs %}
   <div class="card-body tight"><div class="table-wrap"><table class="table">
-    <thead><tr><th>Kubrador</th><th>SOP %</th><th class="right">Per ₱1,000: Master</th><th class="right">Cavo</th><th class="right">Kubrador</th><th>Override</th></tr></thead>
+    <thead><tr><th>Sub Agent</th><th>SOP % (Meron / Wala · Bola)</th><th class="right">Per ₱1,000 (Meron / Wala): Master</th><th class="right">Agent</th><th class="right">Sub Agent</th><th>Override</th></tr></thead>
     <tbody>
-    {% for k in row.kubradors %}
+    {% for k in row.subs %}
       <tr><td>{{ k.user.full_name }} <small class="muted">{{ k.user.username }}</small></td>
-        <td class="num">{{ pct(k.sop_bps) }}{% if k.is_override %} <small>(own)</small>{% endif %}</td>
-        <td class="right num">{{ k.preview.master | money }}</td><td class="right num">{{ k.preview.cavo | money }}</td><td class="right num">{{ k.preview.kubrador | money }}</td>
+        <td class="num">{{ pct(k.sop_bps) }} · {{ pct(k.bola_sop_bps) }}{% if k.is_override %} <small>(own)</small>{% endif %}</td>
+        <td class="right num">{{ k.preview.master | money }}</td><td class="right num">{{ k.preview.agent | money }}</td><td class="right num">{{ k.preview.sub_agent | money }}</td>
         <td><form method="post" action="/admin/cuts/{{ k.user.id }}" style="display:flex;gap:6px">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input name="sop" inputmode="decimal" size="5" value="{{ (k.sop_bps / 100) | round(2) if k.is_override else '' }}" placeholder="cavo's">
+          <input name="sop" inputmode="decimal" size="5" value="{{ (k.sop_bps / 100) | round(2) if k.is_override else '' }}" placeholder="agent's">
           <button class="btn btn-sm" type="submit">Set</button></form></td></tr>
     {% endfor %}
     </tbody></table></div></div>
   {% endif %}
 </div>
 {% endfor %}
-{% else %}{{ ui.empty('No Cavos yet. Invite one from Referral Codes.') }}{% endif %}
+{% else %}{{ ui.empty('No Agents yet. Invite one from Referral Codes.') }}{% endif %}
 {% endblock %}

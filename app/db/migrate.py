@@ -9,6 +9,8 @@ The project has no Alembic history, so ``Base.metadata.create_all`` only ever ad
   ``tickets.side`` gained ``draw``);
 * renaming the old tiers in existing rows: gold -> cavo, sub -> kubrador (users, referral codes,
   commission lines). ``audit_logs`` is append-only and is deliberately left as it was written;
+* merging the tiers: cavo -> agent and kubrador -> sub_agent (users, referral codes, commission
+  lines; amounts are untouched);
 * relabelling the house account and the online-payments clearing account;
 * ``users.role`` also gained ``pawn``; new columns ``users.grants``, ``events.location_id`` and
   ``cash_requests.target`` are added, and the ``locations`` table is created;
@@ -39,6 +41,11 @@ CHECK_UPGRADES = (
     ("users", "role_valid",
      "role in ('admin','master','cavo','kubrador','teller','declarator')",
      "role in ('admin','master','cavo','kubrador','teller','declarator','pawn')", "pawn"),
+    # Master Agent -> Agent -> Sub Agent ladder (the Master keeps its stored value 'master').
+    ("users", "role_valid",
+     "role in ('admin','master','cavo','kubrador','teller','declarator','pawn')",
+     "role in ('admin','master','cavo','kubrador','teller','declarator','pawn','agent','sub_agent')",
+     "sub_agent"),
     ("tickets", "side_valid",
      "side in ('meron','wala')",
      "side in ('meron','wala','draw')", "draw"),
@@ -156,6 +163,41 @@ def _rename_roles(engine: Engine) -> list[str]:
     return changed
 
 
+# Cavo and Kubrador were merged into Agent and Sub Agent (the cut rules carry over unchanged:
+# Cavo's Volume % / SOP % -> Agent's, Kubrador's SOP % -> Sub Agent's).
+TIER_MERGES = (("cavo", "agent"), ("kubrador", "sub_agent"))
+
+
+def _merge_tiers(engine: Engine) -> list[str]:
+    """cavo -> agent, kubrador -> sub_agent in users, referral codes and both commission tables.
+    Raw SQL (the ORM no longer hands out the retired roles). Idempotent; changes no amounts.
+
+    A Cavo that was recruited under one of the short-lived Agent / Sub Agent accounts of the
+    previous ladder now sits under an Agent or Sub Agent; it still earns correctly (commission looks
+    for the nearest Agent and Sub Agent above the seller) but is listed in the report so the
+    operator can move it under a Master Agent if wanted."""
+    inspector = inspect(engine)
+    changed: list[str] = []
+    if not inspector.has_table("users"):
+        return changed
+    with engine.begin() as conn:
+        odd = conn.execute(text(
+            "SELECT c.username, p.role FROM users c JOIN users p ON p.id = c.parent_id "
+            "WHERE c.role IN ('cavo','kubrador') AND p.role IN ('agent','sub_agent')")).all()
+        for table, column in (("users", "role"), ("referral_codes", "role"),
+                              ("commissions", "tier"), ("bola_commissions", "tier")):
+            if not inspector.has_table(table):
+                continue
+            for old, new in TIER_MERGES:
+                result = conn.execute(text(f'UPDATE "{table}" SET "{column}" = :new WHERE "{column}" = :old'),
+                                      {"new": new, "old": old})
+                if result.rowcount:
+                    changed.append(f"{table}.{column}: {old}->{new} x{result.rowcount}")
+        for name, parent_role in odd:
+            changed.append(f"review: {name} (was under a {parent_role}) now sits under an Agent / Sub Agent")
+    return changed
+
+
 def _retire_tellers(engine: Engine) -> list[str]:
     """Close every teller login. Idempotent; never deletes anything, so history stays intact."""
     inspector = inspect(engine)
@@ -164,13 +206,13 @@ def _retire_tellers(engine: Engine) -> list[str]:
     changed: list[str] = []
     with engine.begin() as conn:
         result = conn.execute(text("UPDATE users SET status = 'closed' "
-                                   "WHERE role = 'teller' AND COALESCE(status, '') <> 'closed'"))
+                                   "WHERE role = 'teller' AND gcash_enc IS NULL AND COALESCE(status, '') <> 'closed'"))
         if result.rowcount:
             changed.append(f"users: closed {result.rowcount} teller account(s)")
             if inspector.has_table("sessions"):
                 conn.execute(text("UPDATE sessions SET revoked_at = CURRENT_TIMESTAMP "
                                   "WHERE revoked_at IS NULL AND user_id IN "
-                                  "(SELECT id FROM users WHERE role = 'teller')"))
+                                  "(SELECT id FROM users WHERE role = 'teller' AND gcash_enc IS NULL)"))
         if inspector.has_table("stations"):
             conn.execute(text("UPDATE stations SET is_active = 0 WHERE is_active <> 0")
                          if engine.dialect.name == "sqlite"
@@ -187,6 +229,7 @@ def upgrade(engine: Engine) -> dict[str, list[str]]:
                    else _upgrade_checks_postgres)(engine),
     }
     report["roles"] = _rename_roles(engine)
+    report["tiers"] = _merge_tiers(engine)
     report["tellers"] = _retire_tellers(engine)
     inspector = inspect(engine)
     if inspector.has_table("accounts"):

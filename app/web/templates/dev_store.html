@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Store effects · {{ brand }}{% endblock %}
+{% block heading %}Store effects (DEV){% endblock %}
+{% block content %}
+<p class="notice">Admin only. Look an account up by username or chat alias, then take away what a store purchase gave it. Every revoke needs a reason and is written to the audit log. Tick <b>Refund</b> to also reverse the purchase in the ledger; leave it off to remove the effect only.</p>
+
+<div class="card">
+  <div class="card-head"><h2>Find an account</h2></div>
+  <div class="card-body">
+    <form method="get" action="/dev/store" class="inline-form">
+      <input name="q" value="{{ q }}" placeholder="Username or chat alias" aria-label="Username or alias" autocapitalize="none" required>
+      <button class="btn btn-primary" type="submit">Look up</button>
+    </form>
+  </div>
+</div>
+
+{% if q and not target %}
+<div class="alert alert-warning">No account or alias matches “{{ q }}”.</div>
+{% endif %}
+
+{% if target %}
+<div class="card">
+  <div class="card-head"><h2>{{ target.username }} <span class="muted small">· {{ target.role_label }}</span></h2></div>
+  <div class="card-body">
+    {% macro row(label, state, what, active) %}
+    <tr>
+      <td><b>{{ label }}</b></td>
+      <td>{{ state }}</td>
+      <td>
+        {% if active %}
+        <form method="post" action="/dev/store/revoke" class="inline-form" data-confirm="Revoke {{ label }} for {{ target.username }}?">
+          {{ ui.csrf(csrf_token) }}
+          <input type="hidden" name="user_id" value="{{ target.id }}"><input type="hidden" name="what" value="{{ what }}">
+          <input name="reason" placeholder="Reason (audit log)" maxlength="255" required aria-label="Reason">
+          {% if what != 'alias' %}<label class="small"><input type="checkbox" name="refund" value="1"> Refund</label>{% endif %}
+          <button class="btn btn-sm btn-ghost" type="submit">Revoke</button>
+        </form>
+        {% else %}<span class="muted small">nothing to revoke</span>{% endif %}
+      </td>
+    </tr>
+    {% endmacro %}
+    {{ ui.table_start(['Effect', 'Now', 'Revoke']) }}
+    {{ row('Battle Pass', ('runs until ' ~ (fx.battle_until | datetime('%b %d, %Y %H:%M'))) if fx.battle_until else 'none', 'battle', fx.battle_until) }}
+    {{ row('Lux VIP', ('runs until ' ~ (fx.lux_until | datetime('%b %d, %Y %H:%M'))) if fx.lux_until else 'none', 'lux', fx.lux_until) }}
+    {{ row('Unused chat tokens', fx.tokens_unused ~ ' left', 'tokens', fx.tokens_unused) }}
+    {{ row('Unused alias tokens', fx.alias_tokens ~ ' left', 'alias_tokens', fx.alias_tokens) }}
+    {{ row('Chat alias', fx.alias or 'none (chat shows the username)', 'alias', fx.alias) }}
+    {{ ui.table_end() }}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

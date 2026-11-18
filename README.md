@@ -30,7 +30,7 @@ It handles real-money flows (GCash / bank cash-in and cash-out), so it must be d
 - **Events and games.** Staff create events, each with one or more games (fights). Players bet on a side; a declarator or an authorised pawn declares the result.
 - **Sides.** Meron and Wala are pool sides. Draw is a bettable side at a fixed multiplier. Llamado / Dehado (favourite / underdog) can be set per game, and a game can be restricted to one side.
 - **Online-only wallet.** All money moves through credit. There is no physical cash handling: loads are GCash or bank requests with a reference number and are approved by staff, bets are paid from credit, and winnings are credited automatically at settlement.
-- **Agent network.** Accounts form a tree (Master, Cavo, Kubrador, then players). Invite codes create accounts under the issuer, and commissions are split automatically at settlement.
+- **Agent network.** Accounts form a tree: Master Agent, Agent, Sub Agent, then players. Invite codes create accounts under the issuer, and commissions are split automatically at settlement.
 - **Audit and integrity.** Every sensitive action is written to an audit log, the ledger has an integrity check, and audit-log tables are guarded against edits.
 - **Live board.** A public read-only board at `/live` (toggle with the `live.board_enabled` setting).
 - **Reports.** Game history, event summaries, event expenses, report archives with CSV export, and per-player history.
@@ -153,14 +153,16 @@ Run as `python -m app.cli <command>`.
 | Role | Summary |
 | --- | --- |
 | `admin` | Hidden super account. Same operational powers as Master, plus Variables, audit trail, ledger integrity, system / hidden figures and per-line commission formulas. Never appears in lists, trees, chat or receipts for other users (shown as "System") |
-| `master` | Top visible account. Approves loads and cash-outs, manages the network, edits cuts within the limits set by the Admin |
+| `master` | Shown as **Master Agent**. Top visible account (stored role is still `master`). Approves loads and cash-outs, manages the network, edits cuts within the limits set by the Admin. Invites Agents and Cavos |
+| `agent` | Invited by a Master Agent. Invites Sub Agents and Cavos. No cut of its own |
+| `sub_agent` | Invited by an Agent. Invites Cavos. No cut of its own |
 | `cavo` | Mid-level agent. Can invite Kubradors and holds credit |
 | `kubrador` | Lowest agent level. Can invite player accounts under them |
 | `declarator` | Declares results. Never sees stakes, pools or payouts. Has no balance |
 | `pawn` | Created by the Admin only. Can declare results by default; the Admin ticks any extra Admin Panel sections it may see or change (for example locations, cuts, audit, players, online users, totals, livestream chat). No balance, cannot bet or transfer |
 | Player | Not a login role in the staff sense. Bets from credit under an agent |
 
-**Invites.** The invitee's role is fixed by the issuer: a Master code creates a Cavo, a Cavo code creates a Kubrador, a Kubrador code creates a player. Codes are single-use and time-limited. The Admin can issue any type and choose who the new account reports to.
+**Invites.** The issuer's role decides what a code may create; the first is the default. Master Agent: Agent or Cavo. Agent: Sub Agent or Cavo. Sub Agent: Cavo. Cavo: Kubrador. Kubrador: player. The new account always sits directly under the issuer. Codes are single-use and time-limited. The Admin can issue any type and choose who the new account reports to (an Agent must sit under a Master Agent, a Sub Agent under an Agent).
 
 ## Money model
 
@@ -183,17 +185,17 @@ Run as `python -m app.cli <command>`.
 
 ## Commissions (cuts)
 
-Computed per ticket and summed per game. All percentages are editable in the Admin Panel, with per-account overrides on the Cuts page.
+Computed per ticket and summed per game. All percentages (Volume, SOP, Agent, Sub Agent) are editable in the Admin Panel, with per-account overrides and their guard rails on the Cuts page.
 
 ```
-pool       = basis x pool%             (basis = the ticket's share of the house win, or its stake)
-cavo_gross = pool x Volume %           (default 30%)
-kubrador   = cavo_gross x SOP %        (default 20%, taken out of the Cavo's cut)
-cavo       = cavo_gross - kubrador
-master     = pool - cavo_gross         (management share, default 70%)
+pool        = basis x pool%             (basis = the ticket's share of the house win, or its stake)
+agent_gross = pool x Volume %           (default 30%)
+sub_agent   = agent_gross x SOP %       (default 30%, taken out of the Agent's cut)
+agent       = agent_gross - sub_agent
+master      = pool - agent_gross        (default 70%)
 ```
 
-`master + cavo + kubrador` always equals the pool exactly. Every change to a cut is audited (`cut.update`), every settlement writes a `commission.split` entry, and each commission line stores its formula inputs.
+`master + agent + sub_agent` always equals the pool exactly. Default per PHP 1,000 of pool: Master 700, Agent 210, Sub Agent 90. Meron / Wala and Bola each have their own basis, pool % and default Volume % / SOP % (Admin Variables); a cut set on one account (Cuts page) applies to every game. A player straight under an Agent has no Sub Agent, so the Agent keeps the whole Agent cut. A suspended account earns nothing and its share rolls up. The Master's Bola line is paid only when `bola.commission.pay_master` is on, otherwise it stays with the house. **Statements and commission are one page, `/commissions`**: you and everyone below you, both games, with CSV. See NOTES-merge-agents.md.
 
 ## HTTP API
 

@@ -1,6 +1,6 @@
 """The wallet hub: an account's own balance, who it can send credit to, and its money history.
 
-Every account that holds money (Admin, Master, Cavo, Kubrador) uses the same screen. Declarators
+Every account that holds money (Admin, Master, Agent, Sub Agent) uses the same screen. Declarators
 and Pawns have no balance at all: they cannot send, receive, load or cash out.
 
 History is read straight from the double-entry ledger, so what a person sees under "money in" and
@@ -19,7 +19,7 @@ from app.core.errors import Forbidden, NotFound, ValidationError
 from app.core.money import fmt
 from app.core.rbac import downline_ids, has_global_scope
 from app.core.settings_registry import SettingsStore
-from app.db.models import LedgerEntry, LedgerTxn, Notification, Role, Status, User
+from app.db.models import NETWORK_ROLES, LedgerEntry, LedgerTxn, Notification, Role, Status, User
 from app.services import accounts, ledger
 
 # ledger txn kind -> (label, what it is for the person)
@@ -87,7 +87,7 @@ def recipients(db: Session, actor: User, settings: SettingsStore, *, limit: int 
     if not actor.has_wallet:
         return []
     stmt = select(User).where(User.status == Status.ACTIVE, User.role.in_(
-        [Role.ADMIN, Role.MASTER, Role.CAVO, Role.KUBRADOR]), User.id != actor.id)
+        [Role.ADMIN, *NETWORK_ROLES]), User.id != actor.id)
     if actor.role != Role.ADMIN:
         stmt = stmt.where(User.role != Role.ADMIN)
     if settings.get("wallet.transfer_scope") == "network" and not has_global_scope(actor):

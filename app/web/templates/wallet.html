@@ -109,6 +109,7 @@
         {{ ui.field('Amount (PHP)', 'amount', required=true, help='Between ' ~ (min_cash | money) ~ ' and ' ~ (max_cash | money), attrs='inputmode=decimal') }}
         {{ ui.field('Reference number', 'reference', attrs='maxlength=64 placeholder="' ~ ('GCash reference (required for GCash loads)' if is_load else 'Your GCash / bank number') ~ '"') }}
       </div>
+      {% if tellers %}<p class="notice">Send or receive through a Teller's GCash: {% for name, num in tellers %}<strong>{{ name }}</strong> {{ num }}{{ ', ' if not loop.last }}{% endfor %}.</p>{% endif %}
       <p class="notice">Your balance changes only after the Admin approves. A request cannot be approved twice.</p>
       <button class="btn btn-primary" type="submit">{{ 'Request load' if is_load else 'Request cash out' }}</button>
     </form>

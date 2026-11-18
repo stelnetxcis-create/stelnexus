@@ -108,13 +108,25 @@ def test_cash_is_not_a_payment_method(world):
                                 method="cash")
 
 
-def test_teller_role_is_retired(world):
-    from app.core.rbac import can_create_role, permissions_for
-    assert permissions_for(Role.TELLER) == set()
-    assert not can_create_role(world.admin, Role.TELLER)
-    with pytest.raises(Exception):
+def test_teller_is_a_gcash_wallet_desk_under_the_admin(world):
+    from app.core.rbac import Perm, can_create_role, permissions_for
+    assert permissions_for(Role.TELLER) == {Perm.WALLET_VIEW, Perm.REQUESTS_VIEW,
+                                            Perm.REQUESTS_REVIEW, Perm.AGENTS_VIEW}
+    assert can_create_role(world.admin, Role.TELLER)
+    with pytest.raises(Exception):                              # a GCash number is mandatory
         agents.create_agent(world.db, world.admin, username=f"t{world.tag}", password=PASSWORD,
                             role=Role.TELLER, full_name="T", settings=world.store)
+    teller = agents.create_agent(world.db, world.admin, username=f"t{world.tag}", password=PASSWORD,
+                                 role=Role.TELLER, full_name="T", settings=world.store,
+                                 gcash_number="09171234567")
+    assert teller.parent_id == world.admin.id and not teller.has_wallet and teller.gcash_enc
+    assert teller in agents.list_agents(world.db, world.admin)
+
+
+def test_declarator_may_open_but_not_close_an_event(world):
+    from app.core.rbac import Perm, permissions_for
+    assert Perm.EVENTS_OPEN in permissions_for(Role.DECLARATOR)
+    assert Perm.EVENTS_MANAGE not in permissions_for(Role.DECLARATOR)
 
 
 def test_cancel_event_refunds_and_blocks_reopen(world):

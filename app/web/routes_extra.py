@@ -58,7 +58,7 @@ _typing_lock = threading.Lock()
 _typing: dict[int, tuple[str, float]] = {}      # user_id -> (display name, monotonic expiry)
 
 ROLE_TONE = {"admin": "gold", "master": "purple", "pawn": "blue", "declarator": "green",
-             "cavo": "amber", "kubrador": "amber"}
+             "cavo": "amber", "kubrador": "amber"}  # retired tiers: old rows only
 
 
 def _chat_json(rows: list[ChatMessage], ctx: Ctx) -> list[dict]:

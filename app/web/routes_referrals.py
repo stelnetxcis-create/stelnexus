@@ -12,7 +12,7 @@ from app.core.config import get_settings
 from app.core.errors import StelError, ValidationError
 from app.core.middleware import CSRF_COOKIE, cookie_header, make_csrf_cookie
 from app.core.rbac import Perm
-from app.db.models import Role, Status, User
+from app.db.models import NETWORK_ROLES, UPLINE_ROLES, Role, Status, User
 from app.services import referrals
 from app.web.deps import Ctx, flash_redirect, form_data, optional_ctx, render, require_ctx
 
@@ -88,11 +88,11 @@ async def register_submit(request: Request, ctx: Ctx = Depends(optional_ctx)):
 # --- manage codes ----------------------------------------------------------
 
 def _admin_uplines(ctx: Ctx) -> list[User]:
-    """Masters, Cavos and Kubradors the Admin may attach a new account to."""
+    """Every active Master Agent, Agent and Sub Agent the Admin may attach a new account to."""
     if ctx.user.role != Role.ADMIN:
         return []
     return list(ctx.db.scalars(
-        select(User).where(User.role.in_([Role.MASTER, Role.CAVO, Role.KUBRADOR]), User.status == Status.ACTIVE)
+        select(User).where(User.role.in_(NETWORK_ROLES), User.status == Status.ACTIVE)
         .order_by(User.role, User.username)).all())
 
 
@@ -103,6 +103,7 @@ async def referrals_page(ctx: Ctx = Depends(require_ctx)):
                   rows=referrals.list_codes(ctx.db, ctx.user),
                   invite_roles=[(r, referrals.role_label(r)) for r in referrals.invite_roles(ctx.user)],
                   uplines=_admin_uplines(ctx),
+                  role_names={r.value: r.label for r in Role},
                   default_ttl=int(ctx.store.get("referral.default_ttl_minutes")))
 
 

@@ -1,21 +1,28 @@
-"""Network commissions: the Master / Cavo / Kubrador cut system.
+"""Network commissions: the Master Agent / Agent / Sub Agent cut system.
 
-How the money is split (per ticket, then summed per fight)
-----------------------------------------------------------
-    pool         = basis * pool%                      basis = the ticket's share of the house win
-                                                      (or its stake, if basis = turnover)
-    cavo_gross   = pool * Volume %                    the Cavo side's cut          (default 30%)
-    kubrador     = cavo_gross * SOP %                 taken OUT of the Cavo's cut  (default 20% of it)
-    cavo         = cavo_gross - kubrador
-    master       = pool - cavo_gross                  "Management": whatever the Cavo side does not keep
+How the money is split (per ticket, then summed per game)
+---------------------------------------------------------
+    pool        = basis * pool%                   basis = the ticket's share of the house win
+                                                  (or its stake, if basis = turnover)
+    agent_gross = pool * Volume %                 the Agent side's cut           (default 30%)
+    sub_agent   = agent_gross * SOP %             taken OUT of the Agent's cut   (default 30% of it)
+    agent       = agent_gross - sub_agent
+    master      = pool - agent_gross              "Management": whatever the Agent side does not keep
 
-Because the Master's line is defined as the remainder, master + cavo + kubrador always equals the
-pool to the centavo; integer rounding can never leak or invent money. Volume % and SOP % are
-per-account (Cuts page, Master/Admin only) and fall back to Settings -> Commissions.
+Out of the box that is Master 70% / Agent 21% / Sub Agent 9% of the pool: the Master keeps 70, the
+Agent side gets 30, and the Sub Agent gets 30% of that 30.
 
-Edge rules: a suspended Cavo/Kubrador earns nothing and their share rolls up to the next account
-above; a bet with no Master in its chain leaves that share with the house; walk-in tickets (no
-agent) pay no commission. Admin is a hidden account and never earns.
+Because the Master's line is defined as the remainder, master + agent + sub_agent always equals the
+pool to the centavo; integer rounding can never leak or invent money.
+
+Each game has its own calculation: Meron / Wala and Bola each have their own basis, pool % and
+default Volume % / SOP % (Settings -> Commissions / Bola). A cut typed on one account (Cuts page)
+beats the game default and applies to every game.
+
+Edge rules: a suspended Agent/Sub Agent earns nothing and their share rolls up to the next account
+above; a bet with no Master in its chain leaves that share with the house; a player sitting directly
+under an Agent has no Sub Agent, so the Agent keeps the whole Agent cut; walk-in tickets (no agent)
+pay no commission. Admin is a hidden account and never earns.
 
 Every line stores a snapshot of the numbers it was computed from (``Commission.calc``), and each
 settlement writes one ``commission.split`` audit row, so any payout can be re-derived by hand.
@@ -48,8 +55,26 @@ from app.db.models import (
 )
 from app.services import accounts, ledger
 
+MANILA = dt.timezone(dt.timedelta(hours=8))   # Asia/Manila has no DST
+
+
+def manila_bounds(start: dt.date | None, end: dt.date | None) -> tuple[dt.datetime | None, dt.datetime | None]:
+    """[start 00:00, end+1 00:00) in Manila time, as UTC datetimes, for filtering by game day."""
+    lo = dt.datetime.combine(start, dt.time.min, tzinfo=MANILA).astimezone(dt.timezone.utc) if start else None
+    hi = (dt.datetime.combine(end + dt.timedelta(days=1), dt.time.min, tzinfo=MANILA)
+          .astimezone(dt.timezone.utc)) if end else None
+    return lo, hi
+
+
 MAX_CHAIN = 8
-TIERS = ("master", "cavo", "kubrador")
+TIERS = ("master", "agent", "sub_agent")
+GAMES = ("sabong", "bola")
+# Per-game default cuts (Volume %, SOP %). The Meron / Wala keys keep their old names so values the
+# Admin already saved carry over.
+_DEFAULT_KEYS = {
+    "sabong": ("commission.cavo_cut_bps", "commission.kubrador_cut_bps"),
+    "bola": ("bola.commission.agent_cut_bps", "bola.commission.sub_agent_cut_bps"),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -60,52 +85,53 @@ TIERS = ("master", "cavo", "kubrador")
 class Split:
     pool: int
     master: int
-    cavo: int
-    kubrador: int
-    cavo_gross: int          # what the Cavo side kept before paying the Kubrador
+    agent: int
+    sub_agent: int
+    agent_gross: int         # what the Agent side kept before paying the Sub Agent
 
     @property
     def paid(self) -> int:
-        return self.master + self.cavo + self.kubrador
+        return self.master + self.agent + self.sub_agent
 
 
-def split_pool(pool: int, *, cavo_bps: int, sop_bps: int, has_cavo: bool = True,
-               has_kubrador: bool = True, has_master: bool = True) -> Split:
+def split_pool(pool: int, *, agent_bps: int, sub_bps: int, has_agent: bool = True,
+               has_sub: bool = True, has_master: bool = True) -> Split:
     """Waterfall split of one pool. See the module docstring.
 
     ``has_*`` say whether that account exists *and is active*; a missing one earns nothing and
     its share rolls up. If there is no Master the Master line is 0 (the house keeps it).
     """
     pool = max(0, int(pool))
-    cavo_gross = bps_of(pool, cavo_bps) if has_cavo else 0
-    kubrador = bps_of(cavo_gross, sop_bps) if (has_cavo and has_kubrador) else 0
-    cavo = cavo_gross - kubrador
-    master = (pool - cavo_gross) if has_master else 0
-    return Split(pool=pool, master=master, cavo=cavo, kubrador=kubrador, cavo_gross=cavo_gross)
+    agent_gross = bps_of(pool, agent_bps) if has_agent else 0
+    sub_agent = bps_of(agent_gross, sub_bps) if (has_agent and has_sub) else 0
+    agent = agent_gross - sub_agent
+    master = (pool - agent_gross) if has_master else 0
+    return Split(pool=pool, master=master, agent=agent, sub_agent=sub_agent, agent_gross=agent_gross)
 
 
-def effective_cavo_bps(cavo: User | None, store: SettingsStore) -> int:
-    """Volume %: the Cavo's own value, else the global default."""
-    if cavo is not None and cavo.cut_bps is not None:
-        return int(cavo.cut_bps)
-    return int(store.get("commission.cavo_cut_bps"))
+def effective_agent_bps(agent: User | None, store: SettingsStore, game: str = "sabong") -> int:
+    """Volume %: the Agent's own value, else the game's default."""
+    if agent is not None and agent.cut_bps is not None:
+        return int(agent.cut_bps)
+    return int(store.get(_DEFAULT_KEYS[game][0]))
 
 
-def effective_sop_bps(kubrador: User | None, cavo: User | None, store: SettingsStore) -> int:
-    """SOP %: the Kubrador's personal override, else its Cavo's SOP %, else the global default."""
-    if kubrador is not None and kubrador.cut_bps is not None:
-        return int(kubrador.cut_bps)
-    if cavo is not None and cavo.sop_bps is not None:
-        return int(cavo.sop_bps)
-    return int(store.get("commission.kubrador_cut_bps"))
+def effective_sub_bps(sub: User | None, agent: User | None, store: SettingsStore,
+                      game: str = "sabong") -> int:
+    """SOP %: the Sub Agent's personal override, else its Agent's SOP %, else the game's default."""
+    if sub is not None and sub.cut_bps is not None:
+        return int(sub.cut_bps)
+    if agent is not None and agent.sop_bps is not None:
+        return int(agent.sop_bps)
+    return int(store.get(_DEFAULT_KEYS[game][1]))
 
 
-def preview(store: SettingsStore, *, cavo: User | None, kubrador: User | None = None,
-            pool: int = 100_000) -> Split:
-    """What a pool (default PHP 1,000) would split into for this Cavo / Kubrador, as configured."""
-    return split_pool(pool, cavo_bps=effective_cavo_bps(cavo, store),
-                      sop_bps=effective_sop_bps(kubrador, cavo, store),
-                      has_cavo=cavo is not None, has_kubrador=kubrador is not None)
+def preview(store: SettingsStore, *, agent: User | None, sub: User | None = None,
+            pool: int = 100_000, game: str = "sabong") -> Split:
+    """What a pool (default PHP 1,000) would split into for this Agent / Sub Agent, as configured."""
+    return split_pool(pool, agent_bps=effective_agent_bps(agent, store, game),
+                      sub_bps=effective_sub_bps(sub, agent, store, game),
+                      has_agent=agent is not None, has_sub=sub is not None)
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +174,10 @@ def _active(user: User | None) -> bool:
 def compute_lines(
     db: Session, tickets: list[Ticket], *, basis: str, house_gross: int, total_staked: int,
     settings: SettingsStore, pool_key: str = "commission.pool_bps", pay_master: bool = True,
+    game: str = "sabong",
 ) -> list[CommissionLine]:
+    """Commission lines for the settled tickets of one game. ``game`` picks which default Volume % /
+    SOP % apply. ``pay_master`` False leaves the Master's remainder with the house (Bola plan D4)."""
     if not settings.get("commission.enabled"):
         return []
     pay_refunds = bool(settings.get("commission.pay_on_refund"))
@@ -170,25 +199,26 @@ def compute_lines(
             continue
 
         chain = _chain(db, ticket.agent_id)
-        kubrador, cavo, master = (_first(chain, Role.KUBRADOR), _first(chain, Role.CAVO),
-                                  _first(chain, Role.MASTER))
-        cavo_bps = effective_cavo_bps(cavo, settings)
-        sop_bps = effective_sop_bps(kubrador, cavo, settings)
-        split = split_pool(pool, cavo_bps=cavo_bps, sop_bps=sop_bps,
-                           has_cavo=_active(cavo), has_kubrador=_active(kubrador),
+        sub, agent, master = (_first(chain, Role.SUB_AGENT), _first(chain, Role.AGENT),
+                              _first(chain, Role.MASTER))
+        agent_bps = effective_agent_bps(agent, settings, game)
+        sub_bps = effective_sub_bps(sub, agent, settings, game)
+        split = split_pool(pool, agent_bps=agent_bps, sub_bps=sub_bps,
+                           has_agent=_active(agent), has_sub=_active(sub),
                            has_master=_active(master) and pay_master)
         calc = {
-            "formula": "pool=basis*pool%; cavo_gross=pool*volume%; kubrador=cavo_gross*sop%; "
-                       "cavo=cavo_gross-kubrador; master=pool-cavo_gross",
+            "formula": "pool=basis*pool%; agent_gross=pool*volume%; sub_agent=agent_gross*sop%; "
+                       "agent=agent_gross-sub_agent; master=pool-agent_gross",
+            "game": game,
             "basis": basis, "base_cents": base, "pool_bps": pool_bps, "pool_cents": pool,
-            "volume_bps": cavo_bps, "sop_bps": sop_bps, "cavo_gross_cents": split.cavo_gross,
+            "volume_bps": agent_bps, "sop_bps": sub_bps, "agent_gross_cents": split.agent_gross,
             "chain": [{"id": u.id, "u": u.username, "role": str(u.role), "active": _active(u)}
                       for u in chain if u.role != Role.ADMIN],
         }
         for tier, account, amount, rate in (
-            ("master", master, split.master, 10000 - cavo_bps if _active(cavo) else 10000),
-            ("cavo", cavo, split.cavo, cavo_bps),
-            ("kubrador", kubrador, split.kubrador, sop_bps),
+            ("master", master, split.master, 10000 - agent_bps if _active(agent) else 10000),
+            ("agent", agent, split.agent, agent_bps),
+            ("sub_agent", sub, split.sub_agent, sub_bps),
         ):
             if account is not None and amount > 0:
                 lines.append(CommissionLine(ticket.id, ticket.player_id, account.id, tier, rate,
@@ -259,10 +289,10 @@ def mark_reversed(db: Session, run_id: int) -> int:
 # ---------------------------------------------------------------------------
 # Bola (number game) commissions
 # ---------------------------------------------------------------------------
-# Same waterfall as sabong (split_pool / effective_* are reused unchanged); only the pool share
-# comes from ``bola.commission.pool_bps`` and the rows live in ``bola_commissions``.
-# Plan D3: SOP is paid OUT of the Cavo's cut. Plan D4: by default the Master's remainder of the
-# pool stays with the house; ``bola.commission.pay_master`` turns it into a commission line.
+# Same waterfall as Meron / Wala (split_pool / effective_* are shared); the game has its own basis,
+# pool % and default cuts (``bola.commission.*``) and the rows live in ``bola_commissions``.
+# SOP is paid OUT of the Agent's cut. Plan D4: by default the Master's remainder of the pool stays
+# with the house; ``bola.commission.pay_master`` turns it into a commission line.
 
 def compute_bola_lines(
     db: Session, tickets: list, *, basis: str, house_gross: int, total_staked: int,
@@ -272,7 +302,8 @@ def compute_bola_lines(
     return compute_lines(db, tickets, basis=basis, house_gross=house_gross,
                          total_staked=total_staked, settings=settings,
                          pool_key="bola.commission.pool_bps",
-                         pay_master=bool(settings.get("bola.commission.pay_master")))
+                         pay_master=bool(settings.get("bola.commission.pay_master")),
+                         game="bola")
 
 
 def persist_bola(
@@ -354,42 +385,37 @@ def _parse_percent(raw: str | None, *, label: str) -> int | None:
 
 def set_cut(db: Session, actor: User, target: User, *, volume: str | None = None,
             sop: str | None = None, settings: SettingsStore, reason: str | None = None) -> User:
-    """Change a Cavo's Volume % / SOP % or a Kubrador's personal SOP %. Audited with before/after.
+    """Change an Agent's Volume % / SOP % or a Sub Agent's personal SOP %. Audited with before/after.
 
     Master is held to the guard rails in Settings; Admin is not. ``None`` leaves a field alone,
-    an empty string resets it to the default."""
+    an empty string resets it to the game defaults."""
     from app.core.errors import Forbidden
     from app.core.rbac import assert_user_in_scope, Perm, has_perm
 
     if not has_perm(actor, Perm.CUTS_MANAGE):
         raise Forbidden("Your role cannot change cuts.")
     target = assert_user_in_scope(db, actor, target.id)
-    if target.role not in (Role.CAVO, Role.KUBRADOR):
-        raise ValidationError("Only a Cavo or a Kubrador has a cut.")
+    if target.role not in (Role.AGENT, Role.SUB_AGENT):
+        raise ValidationError("Only an Agent or a Sub Agent has a cut.")
 
     unlimited = actor.role == Role.ADMIN
     before = {"cut_bps": target.cut_bps, "sop_bps": target.sop_bps}
 
-    if target.role == Role.CAVO:
+    def _checked(raw: str | None, label: str, limit_key: str) -> int | None:
+        bps = _parse_percent(raw, label=label)
+        limit = int(settings.get(limit_key))
+        if bps is not None and not unlimited and bps > limit:
+            raise ValidationError(f"{label} cannot be more than {limit / 100:g}% (set by Admin).")
+        return bps
+
+    if target.role == Role.AGENT:
         if volume is not None:
-            bps = _parse_percent(volume, label="Volume %")
-            limit = int(settings.get("commission.max_cavo_cut_bps"))
-            if bps is not None and not unlimited and bps > limit:
-                raise ValidationError(f"Volume % cannot be more than {limit / 100:g}% (set by Admin).")
-            target.cut_bps = bps
+            target.cut_bps = _checked(volume, "Volume %", "commission.max_cavo_cut_bps")
         if sop is not None:
-            bps = _parse_percent(sop, label="SOP %")
-            limit = int(settings.get("commission.max_kubrador_cut_bps"))
-            if bps is not None and not unlimited and bps > limit:
-                raise ValidationError(f"SOP % cannot be more than {limit / 100:g}% (set by Admin).")
-            target.sop_bps = bps
-    else:  # kubrador: only a personal SOP override
+            target.sop_bps = _checked(sop, "SOP %", "commission.max_kubrador_cut_bps")
+    else:  # sub agent: only a personal SOP override
         if sop is not None:
-            bps = _parse_percent(sop, label="SOP %")
-            limit = int(settings.get("commission.max_kubrador_cut_bps"))
-            if bps is not None and not unlimited and bps > limit:
-                raise ValidationError(f"SOP % cannot be more than {limit / 100:g}% (set by Admin).")
-            target.cut_bps = bps
+            target.cut_bps = _checked(sop, "SOP %", "commission.max_kubrador_cut_bps")
     db.flush()
     after = {"cut_bps": target.cut_bps, "sop_bps": target.sop_bps}
     if before != after:
@@ -400,27 +426,33 @@ def set_cut(db: Session, actor: User, target: User, *, volume: str | None = None
 
 
 def cut_rows(db: Session, actor: User, store: SettingsStore) -> list[dict]:
-    """Cavos with their Kubradors and the effective cut of each, for the Cuts page."""
+    """Agents with their Sub Agents and the effective cut of each, for the Cuts page. Each row
+    carries a Meron / Wala preview and a Bola preview, since the game defaults can differ."""
     from app.core.rbac import scope_ids
     ids = scope_ids(db, actor)
-    cavos = list(db.scalars(select(User).where(User.role == Role.CAVO, User.id.in_(ids))
-                            .order_by(User.username)).all())
+    agents = list(db.scalars(select(User).where(User.role == Role.AGENT, User.id.in_(ids))
+                             .order_by(User.username)).all())
     rows = []
-    for cavo in cavos:
-        subs = list(db.scalars(select(User).where(User.role == Role.KUBRADOR, User.parent_id == cavo.id)
+    for agent in agents:
+        subs = list(db.scalars(select(User).where(User.role == Role.SUB_AGENT, User.parent_id == agent.id)
                                .order_by(User.username)).all())
         rows.append({
-            "cavo": cavo,
-            "volume_bps": effective_cavo_bps(cavo, store),
-            "volume_is_default": cavo.cut_bps is None,
-            "sop_bps": effective_sop_bps(None, cavo, store),
-            "sop_is_default": cavo.sop_bps is None,
-            "preview": preview(store, cavo=cavo),
-            "kubradors": [{
+            "agent": agent,
+            "volume_bps": effective_agent_bps(agent, store, "sabong"),
+            "bola_volume_bps": effective_agent_bps(agent, store, "bola"),
+            "volume_is_default": agent.cut_bps is None,
+            "sop_bps": effective_sub_bps(None, agent, store, "sabong"),
+            "bola_sop_bps": effective_sub_bps(None, agent, store, "bola"),
+            "sop_is_default": agent.sop_bps is None,
+            "preview": preview(store, agent=agent, game="sabong"),
+            "bola_preview": preview(store, agent=agent, game="bola"),
+            "subs": [{
                 "user": k,
-                "sop_bps": effective_sop_bps(k, cavo, store),
+                "sop_bps": effective_sub_bps(k, agent, store, "sabong"),
+                "bola_sop_bps": effective_sub_bps(k, agent, store, "bola"),
                 "is_override": k.cut_bps is not None,
-                "preview": preview(store, cavo=cavo, kubrador=k),
+                "preview": preview(store, agent=agent, sub=k, game="sabong"),
+                "bola_preview": preview(store, agent=agent, sub=k, game="bola"),
             } for k in subs],
         })
     return rows
@@ -485,8 +517,79 @@ def claim_to_wallet(db: Session, actor: User, *, amount_cents: int | None = None
 
 def list_for(db: Session, actor: User, *, status: CommissionStatus | None = None,
              limit: int = 200, offset: int = 0) -> list[Commission]:
+    """Meron / Wala commission lines earned by ``actor`` itself."""
     stmt = select(Commission).where(Commission.agent_id == actor.id)
     if status:
         stmt = stmt.where(Commission.status == status)
     return list(db.scalars(stmt.order_by(Commission.id.desc())
                            .limit(min(limit, 1000)).offset(max(offset, 0))).all())
+
+
+def _earner_ids(db: Session, actor: User, agent_id: int | None) -> set[int] | None:
+    """Whose commission lines ``actor`` may read. None = every visible account (operator tier).
+    ``agent_id`` narrows it to one account in the actor's network, with the same checks as the
+    statement pages."""
+    from app.core.rbac import assert_user_in_scope, has_global_scope, scope_ids
+    if agent_id is not None:
+        assert_user_in_scope(db, actor, agent_id)
+        return {agent_id}
+    return None if has_global_scope(actor) else scope_ids(db, actor)
+
+
+def list_scope(db: Session, actor: User, *, game: str = "all", status: CommissionStatus | None = None,
+               agent_id: int | None = None, start: dt.date | None = None, end: dt.date | None = None,
+               limit: int = 300) -> list[dict]:
+    """Commission lines for the actor AND the accounts below it, both games, newest first.
+
+    Every row is a plain dict (``game``, ``game_label``, ``earner``, ``tier``, ``player``,
+    ``ticket``, ``base_cents``, ``rate_bps``, ``amount_cents``, ``status``, ``created_at``,
+    ``calc``) so the page does not care which table it came from. The hidden Admin never appears
+    for anyone else, and reversed lines are only shown when asked for."""
+    ids = _earner_ids(db, actor, agent_id)
+    out: list[dict] = []
+
+    lo, hi = manila_bounds(start, end)
+
+    def keep(model):
+        stmt = select(model).join(User, User.id == model.agent_id)
+        if model is Commission:               # a sabong game's day = the day its ticket was placed
+            stmt = stmt.join(Ticket, Ticket.id == model.ticket_id)
+            if lo is not None:
+                stmt = stmt.where(Ticket.placed_at >= lo)
+            if hi is not None:
+                stmt = stmt.where(Ticket.placed_at < hi)
+        else:                                 # a Bola game's day = its draw date
+            stmt = stmt.join(BolaDraw, BolaDraw.id == model.draw_id)
+            if start is not None:
+                stmt = stmt.where(BolaDraw.draw_date >= start)
+            if end is not None:
+                stmt = stmt.where(BolaDraw.draw_date <= end)
+        if ids is not None:
+            stmt = stmt.where(model.agent_id.in_(ids))
+        if actor.role != Role.ADMIN:
+            stmt = stmt.where(User.role != Role.ADMIN)
+        if status is not None:
+            stmt = stmt.where(model.status == status)
+        else:
+            stmt = stmt.where(model.status != CommissionStatus.REVERSED)
+        return stmt.order_by(model.id.desc()).limit(min(limit, 1000))
+
+    if game in ("all", "sabong"):
+        for row in db.scalars(keep(Commission)).all():
+            out.append(_line_view(row, "sabong", f"#{row.ticket.fight.number}"))
+    if game in ("all", "bola"):
+        for row in db.scalars(keep(BolaCommission)).all():
+            out.append(_line_view(row, "bola", f"Bola #{row.draw_id}"))
+    out.sort(key=lambda r: r["created_at"], reverse=True)
+    return out[:limit]
+
+
+def _line_view(row, game: str, label: str) -> dict:
+    ticket = row.ticket
+    return {
+        "game": game, "game_label": label, "earner": row.agent, "tier": row.tier,
+        "player": ticket.player.full_name if getattr(ticket, "player", None) else "walk-in",
+        "ticket": ticket.code, "base_cents": row.base_cents, "rate_bps": row.rate_bps,
+        "amount_cents": row.amount_cents, "status": row.status, "created_at": row.created_at,
+        "calc": row.calc,
+    }

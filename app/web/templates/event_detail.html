@@ -13,6 +13,12 @@
   </select>
   <button class="btn btn-sm btn-primary">Set</button>
 </form>
+{% elif 'events.open' in perms and event.status.value in ('draft', 'closed') %}
+<form method="post" action="/events/{{ event.id }}/status" class="inline-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="status" value="open">
+  <button class="btn btn-sm btn-primary">Open event</button>
+</form>
 {% endif %}
 {% endblock %}
 {% block content %}
@@ -150,6 +156,18 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       {{ ui.field('Reason', 'reason', required=true, attrs='minlength=5 maxlength=200') }}
       <button class="btn btn-danger" type="submit">Cancel event</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% if is_dev and not viewing_as %}
+<div class="card" style="border-color:rgba(255,59,92,.45)">
+  <div class="card-head"><h2>Delete event</h2>{{ ui.badge('DEV only', 'red') }}</div>
+  <div class="card-body">
+    <p class="notice">Permanently removes it with its tickets, settlements and chat. Wallet and ledger history is kept untouched. Anything still holding live stakes is refused: cancel / void it first so players are refunded.</p>
+    <form method="post" action="/dev/purge/event/{{ event.id }}" class="inline-form" data-confirm="Permanently delete this event and ALL its games? This cannot be undone.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="btn btn-danger" type="submit">Delete event</button>
     </form>
   </div>
 </div>

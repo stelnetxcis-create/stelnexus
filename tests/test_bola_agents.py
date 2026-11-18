@@ -96,7 +96,7 @@ def test_statement_follows_the_claim_status_and_the_date_range(bw):  # noqa: F81
 def test_statement_scope_each_agent_sees_only_their_own_network(bw):  # noqa: F811
     w = bw
     rival = agents.create_agent(w.db, w.master, username=f"br{w.tag}", password=PASSWORD,
-                                role=Role.CAVO, full_name="Rival", settings=w.store)
+                                role=Role.AGENT, full_name="Rival", settings=w.store)
     _bet(w, [1, 2], BolaKind.PAIR, 5000, 5000)
     _declare(w, 30, 31)
     day = w.draw.draw_date
@@ -142,9 +142,9 @@ def net(monkeypatch):
             db, parent, username=f"{name}{tag}", password=PASSWORD, role=role, full_name=name,
             settings=store)
         master = mk(admin, "nm", Role.MASTER)
-        cavo = mk(master, "nc", Role.CAVO)
-        rival = mk(master, "nr", Role.CAVO)
-        kub = mk(cavo, "nk", Role.KUBRADOR)
+        cavo = mk(master, "nc", Role.AGENT)
+        rival = mk(master, "nr", Role.AGENT)
+        kub = mk(cavo, "nk", Role.SUB_AGENT)
         decl = mk(admin, "nd", Role.DECLARATOR)
         for u in (master, cavo, rival, kub, decl):
             u.must_change_password = False
@@ -183,54 +183,62 @@ def test_cancelled_page_lists_the_cancel_with_who_and_why(net):
     assert net["gone"] not in c.get("/bola/cancelled?q=zzzz-no-such").text
 
 
-def test_cancelled_page_is_scoped_to_the_network(net):
-    for who, sees in (("kub", True), ("cavo", True), ("master", True), ("rival", False)):
+def test_cancelled_page_is_dev_only(net):
+    """Bola Cancelled (and Cancel Ticket) are for the Admin (dev) account only."""
+    for who in ("kub", "cavo", "master", "rival"):
         c, r = login(net["names"][who])
         assert r.status_code == 303
-        page = c.get("/bola/cancelled")
-        assert page.status_code == 200, who
-        assert (net["gone"] in page.text) is sees, who
+        assert c.get("/bola/cancelled").status_code == 403, who
+        assert c.get("/cancelT").status_code == 403, who
+        assert 'href="/bola/cancelled"' not in c.get("/dashboard").text, who
 
 
 def test_agent_statement_pages_scope_and_csv(net):
     day = dt.date.today().isoformat()
-    q = f"?start={day}&end={day}"
-    kub, cavo, rival = net["names"]["kub"], net["names"]["cavo"], net["names"]["rival"]
+    q = f"?start={day}&end={day}&game=bola"
+    kub, cavo, rival = net["names"]["kub"], net["names"]["cavo"], net["names"]["rival"]   # Sub Agent, Agent, rival
 
     a, _ = login("admin")
-    page = a.get("/bola/agents" + q)
+    page = a.get("/commissions" + q)
     assert page.status_code == 200 and kub in page.text and cavo in page.text
-    csv_resp = a.get("/bola/agents.csv" + q)
+    csv_resp = a.get("/commissions.csv" + q)
     assert csv_resp.status_code == 200 and csv_resp.headers["content-type"].startswith("text/csv")
     assert kub in csv_resp.text and "Total" in csv_resp.text
-    assert a.get(f"/bola/agents/{net['kub']}" + q).status_code == 200
+    assert a.get(f"/commissions/{net['kub']}" + q).status_code == 200
+    # the old Bola-only paths now redirect to the merged pages
+    old = a.get("/bola/agents" + q)
+    assert old.status_code == 303 and old.headers["location"].startswith("/commissions?")
+    assert a.get(f"/bola/agents/{net['kub']}" + q).headers["location"].startswith(f"/commissions/{net['kub']}?")
+    assert a.get("/bola/agents.csv" + q).headers["location"].startswith("/commissions.csv?")
 
     k, _ = login(kub)
-    page = k.get("/bola/agents" + q).text
-    assert kub in page and cavo not in page.split("<main", 1)[-1]
-    assert k.get(f"/bola/agents/{net['cavo']}" + q).status_code == 403   # not below a Kubrador
+    page = k.get("/commissions" + q).text
+    assert kub in page
+    assert f'/commissions/{net["cavo"]}?' not in page      # the Agent above is only named as upline, never a row
+    assert k.get(f"/commissions/{net['cavo']}" + q).status_code == 403   # not below a Sub Agent
 
     r, _ = login(rival)
-    assert kub not in r.get("/bola/agents" + q).text
-    assert r.get(f"/bola/agents/{net['kub']}" + q).status_code == 403
+    assert kub not in r.get("/commissions" + q).text
+    assert r.get(f"/commissions/{net['kub']}" + q).status_code == 403
 
     c, _ = login(cavo)
-    assert c.get(f"/bola/agents/{net['kub']}" + q).status_code == 200
+    assert c.get(f"/commissions/{net['kub']}" + q).status_code == 200
+    assert kub in c.get("/commissions" + q).text      # an Agent sees the Sub Agent's commission lines too
 
 
 def test_declarator_cannot_see_statements_or_cancelled_tickets(net):
     d, r = login(net["names"]["decl"])
     assert r.status_code == 303
-    for path in ("/bola/agents", "/bola/agents.csv", "/bola/cancelled", "/bola/betlogs"):
+    for path in ("/bola/agents", "/bola/agents.csv", "/commissions", "/commissions.csv", "/bola/cancelled", "/bola/betlogs"):
         assert d.get(path).status_code == 403, path
 
 
 def test_bad_dates_fall_back_to_today_and_ranges_are_capped(net):
     a, _ = login("admin")
-    assert a.get("/bola/agents?start=not-a-date&end=also-bad").status_code == 200
-    swapped = a.get("/bola/agents?start=2030-02-01&end=2030-01-01")
+    assert a.get("/commissions?start=not-a-date&end=also-bad").status_code == 200
+    swapped = a.get("/commissions?start=2030-02-01&end=2030-01-01")
     assert swapped.status_code == 200 and "2030-01-01" in swapped.text
-    wide = a.get("/bola/agents?start=1990-01-01&end=2030-01-01")
+    wide = a.get("/commissions?start=1990-01-01&end=2030-01-01")
     assert wide.status_code == 200 and "1990-01-01" not in wide.text
 
 
@@ -238,6 +246,6 @@ def test_sidebar_links_resolve(net):
     """The nav entries for these two pages shipped before the pages did; keep them honest."""
     a, _ = login("admin")
     html = a.get("/dashboard").text
-    for href in ("/bola/cancelled", "/bola/agents"):
+    for href in ("/bola/cancelled", "/commissions"):
         assert f'href="{href}"' in html
         assert a.get(href).status_code == 200

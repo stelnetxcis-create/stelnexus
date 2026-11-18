@@ -23,6 +23,7 @@ from app.core.rbac import is_top, scope_ids
 from app.core.security import random_code
 from app.core.settings_registry import SettingsStore
 from app.db.models import (
+    NETWORK_ROLES,
     Account,
     Event,
     EventStatus,
@@ -99,16 +100,17 @@ def _ticket_code(db: Session) -> str:
 
 
 def network_names(db: Session, agent_id: int | None) -> tuple[str | None, str | None]:
-    """(kubrador, cavo) usernames for a ticket's owning agent, read from the real upline chain.
+    """(sub agent, agent) usernames for a ticket's owning account, read from the real upline chain.
+    They are stored in the legacy ``kubrador`` / ``cavo`` columns, which now hold the Sub Agent / Agent.
     Snapshotted on the ticket so the Betting List stays correct even if the tree changes later."""
     kubrador = cavo = None
     current = db.get(User, agent_id) if agent_id else None
     for _ in range(8):
         if current is None:
             break
-        if current.role == Role.KUBRADOR and kubrador is None:
+        if current.role == Role.SUB_AGENT and kubrador is None:
             kubrador = current.username
-        elif current.role == Role.CAVO and cavo is None:
+        elif current.role == Role.AGENT and cavo is None:
             cavo = current.username
         current = db.get(User, current.parent_id) if current.parent_id else None
     return kubrador, cavo
@@ -176,7 +178,7 @@ def place_bet(
         player = players.get_player(db, actor, player_id)
         players.assert_can_bet(db, player, stake_cents, settings)
         agent_id = player.agent_id
-    if actor.role in (Role.MASTER, Role.CAVO, Role.KUBRADOR) and agent_id is None:
+    if actor.role in NETWORK_ROLES and agent_id is None:
         agent_id = actor.id
 
     if player is None:

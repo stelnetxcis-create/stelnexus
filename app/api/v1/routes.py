@@ -263,7 +263,8 @@ def _bola_ticket(t, *, lines: list | None = None) -> dict:
            "payout_cents": t.payout_cents, "est_max_payout_cents": t.est_max_payout_cents,
            "status": str(t.status), "placed_at": t.placed_at, "settled_at": t.settled_at,
            "player_id": t.player_id, "agent_id": t.agent_id,
-           "kubrador": t.kubrador, "cavo": t.cavo, "note": t.note}
+           "kubrador": t.kubrador, "cavo": t.cavo,
+           "sub_agent": t.kubrador, "agent": t.cavo, "note": t.note}
     if lines is not None:
         out["lines"] = [{"first": l.first, "second": l.second,
                          "tumbok_cents": l.tumbok_cents, "sahod_cents": l.sahod_cents} for l in lines]

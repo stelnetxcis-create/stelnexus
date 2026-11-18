@@ -260,7 +260,7 @@ def test_battle_pass_chats_on_every_stream_including_esports():
 def test_scripts_are_versioned_and_service_worker_is_network_first_for_code():
     c, _ = login("admin")
     sw = c.get("/static/sw.js").text
-    assert "royale6" in sw and "fetch(request).then" in sw
+    assert "royale8" in sw and "fetch(request).then" in sw
     lobby = c.get("/bola").text
     assert "bola.js?v=2" in lobby and "bola-ui.css?v=2" in lobby
 

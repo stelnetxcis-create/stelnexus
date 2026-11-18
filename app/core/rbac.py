@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.errors import Forbidden
 from app.core.settings_registry import GROUPS
-from app.db.models import CHILD_ROLE, TOP_ROLES, Player, Role, Status, User
+from app.db.models import CHILD_ROLES, TOP_ROLES, Player, Role, Status, User
 
 
 class Perm(str, Enum):
@@ -33,6 +33,7 @@ class Perm(str, Enum):
     EVENTS_VIEW = "events.view"
     EVENTS_CREATE = "events.create"        # creating an event: Master and Admin only
     EVENTS_MANAGE = "events.manage"
+    EVENTS_OPEN = "events.open"            # set an event to OPEN only (Declarators)
     # Locations (venues). Master/Admin may register one while creating an event; editing,
     # archiving and deleting is the Admin Panel's job.
     LOCATIONS_CREATE = "locations.create"
@@ -87,6 +88,8 @@ class Perm(str, Enum):
     IPBANS_MANAGE = "ipbans.manage"        # ban / unban IP addresses
     # Seller Desk (/sell) is experimental: Admin (the developer account) only, no grant lifts it.
     SELL_DESK = "sell.desk"
+    # Cancel Ticket and Bola Cancelled pages: dev-only (Admin account).
+    CANCEL_LOG = "cancellog.view"
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +115,8 @@ def bola_visible_to(user: User | None) -> bool:
 # Everyone who holds money gets the wallet hub: load, cash out, transfer, and their own history.
 _WALLET_PERMS = {Perm.WALLET_VIEW, Perm.WALLET_TRANSFER, Perm.REQUESTS_VIEW, Perm.REQUESTS_CREATE}
 
-# Cavo / Kubrador: their own numbers, bets and referral codes. No Users page, no Players page.
+# Agent / Sub Agent: their own numbers, bets, commission statements and referral codes. No Users
+# page, no Players page.
 _AGENT_PERMS = {
     Perm.DASHBOARD,
     Perm.EVENTS_VIEW, Perm.FIGHTS_VIEW, Perm.BETS_VIEW, Perm.BETS_PLACE, Perm.BETS_CANCEL,
@@ -128,7 +132,7 @@ _ADMIN_ONLY = {
     Perm.PLAYERS_VIEW, Perm.PLAYERS_CREATE, Perm.PLAYERS_EDIT,
     Perm.ONLINE_VIEW, Perm.PANEL_VIEW, Perm.PAWNS_MANAGE,
     Perm.ACCOUNTS_VIEW, Perm.ACCOUNTS_EDIT, Perm.ACCOUNTS_REMOVE, Perm.IPBANS_MANAGE,
-    Perm.SELL_DESK,
+    Perm.SELL_DESK, Perm.CANCEL_LOG,
     Perm.LOCATIONS_VIEW, Perm.LOCATIONS_MANAGE,
     # House money is dev-only: the cashflow page, house totals on the dashboard, event P&L and the
     # report archives. A Pawn can still be granted them one by one ("cashflow:view", "reports:view").
@@ -148,15 +152,20 @@ _HIDDEN_ONLY = _ADMIN_ONLY
 _DECLARATOR_PERMS = {Perm.EVENTS_VIEW, Perm.FIGHTS_VIEW, Perm.FIGHTS_LOCK, Perm.FIGHTS_DECLARE,
                      Perm.BOLA_VIEW, Perm.BOLA_DECLARE, Perm.BOLA_REDECLARE}
 
+# Teller: the wallet desk and nothing else (approve / reject requests, see Users). No balance.
+_TELLER_PERMS = {Perm.WALLET_VIEW, Perm.REQUESTS_VIEW, Perm.REQUESTS_REVIEW, Perm.AGENTS_VIEW}
+
 ROLE_PERMS: dict[Role, set[Perm]] = {
     Role.ADMIN: set(Perm),
     Role.MASTER: set(_OPERATOR),
-    # Cavo and Kubrador only recruit through referral codes; the cut itself is not theirs to change.
-    Role.CAVO: _AGENT_PERMS | {Perm.REFERRALS_MANAGE},
-    Role.KUBRADOR: _AGENT_PERMS | {Perm.REFERRALS_MANAGE},
-    # Retired role: tellers no longer exist. Old rows are closed by the migration and hold no permissions.
-    Role.TELLER: set(),
-    Role.DECLARATOR: set(_DECLARATOR_PERMS),
+    # Agent and Sub Agent recruit through referral codes; the cut itself is not theirs to change.
+    Role.AGENT: _AGENT_PERMS | {Perm.REFERRALS_MANAGE},
+    Role.SUB_AGENT: _AGENT_PERMS | {Perm.REFERRALS_MANAGE},
+    # Retired tiers (merged into Agent / Sub Agent by the migration): no permissions.
+    Role.CAVO: set(),
+    Role.KUBRADOR: set(),
+    Role.TELLER: set(_TELLER_PERMS),
+    Role.DECLARATOR: set(_DECLARATOR_PERMS) | {Perm.EVENTS_OPEN},
     # Pawn: a declarator-style spectator. Everything beyond that is granted per account by the Admin.
     Role.PAWN: set(_DECLARATOR_PERMS),
 }
@@ -190,7 +199,7 @@ def _build_grants() -> tuple[Grant, ...]:
         Grant("locations:edit", "Edit, archive and delete locations", "", "Locations",
               frozenset({Perm.PANEL_VIEW, Perm.LOCATIONS_VIEW, Perm.LOCATIONS_MANAGE, Perm.LOCATIONS_CREATE}),
               implies=("locations:view",)),
-        Grant("cuts:view", "See cuts", "Volume % and SOP % of every Cavo and Kubrador.", "Cuts",
+        Grant("cuts:view", "See cuts", "Volume % and SOP % of every Agent and Sub Agent.", "Cuts",
               frozenset({Perm.PANEL_VIEW, Perm.CUTS_VIEW})),
         Grant("cuts:edit", "Change cuts", "Held to the same limits as Settings → Commissions.", "Cuts",
               frozenset({Perm.PANEL_VIEW, Perm.CUTS_VIEW, Perm.CUTS_MANAGE}), implies=("cuts:view",)),
@@ -198,13 +207,13 @@ def _build_grants() -> tuple[Grant, ...]:
               frozenset({Perm.PLAYERS_VIEW})),
         Grant("players:edit", "Register and edit players", "", "People",
               frozenset({Perm.PLAYERS_VIEW, Perm.PLAYERS_CREATE, Perm.PLAYERS_EDIT}), implies=("players:view",)),
-        Grant("agents:create", "Create Cavo and Kubrador accounts",
+        Grant("agents:create", "Create Agent and Sub Agent accounts",
               "Directly, with no referral code. Picks the upline. Sees the Users list without balances.",
               "People", frozenset({Perm.AGENTS_VIEW, Perm.AGENTS_CREATE})),
         Grant("online:view", "See who is online", "Live list of signed-in accounts.", "People",
               frozenset({Perm.ONLINE_VIEW})),
         Grant("accounts:edit", "Edit account details",
-              "Name, username, contact and GCash number of any Master, Cavo, Kubrador, Declarator or player. "
+              "Name, username, contact and GCash number of any Master Agent, Agent, Sub Agent, Declarator or player. "
               "Never the Admin or another Pawn.", "People",
               frozenset({Perm.PANEL_VIEW, Perm.ACCOUNTS_VIEW, Perm.ACCOUNTS_EDIT})),
         Grant("accounts:remove", "Remove accounts",
@@ -333,30 +342,34 @@ def is_top(user: User) -> bool:
 def has_global_scope(user: User) -> bool:
     """Who may look across the whole visible network: the operator tier, plus Pawns (read-only
     spectators whose reach is limited by their grants, not by the tree)."""
-    return user.role in TOP_ROLES or user.role == Role.PAWN
+    return user.role in TOP_ROLES or user.role in (Role.PAWN, Role.TELLER)
 
 
 def can_create_role(parent: User, child_role: Role) -> bool:
     """Who may create which account directly (no referral code).
 
-    Admin -> Master, Cavo, Kubrador, Declarator, Pawn (Cavo/Kubrador under an upline the Admin picks).
-    Pawn  -> Cavo, Kubrador, only when the Admin ticked "Create Cavo and Kubrador accounts".
-    Master -> Cavo, Declarator.  Cavo -> Kubrador (through its referral code in practice).
+    Admin  -> Master, Agent, Sub Agent, Declarator, Teller, Pawn (anything under an upline the Admin picks).
+    Pawn   -> Agent, Sub Agent, only when the Admin ticked "Create ... accounts".
+    Master -> Agent, Declarator.
+    Agent  -> Sub Agent.
+    (Everyone below the Master recruits through referral codes in practice.)
     There is only ever ONE Admin and only the Admin can create a Pawn."""
     if parent.status != Status.ACTIVE:
         return False
     if parent.role == Role.ADMIN:
-        return child_role in (Role.MASTER, Role.CAVO, Role.KUBRADOR, Role.DECLARATOR, Role.PAWN)
+        return child_role in (Role.MASTER, Role.AGENT, Role.SUB_AGENT, Role.DECLARATOR, Role.TELLER, Role.PAWN)
     if parent.role == Role.PAWN:
-        return child_role in (Role.CAVO, Role.KUBRADOR) and Perm.AGENTS_CREATE in permissions_of(parent)
+        return (child_role in (Role.AGENT, Role.SUB_AGENT)
+                and Perm.AGENTS_CREATE in permissions_of(parent))
     if parent.role == Role.MASTER:
-        return child_role in (Role.CAVO, Role.DECLARATOR)
-    return CHILD_ROLE.get(Role(parent.role)) == child_role
+        return child_role in (Role.AGENT, Role.DECLARATOR)
+    return child_role in CHILD_ROLES.get(Role(parent.role), ())
 
 
 def creatable_roles(user: User) -> list[Role]:
     """The user types offered on the Create user form (Pawns are made in the Admin Panel)."""
-    return [r for r in (Role.MASTER, Role.CAVO, Role.KUBRADOR, Role.DECLARATOR) if can_create_role(user, r)]
+    return [r for r in (Role.MASTER, Role.AGENT, Role.SUB_AGENT, Role.DECLARATOR, Role.TELLER)
+            if can_create_role(user, r)]
 
 
 def _visible_ids(db: Session, user: User) -> set[int]:
@@ -408,6 +421,6 @@ def visible_agent_filter(actor: User):
     """SQL predicate helper for list pages (None = no restriction)."""
     if actor.role == Role.ADMIN:
         return None
-    if actor.role in (Role.MASTER, Role.PAWN):
+    if actor.role in (Role.MASTER, Role.PAWN, Role.TELLER):
         return User.role != Role.ADMIN
     return User.parent_id == actor.id

@@ -31,7 +31,7 @@ def test_gate_can_be_switched_on():
     assert rbac.bola_dev_only()
 
 
-@pytest.mark.parametrize("role", [Role.MASTER, Role.CAVO, Role.KUBRADOR, Role.DECLARATOR, Role.PAWN])
+@pytest.mark.parametrize("role", [Role.MASTER, Role.AGENT, Role.SUB_AGENT, Role.DECLARATOR, Role.PAWN])
 def test_no_non_dev_role_holds_a_bola_permission(role):
     assert not (permissions_for(role) & BOLA_PERMS)
 
@@ -41,7 +41,7 @@ def test_admin_keeps_every_bola_permission():
     assert Perm.BOLA_MANAGE in BOLA_PERMS and Perm.BOLA_EXPOSURE in BOLA_PERMS
 
 
-@pytest.mark.parametrize("role", [Role.MASTER, Role.CAVO, Role.KUBRADOR, Role.DECLARATOR])
+@pytest.mark.parametrize("role", [Role.MASTER, Role.AGENT, Role.SUB_AGENT, Role.DECLARATOR])
 def test_flag_off_restores_each_roles_own_permissions(gate_off, role):
     assert permissions_for(role) & BOLA_PERMS
 
@@ -83,9 +83,9 @@ def _users():
         store = SettingsStore(db)
         master = agents.create_agent(db, admin, username=f"gm{tag}", password=PASSWORD, role=Role.MASTER,
                                      full_name="M", settings=store)
-        cavo = agents.create_agent(db, master, username=f"gc{tag}", password=PASSWORD, role=Role.CAVO,
+        cavo = agents.create_agent(db, master, username=f"gc{tag}", password=PASSWORD, role=Role.AGENT,
                                    full_name="C", settings=store)
-        kub = agents.create_agent(db, cavo, username=f"gk{tag}", password=PASSWORD, role=Role.KUBRADOR,
+        kub = agents.create_agent(db, cavo, username=f"gk{tag}", password=PASSWORD, role=Role.SUB_AGENT,
                                   full_name="K", settings=store)
         decl = agents.create_agent(db, admin, username=f"gd{tag}", password=PASSWORD, role=Role.DECLARATOR,
                                    full_name="D", settings=store)

@@ -41,7 +41,7 @@ async def betlogs(request: Request, ctx: Ctx = Depends(require_ctx)):
 
 @router.get("/cancelT")
 async def cancel_t(request: Request, ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.BETS_VIEW)
+    ctx.need(Perm.CANCEL_LOG)        # dev-only
     rows = betting.list_tickets(ctx.db, ctx.user, canceled_only=True, limit=300)
     return render(ctx, "cancelT.html", active="cancelT", rows=rows)
 
@@ -77,7 +77,8 @@ async def cancel_bet(ticket_id: int, request: Request, ctx: Ctx = Depends(requir
     data = await form_data(request)
     ticket = betting.cancel_ticket(ctx.db, ctx.user, ticket_id=ticket_id,
                                    reason=data.get("reason", ""), settings=ctx.store)
-    return flash_redirect("/cancelT", f"Ticket {ticket.code} cancelled and refunded.")
+    return flash_redirect("/cancelT" if ctx.can(Perm.CANCEL_LOG) else "/betlogs",
+                          f"Ticket {ticket.code} cancelled and refunded.")
 
 
 @router.get("/tickets/{ticket_id}")

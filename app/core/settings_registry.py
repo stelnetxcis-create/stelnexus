@@ -88,27 +88,31 @@ DEFS: tuple[SettingDef, ...] = (
     SettingDef("payout.default_fixed_odds_bps", "Default fixed odds", "bps", 19000, "Payout",
                "Used by fixed-odds events. 19000 = 1.90x.", 10000, 1000000),
     # ---- commissions ------------------------------------------------------
-    # Waterfall: pool -> Cavo cut (Volume %) -> Kubrador cut (SOP %, taken out of the Cavo's cut).
-    # Whatever the Cavo does not keep is the Master's ("Management"), so the lines always sum
-    # to the pool exactly. Master and Admin can override Volume % / SOP % per Cavo / Kubrador
-    # on the Cuts page; these are the defaults and the guard rails.
+    # Waterfall: pool -> Agent cut (Volume %) -> Sub Agent cut (SOP %, taken out of the Agent's cut).
+    # Whatever the Agent does not keep is the Master's ("Management"), so the lines always sum
+    # to the pool exactly. Admin can override Volume % / SOP % per Agent / Sub Agent on the Cuts
+    # page; these are the per-game defaults and the guard rails. Out of the box: Master 70%,
+    # Agent 30%, Sub Agent 30% of the Agent's 30% (= 9% of the pool, the Agent keeps 21%).
+    # The keys keep their old names (cavo / kubrador) so values already saved by the Admin carry over.
     SettingDef("commission.enabled", "Commissions enabled", "bool", True, "Commissions"),
     SettingDef("commission.basis", "Commission basis", "choice", "netwin", "Commissions",
                "netwin = pool is a share of the house's win on the game (tong etc.), split pro-rata by stake; "
                "turnover = pool is a share of every settled stake.",
                choices=("turnover", "netwin")),
     SettingDef("commission.pool_bps", "Pool: share of the basis that is split", "bps", 10000, "Commissions",
-               "How much of the basis goes into the Master / Cavo / Kubrador split. 10000 = 100%. "
+               "How much of the basis goes into the Master / Agent / Sub Agent split. 10000 = 100%. "
                "With basis = turnover use a small number (e.g. 150 = 1.50% of every stake).", 0, 10000),
-    SettingDef("commission.cavo_cut_bps", "Default Cavo cut (Volume %)", "bps", 3000, "Commissions",
-               "Share of the pool kept by the Cavo's side. 3000 = 30%, so the Master gets 70%.", 0, 10000),
-    SettingDef("commission.kubrador_cut_bps", "Default Kubrador cut (SOP %)", "bps", 2000, "Commissions",
-               "Share of the Cavo's cut that goes to the Kubrador who brought the bet. 2000 = 20% of the Cavo's 30%.",
-               0, 10000),
-    SettingDef("commission.max_cavo_cut_bps", "Highest Cavo cut a Master may set", "bps", 5000, "Commissions",
+    SettingDef("commission.cavo_cut_bps", "Meron / Wala: default Agent cut (Volume %)", "bps", 3000, "Commissions",
+               "Share of the pool kept by the Agent's side. 3000 = 30%, so the Master gets 70%.", 0, 10000),
+    SettingDef("commission.kubrador_cut_bps", "Meron / Wala: default Sub Agent cut (SOP %)", "bps", 3000,
+               "Commissions",
+               "Share of the Agent's cut that goes to the Sub Agent who brought the bet. "
+               "3000 = 30% of the Agent's 30% (9% of the pool).", 0, 10000),
+    SettingDef("commission.max_cavo_cut_bps", "Highest Agent cut a Master may set", "bps", 5000, "Commissions",
                "Guard rail. Admin is not limited. 5000 = 50%.", 0, 10000),
-    SettingDef("commission.max_kubrador_cut_bps", "Highest Kubrador cut a Master may set", "bps", 5000, "Commissions",
-               "Guard rail, as a share of the Cavo's cut. Admin is not limited.", 0, 10000),
+    SettingDef("commission.max_kubrador_cut_bps", "Highest Sub Agent cut a Master may set", "bps", 5000,
+               "Commissions",
+               "Guard rail, as a share of the Agent's cut. Admin is not limited.", 0, 10000),
     SettingDef("commission.cap_of_house_cut_bps", "Cap: share of house win", "bps", 10000, "Commissions",
                "Total commission per game can never exceed this share of the house win. 10000 = 100%.", 0, 10000),
     SettingDef("commission.pay_on_refund", "Pay commission on refunded bets", "bool", False, "Commissions"),
@@ -152,8 +156,15 @@ DEFS: tuple[SettingDef, ...] = (
                "netwin = a share of the house's net take on the draw, apportioned by stake.",
                choices=("turnover", "netwin")),
     SettingDef("bola.commission.pool_bps", "Bola pool: share of the basis", "bps", 3000, "Bola",
-               "How much of each stake is set aside for the network. 3000 = 30%. The Cavo's Volume % "
-               "and the Kubrador's SOP % are then taken out of this pool (Cuts page).", 0, 10000),
+               "How much of each stake is set aside for the network. 3000 = 30%. The Agent's Volume % "
+               "and the Sub Agent's SOP % are then taken out of this pool (Cuts page).", 0, 10000),
+    SettingDef("bola.commission.agent_cut_bps", "Bola: default Agent cut (Volume %)", "bps", 3000, "Bola",
+               "Bola's own default for the share of the Bola pool kept by the Agent's side. 3000 = 30%, "
+               "so the Master's remainder is 70%. A cut set on one account's Cuts row beats this.",
+               0, 10000),
+    SettingDef("bola.commission.sub_agent_cut_bps", "Bola: default Sub Agent cut (SOP %)", "bps", 3000, "Bola",
+               "Bola's own default for the share of the Agent's cut that goes to the Sub Agent who brought "
+               "the bet. 3000 = 30% of the Agent's 30%.", 0, 10000),
     SettingDef("bola.commission.pay_master", "Pay the Master a Bola commission line", "bool", False, "Bola",
                "Plan decision D4. Off (default): the Master's remainder of the pool stays with the "
                "house. On: it is paid to the Master as a commission line, as in sabong, so the "
@@ -176,6 +187,14 @@ DEFS: tuple[SettingDef, ...] = (
     SettingDef("store.lux_price_cents", "Lux VIP Battle Pass price", "money", 299900, "Store",
                "Centavos. Same features as the Battle Pass plus flashy, highlighted chat. Supports the server.", 100, 10**9),
     SettingDef("store.lux_days", "Lux VIP Battle Pass length (days)", "int", 30, "Store", "", 1, 365),
+    SettingDef("store.alias_price_cents", "Alias token price", "money", 20000, "Store",
+               "Centavos. One-time consumable: spending it sets the name shown in chat instead of the username (200 PHP).", 100, 10**9),
+    SettingDef("store.slow_mode_seconds", "Chat slow mode (seconds between messages)", "int", 3, "Store",
+               "Players with a Battle Pass or Chat Token wait this long between messages in a game's chat. "
+               "Lux VIP and staff are never slowed. 0 turns slow mode off for everyone.", 0, 300),
+    SettingDef("store.chat_show_roles", "Show account type in livestream chat", "bool", False, "Store",
+               "Off (default): chat shows only names, no Admin / Master Agent / Agent ... tags and no role colours. "
+               "On: the tag and colour of each account type are shown to everyone."),
     # ---- wallet / transfers ----------------------------------------------
     SettingDef("wallet.min_transfer_cents", "Minimum credit transfer", "money", 1000, "Credit", "Centavos.", 100, 10**9),
     SettingDef("wallet.max_transfer_cents", "Maximum credit transfer", "money", 50000000, "Credit", "Centavos.", 100, 10**11),

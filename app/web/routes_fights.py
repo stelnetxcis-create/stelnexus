@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse
 
 from app.core.config import get_settings
-from app.core.errors import NotFound, ValidationError
+from app.core.errors import Forbidden, NotFound, ValidationError
 from app.core.money import to_cents
 from app.core.rbac import Perm, hides_totals
 from app.db.models import EventStatus, PayoutModel, Result
@@ -81,8 +81,11 @@ async def location_quick(request: Request, ctx: Ctx = Depends(require_ctx)):
 
 @router.post("/events/{event_id}/status")
 async def events_status(event_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.EVENTS_MANAGE)
     data = await form_data(request)
+    if not ctx.can(Perm.EVENTS_MANAGE):
+        ctx.need(Perm.EVENTS_OPEN)           # a Declarator may only set an event to OPEN
+        if data.get("status", "open") != "open":
+            raise Forbidden("You can only open an event.")
     previous = events.get_event(ctx.db, event_id).status.value
     events.set_event_status(ctx.db, ctx.user, event_id, EventStatus(data.get("status", "open")))
     undo = {"action": f"/events/{event_id}/status", "fields": {"status": previous}} if previous != "canceled" else None

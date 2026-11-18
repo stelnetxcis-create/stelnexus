@@ -44,6 +44,7 @@ from app.core.security import random_code
 from app.core.settings_registry import SettingsStore
 from app.db.base import utcnow
 from app.db.models import (
+    NETWORK_ROLES,
     KIND_LINES,
     KIND_NUMBERS,
     BolaDraw,
@@ -667,15 +668,16 @@ def _ticket_code(db: Session) -> str:
 
 
 def network_names(db: Session, agent_id: int | None) -> tuple[str | None, str | None]:
-    """(kubrador, cavo) usernames from the real upline chain, snapshotted on the ticket."""
+    """(sub agent, agent) usernames from the real upline chain, snapshotted on the ticket (legacy
+    ``kubrador`` / ``cavo`` columns now hold the Sub Agent / Agent)."""
     kubrador = cavo = None
     current = db.get(User, agent_id) if agent_id else None
     for _ in range(8):
         if current is None:
             break
-        if current.role == Role.KUBRADOR and kubrador is None:
+        if current.role == Role.SUB_AGENT and kubrador is None:
             kubrador = current.username
-        elif current.role == Role.CAVO and cavo is None:
+        elif current.role == Role.AGENT and cavo is None:
             cavo = current.username
         current = db.get(User, current.parent_id) if current.parent_id else None
     return kubrador, cavo
@@ -761,7 +763,7 @@ def place_bola_bet(
     )
 
     agent_id = player.agent_id
-    if agent_id is None and actor.role in (Role.MASTER, Role.CAVO, Role.KUBRADOR):
+    if agent_id is None and actor.role in NETWORK_ROLES:
         agent_id = actor.id
     chain_kubrador, chain_cavo = network_names(db, agent_id)
     t_pay, s_pay = line_payouts(tumbok, sahod, settings)

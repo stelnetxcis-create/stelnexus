@@ -18,7 +18,7 @@
       {% set st = row.status(now) %}
       <tr>
         <td class="mono"><strong>{{ row.code }}</strong>{% if st == 'active' %} <button type="button" class="btn btn-ghost btn-sm" data-copy="{{ request.base_url }}register?code={{ row.code }}">Copy link</button>{% endif %}</td>
-        <td>{{ 'Player (normal account)' if row.role == 'player' else row.role | capitalize }}</td>
+        <td>{{ 'Player (normal account)' if row.role == 'player' else role_names.get(row.role, row.role | capitalize) }}</td>
         <td class="small">{{ who(row.issuer) }}</td>
         <td class="small">{{ row.note or '—' }}</td>
         <td class="small nowrap">{{ row.expires_at | datetime }}</td>
@@ -45,14 +45,17 @@
     <label class="field"><span>Account type</span>
       <select name="role" id="ref-role">{% for key, label in invite_roles %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select>
     </label>
+    {% if uplines %}
     <label class="field" id="ref-upline-field"><span>Reports to</span>
       <select name="parent_id" id="ref-upline">
         <option value="">Automatic / directly under me</option>
-        {% for u in uplines %}<option value="{{ u.id }}" data-for="{{ {'master':'cavo','cavo':'kubrador','kubrador':'player'}[u.role.value] }}">{{ u.full_name }} ({{ u.role.value | capitalize }})</option>{% endfor %}
+        {% set fits = {'master': 'agent', 'agent': 'sub_agent player', 'sub_agent': 'player'} %}
+        {% for u in uplines %}<option value="{{ u.id }}" data-for="{{ fits.get(u.role.value, '') }}">{{ u.full_name }} ({{ u.role_label }})</option>{% endfor %}
       </select>
     </label>
+    {% endif %}
   </div>
-  <small class="muted">You can invite any account type. A Cavo reports to a Master, a Kubrador to a Cavo, a Player to a Kubrador; a Master sits directly under you.</small>
+  <small class="muted">{% if invite_roles[0][0] == 'master' %}You can invite any account type. A Master Agent sits directly under you. An Agent reports to a Master Agent and a Sub Agent to an Agent. A Player reports to a Sub Agent, or straight to an Agent.{% else %}Choose what the new account becomes. It sits directly under you.{% endif %}</small>
   {% else %}
   <input type="hidden" name="role" value="{{ invite_roles[0][0] }}">
   <div class="notice" style="margin-bottom:10px">Whoever uses this code becomes a <strong>{{ invite_roles[0][1] }}</strong> under you. This is fixed by your role.</div>
@@ -70,4 +73,4 @@
 {% endcall %}
 {% endif %}
 {% endblock %}
-{% block scripts %}{% if invite_roles | length > 1 %}<script src="/static/js/referrals.js?v=1" defer></script>{% endif %}{% endblock %}
+{% block scripts %}{% if invite_roles | length > 1 %}<script src="/static/js/referrals.js?v=2" defer></script>{% endif %}{% endblock %}

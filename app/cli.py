@@ -102,14 +102,14 @@ def seed_demo(_args) -> None:
             sys.exit("Create an admin first (create-admin).")
         master = agents.create_agent(db, admin, username="demo_master", password=demo_pw,
                                      role=Role.MASTER, full_name="Demo Master", settings=store)
-        cavo = agents.create_agent(db, master, username="demo_cavo", password=demo_pw,
-                                   role=Role.CAVO, full_name="Demo Cavo", settings=store)
-        kubrador = agents.create_agent(db, cavo, username="demo_kubrador", password=demo_pw,
-                                       role=Role.KUBRADOR, full_name="Demo Kubrador", settings=store)
+        agent = agents.create_agent(db, master, username="demo_agent", password=demo_pw,
+                                    role=Role.AGENT, full_name="Demo Agent", settings=store)
+        sub_agent = agents.create_agent(db, agent, username="demo_subagent", password=demo_pw,
+                                        role=Role.SUB_AGENT, full_name="Demo Sub Agent", settings=store)
         players.register_online_player(db, admin, username="demo_player", password=demo_pw,
                                        full_name="Demo Player", birth_date=dt.date(1990, 1, 1),
                                        gcash_number="09170000001", settings=store,
-                                       agent_id=kubrador.id)
+                                       agent_id=sub_agent.id)
         events.create_event(db, admin, title="Demo Event", event_date=dt.date.today(),
                             settings=store, fight_count=5)
     print(f"Demo data created. Demo users share the password: {demo_pw}")
@@ -156,7 +156,7 @@ def encrypt_pii(_args) -> None:
 
 def convert_cut(com: float, sop: float, pool: float) -> tuple[int, int]:
     """Legacy per-Cavo rates ("% of sales") -> StelNexus (Volume bps of the pool, SOP bps of the
-    Cavo's cut). Assumes SOP is paid OUT of the Cavo's cut (plan D3). Raises ValueError if the
+    Agent's cut; the old Cavo is now an Agent). Assumes SOP is paid OUT of the Agent's cut (plan D3). Raises ValueError if the
     pair cannot be expressed (no commission but a SOP, SOP above the commission, pool too small)."""
     if pool <= 0:
         raise ValueError("pool must be above 0")
@@ -245,18 +245,19 @@ def bola_convert_cuts(args) -> None:
     for name, why in bad:
         print(f"SKIPPED {name}: {why}")
     if not args.apply:
-        print("\nDry run. Re-run with --apply to write these to the Cuts of existing Cavos.")
+        print("\nDry run. Re-run with --apply to write these to the Cuts of existing Agents (the old Cavos).")
         return
     with session_scope() as db:
         done = 0
         for name, _com, _sop, vol, sbps in rows:
-            cavo = db.scalar(select(User).where(User.username == name, User.role == Role.CAVO))
-            if cavo is None:
-                print(f"NOT FOUND (no such Cavo): {name}")
+            agent = db.scalar(select(User).where(User.username == name,
+                                                 User.role.in_((Role.AGENT, Role.CAVO))))
+            if agent is None:
+                print(f"NOT FOUND (no such Agent): {name}")
                 continue
-            cavo.cut_bps, cavo.sop_bps = vol, sbps
+            agent.cut_bps, agent.sop_bps = vol, sbps
             done += 1
-        print(f"Updated {done} Cavo(s).")
+        print(f"Updated {done} Agent(s).")
 
 
 def bola_import_legacy(args) -> None:

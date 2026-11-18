@@ -2,10 +2,13 @@
 
 * A code is always single-use and has an expiry timer chosen by its issuer.
 * The role of the invitee is decided by who issued the code, never by the person redeeming it:
-      Master's code -> Cavo      Cavo's code -> Kubrador      Kubrador's code -> normal (player) account
-  The new account is attached directly under the issuer.
-* The Admin is the exception: an Admin code can make a Master, Cavo, Kubrador or Player, and for
-  the last three the Admin picks who the new account reports to (stored on the code).
+      Master Agent's code -> Agent
+      Agent's code        -> Sub Agent (default) or a player
+      Sub Agent's code    -> a player (normal account)
+  The issuer picks the role when the code is made (the first one listed is the default). The new
+  account is attached directly under the issuer.
+* The Admin is the exception: an Admin code can make any of those, and for everything but a Master
+  the Admin picks who the new account reports to (stored on the code).
 * Redemption claims the code with a conditional UPDATE, so two simultaneous
   sign-ups can never both succeed.
 """
@@ -21,7 +24,7 @@ from app.core.errors import Forbidden, NotFound, StelError, ValidationError
 from app.core.rbac import scope_ids
 from app.core.security import random_code
 from app.core.settings_registry import SettingsStore
-from app.db.models import INVITE_ROLE, Player, ReferralCode, Role, User
+from app.db.models import INVITE_ROLES, Player, ReferralCode, Role, User
 from app.services import agents, players
 
 MAX_TTL_MINUTES = 43200  # 30 days
@@ -37,23 +40,21 @@ def _norm(code: str) -> str:
 
 
 def invite_role(actor: User) -> str | None:
-    """'cavo' for a Master, 'kubrador' for a Cavo, 'player' for a Kubrador, 'master' for Admin."""
-    return INVITE_ROLE.get(Role(actor.role))
+    """The default role of this account's code: 'agent' for a Master Agent, 'sub_agent' for an
+    Agent, 'player' for a Sub Agent, 'master' for Admin."""
+    roles = INVITE_ROLES.get(Role(actor.role), ())
+    return roles[0] if roles else None
 
 
 # What the Admin may choose when issuing a code (Declarator and Pawn are created directly).
-ADMIN_INVITE_ROLES = ("master", "cavo", "kubrador", "player")
-_UPLINE_OF = {"cavo": Role.MASTER, "kubrador": Role.CAVO, "player": Role.KUBRADOR}
+ADMIN_INVITE_ROLES = INVITE_ROLES[Role.ADMIN]
 
 
 def invite_roles(actor: User) -> list[str]:
-    """Every role this account may put on a code (the Admin has four, everyone else exactly one)."""
+    """Every role this account may put on a code. The first is the default."""
     if actor.status != "active":
         return []
-    if actor.role == Role.ADMIN:
-        return list(ADMIN_INVITE_ROLES)
-    own = invite_role(actor)
-    return [own] if own else []
+    return list(INVITE_ROLES.get(Role(actor.role), ()))
 
 
 def role_label(role: str) -> str:
@@ -61,21 +62,18 @@ def role_label(role: str) -> str:
 
 
 def _pick_upline(db: Session, role: str, parent_id: int | None) -> int | None:
-    """Admin codes only: the active account the new Cavo / Kubrador / Player will report to."""
-    need = _UPLINE_OF.get(role)
-    if need is None:                      # master: sits directly under the Admin
+    """Admin codes only: the active account the new Agent / Sub Agent / Player
+    will report to."""
+    if role == "master":                  # sits directly under the Admin
         return None
-    if parent_id:
-        parent = db.get(User, parent_id)
-    else:
-        found = db.scalars(select(User).where(User.role == need, User.status == "active")
-                           .order_by(User.id).limit(2)).all()
-        parent = found[0] if len(found) == 1 else None
-    if parent is None or parent.role != need or parent.status != "active":
-        if role == "player" and not parent_id:
-            return None                   # a player with no Kubrador named sits under the Admin
-        raise ValidationError(f"Choose the active {need.label} this {role_label(role)} reports to.")
-    return parent.id
+    if role == "player" and not parent_id:
+        # A player with no upline named sits under the usual Sub Agent if there is exactly one,
+        # otherwise under the Admin.
+        try:
+            return agents.pick_upline(db, role, None).id
+        except ValidationError:
+            return None
+    return agents.pick_upline(db, role, parent_id).id
 
 
 def create_code(db: Session, actor: User, *, ttl_minutes: int, note: str | None = None,
@@ -120,8 +118,8 @@ def lookup_valid(db: Session, code: str) -> ReferralCode:
 def redeem(db: Session, code: str, *, username: str, password: str, full_name: str,
            contact: str | None, settings: SettingsStore, birth_date: dt.date | None = None,
            gcash_number: str | None = None) -> User | Player:
-    """Consume a code and create the invited account. Returns a User (Master/Cavo/Kubrador) or,
-    for a Kubrador's code, a Player."""
+    """Consume a code and create the invited account. Returns a User (Master/Agent/Sub Agent) or,
+    for a player code, a Player."""
     row = lookup_valid(db, code)
     claimed = db.execute(
         update(ReferralCode)

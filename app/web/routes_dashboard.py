@@ -48,7 +48,7 @@ async def dashboard(ctx: Ctx = Depends(require_ctx)):
     # Master keeps the operational side of the dashboard without any house totals.
     show_money = ctx.can(Perm.CASHFLOW_VIEW)
     mine = None
-    if not ctx.user.is_top:       # cavo / kubrador: only their own numbers, never house-wide money
+    if not ctx.user.is_top:       # agent / sub agent: only their own numbers, never house-wide money
         ids = scope_ids(ctx.db, ctx.user)
         mine = {"credit": agents_svc.wallet_balance(ctx.db, ctx.user),
                 "downline": len(downline_ids(ctx.db, ctx.user)),

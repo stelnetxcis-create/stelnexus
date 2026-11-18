@@ -33,9 +33,9 @@ def bw(world):
     tag = world.tag
     master = agents.create_agent(db, admin, username=f"bm{tag}", password=PASSWORD, role=Role.MASTER,
                                  full_name="M", settings=store)
-    cavo = agents.create_agent(db, master, username=f"bc{tag}", password=PASSWORD, role=Role.CAVO,
+    cavo = agents.create_agent(db, master, username=f"bc{tag}", password=PASSWORD, role=Role.AGENT,
                                full_name="C", settings=store)
-    kub = agents.create_agent(db, cavo, username=f"bk{tag}", password=PASSWORD, role=Role.KUBRADOR,
+    kub = agents.create_agent(db, cavo, username=f"bk{tag}", password=PASSWORD, role=Role.SUB_AGENT,
                               full_name="K", settings=store)
     player = players.register_online_player(
         db, kub, username=f"bp{tag}", password=PASSWORD, full_name="P",
@@ -81,7 +81,7 @@ def test_commissions_written_and_sum_to_pool(bw):
         rows = list(w.db.scalars(select(BolaCommission).where(BolaCommission.draw_id == w.draw.id)))
         pool = 10_000 * int(w.store.get("bola.commission.pool_bps")) // 10_000
         assert rows and sum(r.amount_cents for r in rows) == pool
-        assert {r.tier for r in rows} == {"master", "cavo", "kubrador"}
+        assert {r.tier for r in rows} == {"master", "agent", "sub_agent"}
         assert commissions.totals_for(w.db, w.cavo)["earned"] > 0
         assert ledger.verify_integrity(w.db)["ok"]
     finally:
@@ -97,19 +97,19 @@ def test_master_remainder_stays_with_house_by_default(bw):
                             settings=w.store, reason="test: declare before draw time")
     rows = list(w.db.scalars(select(BolaCommission).where(BolaCommission.draw_id == w.draw.id)))
     pool = 10_000 * int(w.store.get("bola.commission.pool_bps")) // 10_000
-    split = commissions.split_pool(pool, cavo_bps=commissions.effective_cavo_bps(w.cavo, w.store),
-                                   sop_bps=commissions.effective_sop_bps(w.kub, w.cavo, w.store))
-    assert {r.tier for r in rows} == {"cavo", "kubrador"}
-    assert sum(r.amount_cents for r in rows) == split.cavo + split.kubrador < pool
+    split = commissions.split_pool(pool, agent_bps=commissions.effective_agent_bps(w.cavo, w.store, "bola"),
+                                   sub_bps=commissions.effective_sub_bps(w.kub, w.cavo, w.store, "bola"))
+    assert {r.tier for r in rows} == {"agent", "sub_agent"}
+    assert sum(r.amount_cents for r in rows) == split.agent + split.sub_agent < pool
     assert ledger.verify_integrity(w.db)["ok"]
 
 
 def test_plan_commission_example_on_a_100_peso_stake():
-    """Plan section 9: pool 30%, Cavo volume 8333, SOP 4000 on PHP 100."""
-    s = commissions.split_pool(3000, cavo_bps=8333, sop_bps=4000)
-    assert (s.pool, s.cavo_gross, s.kubrador, s.cavo, s.master) == (3000, 2499, 999, 1500, 501)
+    """Plan section 9: pool 30%, Agent volume 8333, SOP 4000 on PHP 100."""
+    s = commissions.split_pool(3000, agent_bps=8333, sub_bps=4000)
+    assert (s.pool, s.agent_gross, s.sub_agent, s.agent, s.master) == (3000, 2499, 999, 1500, 501)
     assert s.paid == s.pool                                        # Master as a commission line
-    assert commissions.split_pool(3000, cavo_bps=8333, sop_bps=4000, has_master=False).paid == 2499
+    assert commissions.split_pool(3000, agent_bps=8333, sub_bps=4000, has_master=False).paid == 2499
 
 
 def test_per_line_limit_enforced(bw):

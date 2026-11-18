@@ -75,6 +75,12 @@ async def wallet_page(request: Request, ctx: Ctx = Depends(require_ctx)):
         data["my_requests"] = cashdesk.my_requests(db, user, limit=6)
     elif tab in ("load", "cashout"):
         data["my_players"] = players.list_players(db, user, limit=300)
+        from sqlalchemy import select as _sel
+        from app.core.security import pii as _pii
+        from app.db.models import Role as _Role, Status as _Status, User as _User
+        data["tellers"] = [(t.full_name, _pii.decrypt(t.gcash_enc)) for t in db.scalars(
+            _sel(_User).where(_User.role == _Role.TELLER, _User.status == _Status.ACTIVE,
+                              _User.gcash_enc.is_not(None)).order_by(_User.full_name)).all()]
         data["my_requests"] = [r for r in cashdesk.my_requests(db, user, limit=30)
                                if r.direction.value == ("in" if tab == "load" else "out")][:8]
     elif tab == "transfer":

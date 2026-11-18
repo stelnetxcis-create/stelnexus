@@ -84,12 +84,11 @@
           ('change_name', '/change_name', 'i-target', 'Fight View', 'fights.view'),
           ('history', '/history', 'i-clock', 'Game History', 'fights.view'),
           ('betlogs', '/betlogs', 'i-list', 'Betting List', 'bets.view'),
-          ('cancelT', '/cancelT', 'i-ban', 'Cancel Ticket', 'bets.view')]),
+          ('cancelT', '/cancelT', 'i-ban', 'Cancel Ticket', 'cancellog.view')]),
         ('Number game', [
           ('bola', '/bola', 'i-hash', 'Bola', 'bola.view'),
           ('bola_logs', '/bola/betlogs', 'i-list', 'Bola Tickets', 'bola.place'),
-          ('bola_cancelled', '/bola/cancelled', 'i-ban', 'Bola Cancelled', 'bola.view'),
-          ('bola_agents', '/bola/agents', 'i-users', 'Agent Statements', 'bola.view'),
+          ('bola_cancelled', '/bola/cancelled', 'i-ban', 'Bola Cancelled', 'cancellog.view'),
           ('bola_reports', '/bola/reports', 'i-coins', 'Bola Reports', 'bola.exposure')]),
         ('Network', [
           ('agents', '/agents', 'i-users', 'Users', 'agents.view'),
@@ -170,7 +169,7 @@
             {% if not viewing_as %}
             <div class="dev-sec dev-links">
               <label class="dev-label">Shortcuts</label>
-              <a href="/admin">Admin Panel</a><a href="/admin/integrity">Ledger integrity</a><a href="/cashflow">Cashflow</a>{% if dev.env == 'dev' %}<a href="/api/docs" target="_blank" rel="noopener">API docs</a>{% endif %}
+              <a href="/admin">Admin Panel</a><a href="/admin/integrity">Ledger integrity</a><a href="/cashflow">Cashflow</a><a href="/dev/store">Store effects</a>{% if dev.env == 'dev' %}<a href="/api/docs" target="_blank" rel="noopener">API docs</a>{% endif %}
             </div>
             {% endif %}
             <div class="dev-foot">env <b>{{ dev.env }}</b> · db <b>{{ dev.db }}</b> · {{ tagline or brand }}</div>

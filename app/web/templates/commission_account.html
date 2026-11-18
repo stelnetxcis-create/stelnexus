@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Statement · {{ agent.username }} · {{ brand }}{% endblock %}
+{% block heading %}Statement · {{ 'System' if agent.is_hidden else agent.username }}{% endblock %}
+{% block actions %}<a class="btn btn-sm" href="/commissions?start={{ stmt.start }}&amp;end={{ stmt.end }}&amp;game={{ game }}">All accounts</a>{% endblock %}
+{% block content %}
+{% set t = stmt.totals %}
+{% set q = 'start=' ~ stmt.start ~ '&amp;end=' ~ stmt.end %}
+<div class="card">
+  <div class="card-head"><h2>{{ agent.role_label }} · {{ stmt.start }}{% if stmt.end != stmt.start %} to {{ stmt.end }}{% endif %}</h2>
+    <div class="table-tools">
+      <a class="chip {{ 'is-active' if game == 'all' }}" href="/commissions/{{ agent.id }}?{{ q }}">Both games</a>
+      <a class="chip {{ 'is-active' if game == 'sabong' }}" href="/commissions/{{ agent.id }}?{{ q }}&amp;game=sabong">Meron / Wala</a>
+      <a class="chip {{ 'is-active' if game == 'bola' }}" href="/commissions/{{ agent.id }}?{{ q }}&amp;game=bola">Bola</a>
+    </div>
+    <form method="get" class="inline-form" style="display:inline-flex;gap:6px;flex-wrap:wrap">
+      <input type="hidden" name="game" value="{{ game }}">
+      <input type="date" name="start" value="{{ stmt.start }}" aria-label="From date">
+      <input type="date" name="end" value="{{ stmt.end }}" aria-label="To date">
+      <button class="btn btn-sm" type="submit">Show</button>
+    </form></div>
+  <div class="card-body tight">
+    <div class="grid grid-4" style="padding:12px">
+      {{ ui.stat('Tickets sold', t.tickets, t.canceled ~ ' cancelled') }}
+      {{ ui.stat('Staked', t.staked | money, t.staked_sabong | money ~ ' Meron/Wala · ' ~ (t.staked_bola | money) ~ ' Bola') }}
+      {{ ui.stat('Paid to players', t.paid | money, t.winners ~ ' winning tickets', 'blue') }}
+      {{ ui.stat('Commission earned', t.commission | money, t.claimed | money ~ ' claimed', 'green') }}
+    </div>
+    {% if games %}
+    <div class="table-wrap"><table class="table"><thead><tr>
+      <th>Game</th><th>Date</th><th>Result</th><th class="right">Tickets</th><th class="right">Staked</th>
+      <th class="right">Cancelled</th><th class="right">Paid to players</th><th class="right">Commission</th></tr></thead><tbody>
+    {% for r in games %}
+      <tr>
+        <td class="small nowrap"><a href="{{ r.link }}">{{ r.label }}</a> <span class="muted">{{ 'Bola' if r.game == 'bola' else 'Meron / Wala' }}</span></td>
+        <td class="small nowrap">{{ r.when or '—' }}</td><td class="num">{{ r.result or '—' }}</td>
+        <td class="right num">{{ r.tickets }}</td><td class="right num">{{ r.staked | money }}</td>
+        <td class="right num">{{ r.canceled }}</td><td class="right num">{{ r.paid | money }}</td>
+        <td class="right num">{{ r.commission | money }}</td>
+      </tr>
+    {% endfor %}
+    </tbody></table></div>
+    {% else %}{{ ui.empty('No activity for this account in the range.') }}{% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Commission lines</h2>
+    <div class="table-tools">
+      <a class="chip {{ 'is-active' if not status }}" href="/commissions/{{ agent.id }}?{{ q }}&amp;game={{ game }}">All</a>
+      <a class="chip {{ 'is-active' if status == 'unclaimed' }}" href="/commissions/{{ agent.id }}?{{ q }}&amp;game={{ game }}&amp;status=unclaimed">Unclaimed</a>
+      <a class="chip {{ 'is-active' if status == 'claimed' }}" href="/commissions/{{ agent.id }}?{{ q }}&amp;game={{ game }}&amp;status=claimed">Claimed</a>
+    </div></div>
+  <div class="card-body tight">
+    {% if lines %}
+    <div class="table-wrap"><table class="table" data-table data-page-size="25">
+      <thead><tr><th>Type</th><th>Player</th><th>Game</th><th>Ticket</th><th class="right">Base</th><th class="right">Rate</th><th class="right">Commission</th><th>Status</th><th>Date</th></tr></thead>
+      <tbody>
+      {% for row in lines %}
+        <tr>
+          <td>{{ ui.badge(tier_label.get(row.tier, row.tier)) }}</td>
+          <td class="small">{{ row.player }}</td><td class="num">{{ row.game_label }}</td>
+          <td class="mono small">{{ row.ticket }}</td>
+          <td class="right num">{{ row.base_cents | money }}</td>
+          <td class="right num">{{ '%.2f%%' | format(row.rate_bps / 100) }}</td>
+          <td class="right num" data-sort="{{ row.amount_cents }}"><strong>{{ row.amount_cents | money }}</strong></td>
+          <td>{{ ui.status_badge(row.status) }}</td>
+          <td class="small nowrap">{{ row.created_at | datetime }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}{{ ui.empty('No commission lines for this account in the range.') }}{% endif %}
+  </div>
+</div>
+{% endblock %}

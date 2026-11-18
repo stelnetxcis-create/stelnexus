@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from app.core.errors import ValidationError
 from app.core.rbac import Perm, creatable_roles, hides_totals, scope_ids
-from app.db.models import Role, Status, User
+from app.db.models import UPLINE_ROLES, Role, Status, User
 from app.services import agents
 from app.web.deps import Ctx, form_data, flash_redirect, render, require_ctx
 
@@ -20,10 +20,10 @@ def _int(raw: str | None) -> int | None:
 
 
 def _uplines(ctx: Ctx, creatable: list[Role]) -> list[User]:
-    """Masters and Cavos the Admin / a Pawn may attach a new Cavo / Kubrador to."""
+    """Accounts the Admin / a Pawn may attach a new Agent or Sub Agent to."""
     if ctx.user.role not in (Role.ADMIN, Role.PAWN):
         return []
-    wanted = [r for r, need in ((Role.MASTER, Role.CAVO), (Role.CAVO, Role.KUBRADOR)) if need in creatable]
+    wanted = {up for r in creatable if r.value in UPLINE_ROLES for up in UPLINE_ROLES[r.value]}
     if not wanted:
         return []
     return list(ctx.db.scalars(select(User).where(User.role.in_(wanted), User.status == Status.ACTIVE)
@@ -55,7 +55,7 @@ async def agents_create(request: Request, ctx: Ctx = Depends(require_ctx)):
     user = agents.create_agent(
         ctx.db, ctx.user, username=data.get("username", ""), password=data.get("password", ""),
         role=role, full_name=data.get("full_name", ""), contact=data.get("contact"),
-        parent_id=_int(data.get("parent_id")), settings=ctx.store,
+        parent_id=_int(data.get("parent_id")), settings=ctx.store, gcash_number=data.get("gcash"),
     )
     return flash_redirect("/agents", f"{user.role_label} '{user.username}' created. Ref code {user.ref_code}.")
 

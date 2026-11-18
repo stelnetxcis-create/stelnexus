@@ -1,4 +1,4 @@
-"""Master / Cavo / Kubrador network: roles, invites, the cut formula, hidden admin, migration."""
+"""Master Agent / Agent / Sub Agent network: roles, invites, the cut formula, hidden admin, migration."""
 import datetime as dt
 import shutil
 from pathlib import Path
@@ -20,22 +20,24 @@ app = create_app()
 
 # ---------------------------------------------------------------- the formula
 @pytest.mark.parametrize("pool", [0, 1, 7, 999, 100_000, 123_457])
-@pytest.mark.parametrize("cavo,sop", [(3000, 2000), (0, 5000), (10000, 10000), (2750, 3333), (3000, 0)])
-def test_split_always_sums_to_pool(pool, cavo, sop):
-    s = split_pool(pool, cavo_bps=cavo, sop_bps=sop)
-    assert s.paid == pool and min(s.master, s.cavo, s.kubrador) >= 0
+@pytest.mark.parametrize("agent,sop", [(3000, 3000), (0, 5000), (10000, 10000), (2750, 3333), (3000, 0)])
+def test_split_always_sums_to_pool(pool, agent, sop):
+    s = split_pool(pool, agent_bps=agent, sub_bps=sop)
+    assert s.paid == pool and min(s.master, s.agent, s.sub_agent) >= 0
 
 
-def test_default_split_is_70_30_with_sop_out_of_cavo():
-    s = split_pool(100_000, cavo_bps=3000, sop_bps=2000)
-    assert (s.master, s.cavo, s.kubrador, s.cavo_gross) == (70_000, 24_000, 6_000, 30_000)
+def test_default_split_is_70_30_with_sub_agent_30_percent_of_the_agents_30():
+    s = split_pool(100_000, agent_bps=3000, sub_bps=3000)
+    assert (s.master, s.agent, s.sub_agent, s.agent_gross) == (70_000, 21_000, 9_000, 30_000)
 
 
 def test_missing_or_suspended_links_roll_up():
-    assert split_pool(1000, cavo_bps=3000, sop_bps=2000, has_kubrador=False).kubrador == 0
-    only_master = split_pool(1000, cavo_bps=3000, sop_bps=2000, has_cavo=False, has_kubrador=False)
+    assert split_pool(1000, agent_bps=3000, sub_bps=3000, has_sub=False).sub_agent == 0
+    # no Sub Agent: the Agent keeps the whole Agent cut
+    assert split_pool(1000, agent_bps=3000, sub_bps=3000, has_sub=False).agent == 300
+    only_master = split_pool(1000, agent_bps=3000, sub_bps=3000, has_agent=False, has_sub=False)
     assert only_master.master == 1000
-    no_master = split_pool(1000, cavo_bps=3000, sop_bps=2000, has_master=False)
+    no_master = split_pool(1000, agent_bps=3000, sub_bps=3000, has_master=False)
     assert no_master.master == 0 and no_master.paid == 300      # house keeps the Master share
 
 
@@ -46,10 +48,10 @@ def chain(world):
     tag = world.tag
     master = agents.create_agent(db, admin, username=f"m{tag}", password=PASSWORD, role=Role.MASTER,
                                  full_name="M", settings=store)
-    cavo = agents.create_agent(db, master, username=f"c{tag}", password=PASSWORD, role=Role.CAVO,
-                               full_name="C", settings=store)
-    kub = agents.create_agent(db, cavo, username=f"k{tag}", password=PASSWORD, role=Role.KUBRADOR,
-                              full_name="K", settings=store)
+    cavo = agents.create_agent(db, master, username=f"c{tag}", password=PASSWORD, role=Role.AGENT,
+                               full_name="C", settings=store)       # w.cavo = the Agent
+    kub = agents.create_agent(db, cavo, username=f"k{tag}", password=PASSWORD, role=Role.SUB_AGENT,
+                              full_name="K", settings=store)        # w.kub = the Sub Agent
     player = players.register_online_player(
         db, kub, username=f"pk{tag}", password=PASSWORD, full_name="P", birth_date=dt.date(1990, 1, 1),
         gcash_number="09171234567", settings=store, agent_id=kub.id)
@@ -69,7 +71,7 @@ def test_end_to_end_commission_split_and_audit(chain):
     w = chain
     _bet(w, Side.MERON, 10000); _bet(w, Side.WALA, 10000)
     t = w.db.scalar(select(betting.Ticket).where(betting.Ticket.agent_id == w.kub.id))
-    assert (t.kubrador, t.cavo) == (w.kub.username, w.cavo.username)      # Betting List columns are real
+    assert (t.kubrador, t.cavo) == (w.kub.username, w.cavo.username)      # Betting List: Sub Agent / Agent
     run = settlement.declare(w.db, w.admin, fight_id=w.games[0].id, result=Result.MERON, settings=w.store)
     rows = list(w.db.scalars(select(Commission).where(Commission.run_id == run.id)))
     by = {}
@@ -77,7 +79,7 @@ def test_end_to_end_commission_split_and_audit(chain):
         by[r.tier] = by.get(r.tier, 0) + r.amount_cents
     pool = run.totals["house_take"]                       # 5% tong of 20,000 = 1,000
     assert pool == 1000 and sum(by.values()) == pool
-    assert by["master"] == 700 and by["cavo"] == 240 and by["kubrador"] == 60
+    assert by["master"] == 700 and by["agent"] == 210 and by["sub_agent"] == 90
     assert all(r.calc and r.calc["volume_bps"] == 3000 for r in rows)
     assert {r.agent_id for r in rows} == {w.master.id, w.cavo.id, w.kub.id}
     assert reports.integrity(w.db)["ok"]
@@ -104,7 +106,7 @@ def test_master_cannot_change_cut_pawn_with_grant_is_limited_admin_is_not(chain)
     commissions.set_cut(w.db, w.admin, w.cavo, volume="", sop="", settings=w.store)  # reset to default
     assert w.cavo.cut_bps is None and w.cavo.sop_bps is None
     with pytest.raises(Forbidden):
-        commissions.set_cut(w.db, w.cavo, w.kub, sop="10", settings=w.store)          # Cavo cannot
+        commissions.set_cut(w.db, w.cavo, w.kub, sop="10", settings=w.store)          # Agent cannot
     no_grant = _pawn_without(w)
     with pytest.raises(Forbidden):
         commissions.set_cut(w.db, no_grant, w.cavo, volume="10", settings=w.store)
@@ -120,25 +122,28 @@ def _pawn_without(w):
 def test_per_kubrador_override_beats_cavo_sop(chain):
     w = chain
     commissions.set_cut(w.db, w.admin, w.cavo, sop="10", settings=w.store)
-    assert commissions.effective_sop_bps(w.kub, w.cavo, w.store) == 1000
+    assert commissions.effective_sub_bps(w.kub, w.cavo, w.store) == 1000
     commissions.set_cut(w.db, w.admin, w.kub, sop="30", settings=w.store)
-    assert commissions.effective_sop_bps(w.kub, w.cavo, w.store) == 3000
+    assert commissions.effective_sub_bps(w.kub, w.cavo, w.store) == 3000
 
 
 # ---------------------------------------------------------- invites / roles
 def test_invite_role_is_fixed_by_issuer(chain):
     w = chain
-    assert referrals.create_code(w.db, w.master, ttl_minutes=60).role == "cavo"
-    assert referrals.create_code(w.db, w.cavo, ttl_minutes=60).role == "kubrador"
+    assert referrals.create_code(w.db, w.master, ttl_minutes=60).role == "agent"
+    assert referrals.create_code(w.db, w.cavo, ttl_minutes=60).role == "sub_agent"     # default; "player" also allowed
+    assert referrals.create_code(w.db, w.cavo, ttl_minutes=60, role="player").role == "player"
     assert referrals.create_code(w.db, w.kub, ttl_minutes=60).role == "player"
+    with pytest.raises(Forbidden):                         # Cavo / Kubrador no longer exist as codes
+        referrals.create_code(w.db, w.master, ttl_minutes=60, role="cavo")
 
 
-def test_cavo_code_creates_kubrador_and_kubrador_code_creates_player(chain):
+def test_agent_code_creates_sub_agent_and_sub_agent_code_creates_player(chain):
     w = chain
     code = referrals.create_code(w.db, w.cavo, ttl_minutes=60)
     new = referrals.redeem(w.db, code.code, username=f"nk{w.tag}", password=PASSWORD, full_name="NK",
                            contact=None, settings=w.store)
-    assert new.role == Role.KUBRADOR and new.parent_id == w.cavo.id
+    assert new.role == Role.SUB_AGENT and new.parent_id == w.cavo.id
     code = referrals.create_code(w.db, w.kub, ttl_minutes=60)
     p = referrals.redeem(w.db, code.code, username=f"pl{w.tag}", password=PASSWORD, full_name="Pl",
                          contact=None, settings=w.store, birth_date=dt.date(1995, 5, 5),
@@ -155,9 +160,18 @@ def test_role_creation_rules(chain):
     with pytest.raises(Forbidden):
         agents.create_agent(w.db, w.master, username="a" + w.tag, password=PASSWORD, role=Role.ADMIN,
                             full_name="A", settings=w.store)
-    with pytest.raises(Forbidden):
-        agents.create_agent(w.db, w.master, username="b" + w.tag, password=PASSWORD, role=Role.KUBRADOR,
+    with pytest.raises(Forbidden):                      # a Master Agent has no second Master Agent
+        agents.create_agent(w.db, w.master, username="b" + w.tag, password=PASSWORD, role=Role.MASTER,
                             full_name="B", settings=w.store)
+    with pytest.raises(Forbidden):                      # no Sub Agent straight under a Master Agent
+        agents.create_agent(w.db, w.master, username="d" + w.tag, password=PASSWORD, role=Role.SUB_AGENT,
+                            full_name="D", settings=w.store)
+    with pytest.raises(Forbidden):                      # an Agent recruits Sub Agents only, not Agents
+        agents.create_agent(w.db, w.cavo, username="c" + w.tag, password=PASSWORD, role=Role.AGENT,
+                            full_name="C", settings=w.store)
+    with pytest.raises(Forbidden):                      # the retired tiers cannot be created at all
+        agents.create_agent(w.db, w.admin, username="e" + w.tag, password=PASSWORD, role=Role.CAVO,
+                            full_name="E", settings=w.store)
 
 
 # ------------------------------------------------------------- hidden layer
@@ -176,15 +190,15 @@ def test_permissions_master_is_admin_minus_admin_panel(monkeypatch):
                   Perm.CHAT_USE,
                   # account tools, IP bans and the experimental Seller Desk
                   Perm.ACCOUNTS_VIEW, Perm.ACCOUNTS_EDIT, Perm.ACCOUNTS_REMOVE, Perm.IPBANS_MANAGE,
-                  Perm.SELL_DESK,
+                  Perm.SELL_DESK, Perm.CANCEL_LOG,
                   # Master never enters or changes a result
                   Perm.FIGHTS_DECLARE, Perm.FIGHTS_REDECLARE,
                   Perm.BOLA_DECLARE, Perm.BOLA_REDECLARE}
     assert permissions_for(Role.ADMIN) - permissions_for(Role.MASTER) == admin_only
     assert Perm.EVENTS_CREATE in permissions_for(Role.MASTER)
-    for role in (Role.CAVO, Role.KUBRADOR, Role.DECLARATOR, Role.PAWN):
+    for role in (Role.AGENT, Role.SUB_AGENT, Role.DECLARATOR, Role.PAWN):
         assert Perm.CUTS_VIEW not in permissions_for(role) and Perm.EVENTS_CREATE not in permissions_for(role)
-    for role in (Role.CAVO, Role.KUBRADOR):
+    for role in (Role.AGENT, Role.SUB_AGENT):
         assert Perm.AGENTS_VIEW not in permissions_for(role) and Perm.PLAYERS_VIEW not in permissions_for(role)
         assert Perm.WALLET_TRANSFER in permissions_for(role)
     for role in (Role.DECLARATOR, Role.PAWN):
@@ -243,7 +257,7 @@ def test_web_admin_sees_everything_and_dev_badge():
     assert ">DEV<" in c.get("/dashboard").text
 
 
-def test_web_cavo_and_kubrador_cannot_reach_cuts_or_hidden(chain):
+def test_web_agent_and_sub_agent_cannot_reach_cuts_or_hidden(chain):
     w = chain
     for u in (w.cavo, w.kub):
         u.must_change_password = False
@@ -297,12 +311,12 @@ def test_old_database_is_upgraded(tmp_path):
     migrate.upgrade(eng)
     with eng.begin() as c:
         assert dict(c.execute(text("SELECT username, role FROM users")).all()) == {
-            "u1": "admin", "u2": "master", "u3": "cavo", "u4": "kubrador", "u5": "teller"}
+            "u1": "admin", "u2": "master", "u3": "agent", "u4": "sub_agent", "u5": "teller"}
         assert c.execute(text("SELECT status FROM users WHERE username='u5'")).scalar() == "closed"   # teller retired
         assert c.execute(text("SELECT status FROM users WHERE username='u2'")).scalar() != "closed"
-        assert c.execute(text("SELECT role FROM referral_codes")).scalar() == "cavo"
+        assert c.execute(text("SELECT role FROM referral_codes")).scalar() == "agent"
         assert {"cut_bps", "sop_bps"} <= {r[1] for r in c.execute(text("PRAGMA table_info(users)"))}
-        c.exec_driver_sql("UPDATE users SET role='kubrador' WHERE id=3")      # new CHECK accepts it
+        c.exec_driver_sql("UPDATE users SET role='sub_agent' WHERE id=3")     # new CHECK accepts it
         with pytest.raises(Exception):
             c.exec_driver_sql("UPDATE users SET role='gold' WHERE id=3")      # old value now refused
     migrate.upgrade(eng)                                                      # idempotent

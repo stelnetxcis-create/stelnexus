@@ -10,7 +10,7 @@ import datetime as dt
 import io
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 
 from app.core.config import get_settings
 from app.core.errors import Forbidden, NotFound, StelError, ValidationError
@@ -221,8 +221,8 @@ async def bola_betlogs(request: Request, ctx: Ctx = Depends(require_ctx)):
 
 @router.get("/bola/cancelled")
 async def bola_cancelled(request: Request, ctx: Ctx = Depends(require_ctx)):
-    """Every cancelled ticket in the viewer's network: who cancelled it, when and why."""
-    _need_view(ctx)
+    """Every cancelled ticket: who cancelled it, when and why. Dev-only (Admin account)."""
+    ctx.need(Perm.CANCEL_LOG)
     if hides_totals(ctx.user):
         raise Forbidden("Your role cannot see tickets.")
     from sqlalchemy import select
@@ -258,50 +258,29 @@ def _need_statement(ctx: Ctx) -> None:
         raise Forbidden("Your role cannot see totals.")
 
 
+def _to_statements(request: Request, path: str) -> RedirectResponse:
+    """The Bola-only statement pages were merged into /commissions (both games, one page)."""
+    from urllib.parse import urlencode
+    keep = {k: v for k, v in request.query_params.items() if k in ("start", "end")}
+    return RedirectResponse(f"{path}?{urlencode({**keep, 'game': 'bola'})}", status_code=303)
+
+
 @router.get("/bola/agents")
 async def bola_agent_statements(request: Request, ctx: Ctx = Depends(require_ctx)):
     _need_statement(ctx)
-    start, end = _statement_range(request.query_params)
-    return render(ctx, "bola_agents.html", active="bola_agents",
-                  stmt=reports.bola_agent_statement(ctx.db, ctx.user, start=start, end=end))
+    return _to_statements(request, "/commissions")
 
 
 @router.get("/bola/agents.csv")
 async def bola_agent_statements_csv(request: Request, ctx: Ctx = Depends(require_ctx)):
-    from app.web.routes_extra import _safe
     _need_statement(ctx)
-    start, end = _statement_range(request.query_params)
-    stmt = reports.bola_agent_statement(ctx.db, ctx.user, start=start, end=end)
-    out = io.StringIO()
-    writer = csv.writer(out)
-    writer.writerow(["Bola agent statement", start.isoformat(), end.isoformat()])
-    writer.writerow(["Agent", "Role", "Tickets", "Staked", "Cancelled", "Cancelled amount",
-                     "Players won", "Paid to players", "Commission", "Unclaimed", "Claimed"])
-    for r in stmt["rows"]:
-        writer.writerow([_safe(r["name"]), r["role"], r["tickets"], f"{r['staked'] / 100:.2f}",
-                         r["canceled"], f"{r['canceled_cents'] / 100:.2f}", r["winners"],
-                         f"{r['paid'] / 100:.2f}", f"{r['commission'] / 100:.2f}",
-                         f"{r['unclaimed'] / 100:.2f}", f"{r['claimed'] / 100:.2f}"])
-    t = stmt["totals"]
-    writer.writerow(["Total", "", t["tickets"], f"{t['staked'] / 100:.2f}", t["canceled"],
-                     f"{t['canceled_cents'] / 100:.2f}", t["winners"], f"{t['paid'] / 100:.2f}",
-                     f"{t['commission'] / 100:.2f}", f"{t['unclaimed'] / 100:.2f}",
-                     f"{t['claimed'] / 100:.2f}"])
-    return Response(out.getvalue(), media_type="text/csv; charset=utf-8", headers={
-        "Content-Disposition": f'attachment; filename="bola-agents-{start}-{end}.csv"',
-        "Cache-Control": "no-store"})
+    return _to_statements(request, "/commissions.csv")
 
 
 @router.get("/bola/agents/{agent_id}")
 async def bola_agent_statement_page(agent_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
-    from app.core.rbac import assert_user_in_scope
     _need_statement(ctx)
-    agent = assert_user_in_scope(ctx.db, ctx.user, agent_id)
-    start, end = _statement_range(request.query_params)
-    stmt = reports.bola_agent_statement(ctx.db, ctx.user, start=start, end=end, agent_id=agent_id)
-    return render(ctx, "bola_agent.html", active="bola_agents", agent=agent, stmt=stmt,
-                  draws=reports.bola_agent_draws(ctx.db, ctx.user, agent_id, start=start, end=end),
-                  local=bola.local)
+    return _to_statements(request, f"/commissions/{agent_id}")
 
 
 # ------------------------------------------------------------------ reports

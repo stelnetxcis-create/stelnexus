@@ -98,9 +98,9 @@ def test_non_dev_roles_get_no_number_game_tile_while_the_dev_gate_is_on_but_keep
         store = SettingsStore(db)
         master = agents.create_agent(db, admin, username=f"dm{tag}", password=PASSWORD, role=Role.MASTER,
                                      full_name="M", settings=store)
-        cavo = agents.create_agent(db, master, username=f"dc{tag}", password=PASSWORD, role=Role.CAVO,
+        cavo = agents.create_agent(db, master, username=f"dc{tag}", password=PASSWORD, role=Role.AGENT,
                                    full_name="C", settings=store)
-        agents.create_agent(db, cavo, username=f"dk{tag}", password=PASSWORD, role=Role.KUBRADOR,
+        agents.create_agent(db, cavo, username=f"dk{tag}", password=PASSWORD, role=Role.SUB_AGENT,
                             full_name="K", settings=store)
     for who in (f"dm{tag}", f"dk{tag}"):
         html = _dash(who)

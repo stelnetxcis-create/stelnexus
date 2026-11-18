@@ -10,10 +10,21 @@ Access rules (see ``access``):
   * anyone who spent a Chat Token on a game may chat on that one game. One purchase of tokens works on
     games from at most ``store.token_events`` (3) different events;
   * nobody can chat once the game's result is declared (the room is locked, history stays readable).
+
+Slow mode: Battle Pass and Chat Token chatters wait ``store.slow_mode_seconds`` between messages. Lux VIP
+and staff are never slowed (see ``slow_mode_seconds``).
+
+Buying rules (the server refuses what the Store greys out, so a stray click can never waste money):
+  * Lux VIP running  -> no Battle Pass (Lux already includes it) and no Chat Tokens;
+  * Battle Pass running -> no Chat Tokens (the pass already covers every game). Lux is still an upgrade.
+
+Consumables (Chat Tokens, Alias Tokens) are shown in the Store as materials. An Alias Token is spent
+once to set the name shown in chat instead of the username.
 """
 from __future__ import annotations
 
 import datetime as dt
+import re
 from dataclasses import dataclass
 
 from sqlalchemy import func, select
@@ -24,7 +35,9 @@ from app.core.errors import Conflict, Forbidden, ValidationError
 from app.core.money import fmt
 from app.core.rbac import Perm, permissions_of
 from app.core.settings_registry import SettingsStore
-from app.db.models import ChatPass, ChatToken, Fight, FightStatus, Status, User
+from app.db.models import (
+    AliasToken, ChatAlias, ChatPass, ChatToken, Fight, FightStatus, LedgerTxn, Role, Status, User,
+)
 from app.services import accounts, ledger
 
 PASS_PERKS = (
@@ -32,17 +45,24 @@ PASS_PERKS = (
     "Previous and forward on the live video: rewind a moment you missed, skip ahead, jump back to live",
     "Gold Battle Pass badge next to your name in chat",
     "No tokens to spend: open any stream and just talk",
+    "Chat has slow mode for Battle Pass holders: one message every few seconds",
 )
 
 
 LUX_EXTRAS = (
     "Everything in the Battle Pass: chat on every stream, previous / forward on the video",
+    "No slow mode: send as fast as you can type, nobody throttles a Lux VIP",
     "Flashy, highlighted chat: your messages glow gold with a Lux VIP crest",
     "Your purchase helps keep the server running and maintained. Thank you for backing us",
 )
 
 LUX_THANKS = ("From all of us at StelNexus: we humbly thank you for being a Lux VIP. Your support keeps the "
               "servers running, maintained and improving, and we are truly grateful.")
+
+
+PASS_BLOCKED = "Your Lux VIP already includes everything in the Battle Pass."
+TOKEN_BLOCKED_LUX = "Your Lux VIP already lets you chat on every game, so you do not need tokens."
+TOKEN_BLOCKED_PASS = "Your Battle Pass already lets you chat on every game, so you do not need tokens."
 
 
 def _now() -> dt.datetime:
@@ -69,6 +89,16 @@ class StoreState:
     lux_expires: dt.datetime | None = None
     lux_days_left: int = 0
     token_events: int = 3
+    alias_price: int = 0
+    alias_tokens: int = 0
+    alias: str | None = None
+    slow_seconds: int = 3
+    battle_expires: dt.datetime | None = None      # the Battle Pass tier alone (``pass_*`` is "any tier")
+    battle_days_left: int = 0
+
+    @property
+    def has_battle(self) -> bool:
+        return self.battle_expires is not None
 
     @property
     def has_pass(self) -> bool:
@@ -77,6 +107,18 @@ class StoreState:
     @property
     def has_lux(self) -> bool:
         return self.lux_expires is not None
+
+    @property
+    def pass_block(self) -> str:
+        """Why the Battle Pass cannot be bought right now ('' = it can)."""
+        return PASS_BLOCKED if self.has_lux else ""
+
+    @property
+    def token_block(self) -> str:
+        """Why Chat Tokens cannot be bought right now ('' = they can)."""
+        if self.has_lux:
+            return TOKEN_BLOCKED_LUX
+        return TOKEN_BLOCKED_PASS if self.has_pass else ""
 
 
 def _until(db: Session, user: User, tier: str | None) -> dt.datetime | None:
@@ -112,6 +154,7 @@ def state(db: Session, user: User, store: SettingsStore) -> StoreState:
     until = active_pass_until(db, user)
     left = _days_left(until)
     lux = active_lux_until(db, user)
+    battle = _until(db, user, "battle")
     balance = accounts.wallet_for_user(db, user).balance_cents if user.has_wallet else 0
     return StoreState(
         enabled=bool(store.get("store.enabled")),
@@ -119,7 +162,10 @@ def state(db: Session, user: User, store: SettingsStore) -> StoreState:
         token_price=int(store.get("store.token_price_cents")), token_uses=int(store.get("store.token_uses")),
         pass_expires=until, pass_days_left=left, tokens=token_count(db, user), balance=balance,
         lux_price=int(store.get("store.lux_price_cents")), lux_days=int(store.get("store.lux_days")),
-        lux_expires=lux, lux_days_left=_days_left(lux), token_events=int(store.get("store.token_events")))
+        lux_expires=lux, lux_days_left=_days_left(lux), token_events=int(store.get("store.token_events")),
+        alias_price=int(store.get("store.alias_price_cents")), alias_tokens=alias_token_count(db, user),
+        alias=alias_of(db, user.id), slow_seconds=int(store.get("store.slow_mode_seconds")),
+        battle_expires=battle, battle_days_left=_days_left(battle))
 
 
 def _check_buyer(user: User, store: SettingsStore) -> None:
@@ -143,6 +189,8 @@ def _buy_pass(db: Session, user: User, store: SettingsStore, *, tier: str,
               idempotency_key: str | None = None) -> ChatPass:
     _check_buyer(user, store)
     lux = tier == "lux"
+    if not lux and active_lux_until(db, user):
+        raise Conflict(PASS_BLOCKED)
     price = int(store.get("store.lux_price_cents" if lux else "store.pass_price_cents"))
     days = int(store.get("store.lux_days" if lux else "store.pass_days"))
     name = "Lux VIP Battle Pass" if lux else "Battle Pass"
@@ -177,6 +225,10 @@ def buy_lux(db: Session, user: User, store: SettingsStore, *, idempotency_key: s
 def buy_token(db: Session, user: User, store: SettingsStore, *, idempotency_key: str | None = None) -> ChatToken:
     """One purchase = ``store.token_uses`` tokens (3 by default); each token unlocks one game."""
     _check_buyer(user, store)
+    if active_lux_until(db, user):
+        raise Conflict(TOKEN_BLOCKED_LUX)
+    if active_pass_until(db, user):
+        raise Conflict(TOKEN_BLOCKED_PASS)
     price, uses = int(store.get("store.token_price_cents")), int(store.get("store.token_uses"))
     key = f"store.token:{user.id}:{idempotency_key}" if idempotency_key else None
     if key:
@@ -293,6 +345,198 @@ def use_token(db: Session, user: User, fight: Fight) -> ChatToken:
                  after={"token_id": row.id})
     db.flush()
     return row
+
+
+# ---------------------------------------------------------------------------
+# Slow mode
+# ---------------------------------------------------------------------------
+
+def slow_mode_seconds(db: Session, user: User, store: SettingsStore | None = None) -> int:
+    """Seconds this person must wait between chat messages. Lux VIP and staff are never slowed."""
+    if Perm.CHAT_USE in permissions_of(user) or active_lux_until(db, user):
+        return 0
+    return int((store or SettingsStore(db)).get("store.slow_mode_seconds"))
+
+
+# ---------------------------------------------------------------------------
+# Alias: a one-time consumable that sets the name shown in chat instead of the username
+# ---------------------------------------------------------------------------
+
+ALIAS_RULES = (
+    "One-time use: the token is consumed the moment you set your alias",
+    "Your alias shows in livestream chat instead of your username",
+    "Changing it later uses another token. Your account stays on record for staff",
+    "3 to 20 letters, numbers, spaces, dots, dashes or underscores. No staff or system look-alikes",
+)
+_ALIAS_OK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._\-]{1,18}[A-Za-z0-9]$")
+_RESERVED = ("admin", "system", "staff", "management", "moderator", "declarator", "stelnexus", "support",
+             "official", "master", "pawn")
+
+
+# Only these account types can see which account is behind an alias. Everyone else just sees the alias.
+ALIAS_REVEAL_ROLES = (Role.ADMIN, Role.PAWN)
+
+
+def can_see_through_alias(user: User) -> bool:
+    return user.role in ALIAS_REVEAL_ROLES
+
+
+def alias_key(alias: str) -> str:
+    return re.sub(r"[\s._\-]", "", alias.lower())
+
+
+def alias_token_count(db: Session, user: User) -> int:
+    return int(db.scalar(select(func.count(AliasToken.id)).where(
+        AliasToken.user_id == user.id, AliasToken.used_at.is_(None))) or 0)
+
+
+def alias_of(db: Session, user_id: int) -> str | None:
+    return db.scalar(select(ChatAlias.alias).where(ChatAlias.user_id == user_id))
+
+
+def aliases_for(db: Session, user_ids: set[int]) -> dict[int, str]:
+    if not user_ids:
+        return {}
+    return {uid: a for uid, a in db.execute(select(ChatAlias.user_id, ChatAlias.alias)
+                                            .where(ChatAlias.user_id.in_(user_ids))).all()}
+
+
+def buy_alias_token(db: Session, user: User, store: SettingsStore, *, idempotency_key: str | None = None) -> AliasToken:
+    _check_buyer(user, store)
+    price = int(store.get("store.alias_price_cents"))
+    key = f"store.alias:{user.id}:{idempotency_key}" if idempotency_key else None
+    if key:
+        again = ledger.find_by_key(db, key)
+        if again is not None:
+            found = db.scalar(select(AliasToken).where(AliasToken.txn_uuid == again.uuid))
+            if found is not None:
+                return found
+    txn = _charge(db, user, kind="store.alias", cents=price, memo="Alias token", key=key, ref_id=None)
+    row = AliasToken(user_id=user.id, price_cents=price, txn_uuid=txn.uuid)
+    db.add(row)
+    audit.record(db, user, "store.alias", entity_type="user", entity_id=user.id,
+                 after={"price_cents": price, "txn": txn.uuid})
+    db.flush()
+    return row
+
+
+def clean_alias(db: Session, user: User, raw: str) -> tuple[str, str]:
+    """Validate a wanted alias. Returns (alias, key) or raises ValidationError with a plain reason."""
+    alias = " ".join((raw or "").split())
+    if not _ALIAS_OK.match(alias):
+        raise ValidationError("An alias is 3 to 20 characters: letters, numbers, spaces, dots, dashes or "
+                              "underscores, starting and ending with a letter or number.")
+    key = alias_key(alias)
+    if any(word in key for word in _RESERVED):
+        raise ValidationError("That alias looks like a staff or system name. Pick another one.")
+    others = db.scalars(select(User.username).where(
+        func.lower(User.username).like(key[:1] + "%"), User.id != user.id)).all()
+    if any(u.lower() == alias.lower() or alias_key(u) == key for u in others):
+        raise ValidationError("That name belongs to another account. Pick another alias.")
+    clash = db.scalar(select(ChatAlias).where(ChatAlias.alias_key == key, ChatAlias.user_id != user.id))
+    if clash is not None:
+        raise ValidationError("Someone already uses that alias. Pick another one.")
+    return alias, key
+
+
+def set_alias(db: Session, user: User, store: SettingsStore, raw: str) -> str:
+    """Spend one Alias Token to set the alias. Nothing is spent if the alias is refused."""
+    alias, key = clean_alias(db, user, raw)
+    token = db.scalar(select(AliasToken).where(AliasToken.user_id == user.id, AliasToken.used_at.is_(None))
+                      .order_by(AliasToken.id).limit(1).with_for_update())
+    if token is None:
+        raise ValidationError("You have no alias tokens. Buy one in the Store.")
+    current = db.scalar(select(ChatAlias).where(ChatAlias.user_id == user.id))
+    if current is not None and current.alias == alias:
+        raise ValidationError("That is already your alias. Nothing was spent.")
+    token.used_at = _now()
+    before = current.alias if current else None
+    if current is None:
+        db.add(ChatAlias(user_id=user.id, alias=alias, alias_key=key))
+    else:
+        current.alias, current.alias_key, current.updated_at = alias, key, _now()
+    audit.record(db, user, "store.alias_set", entity_type="user", entity_id=user.id,
+                 before={"alias": before}, after={"alias": alias, "token_id": token.id})
+    db.flush()
+    return alias
+
+
+# ---------------------------------------------------------------------------
+# DEV: revoke the effect of a purchase (Admin only, called from /dev/store)
+# ---------------------------------------------------------------------------
+
+def effects_of(db: Session, user: User) -> dict:
+    """Everything the Store currently gives this account, for the DEV revoke screen."""
+    return {
+        "battle_until": _until(db, user, "battle"), "lux_until": active_lux_until(db, user),
+        "tokens_unused": token_count(db, user), "alias_tokens": alias_token_count(db, user),
+        "alias": alias_of(db, user.id),
+    }
+
+
+def revoke_effect(db: Session, admin: User, user: User, what: str, *, reason: str, refund: bool = False) -> str:
+    """Take a purchased effect away. ``what``: battle, lux, tokens, alias_tokens, alias.
+
+    Without ``refund`` no money moves (the effect is simply removed). With it, the matching purchases'
+    ledger entries are reversed so the player gets their credit back. Always audited with a reason."""
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValidationError("Give a reason: it is written to the audit log.")
+    now, note = _now(), ""
+    refunded: set[str] = set()
+
+    def refund_txn(uuid: str | None) -> None:
+        if not refund or not uuid or uuid in refunded:
+            return
+        txn = db.scalar(select(LedgerTxn).where(LedgerTxn.uuid == uuid))
+        if txn is not None and txn.reversed_by_txn_id is None:
+            ledger.reverse(db, txn, actor=admin, reason=reason, memo=f"Store revoke: {what}")
+            refunded.add(uuid)
+
+    if what in ("battle", "lux"):
+        rows = db.scalars(select(ChatPass).where(ChatPass.user_id == user.id, ChatPass.tier == what,
+                                                 ChatPass.expires_at > now)).all()
+        if not rows:
+            raise ValidationError("That pass is not running on this account.")
+        for r in rows:
+            r.expires_at = min(_aware(r.expires_at), now)
+            if _aware(r.starts_at) > now:
+                r.starts_at = now
+            refund_txn(r.txn_uuid)
+        note = f"{len(rows)} pass purchase(s) ended"
+    elif what == "tokens":
+        rows = db.scalars(select(ChatToken).where(ChatToken.user_id == user.id, ChatToken.used_at.is_(None))).all()
+        if not rows:
+            raise ValidationError("This account has no unused chat tokens.")
+        for r in rows:
+            db.delete(r)
+        db.flush()
+        note = f"{len(rows)} unused chat token(s) removed"
+        if refund:                                  # only a pack with nothing used is refunded whole
+            for uuid in {r.txn_uuid for r in rows}:
+                if not db.scalar(select(func.count(ChatToken.id)).where(ChatToken.txn_uuid == uuid)):
+                    refund_txn(uuid)
+            note += "; fully unused packs refunded, part-used packs are not"
+    elif what == "alias_tokens":
+        rows = db.scalars(select(AliasToken).where(AliasToken.user_id == user.id, AliasToken.used_at.is_(None))).all()
+        if not rows:
+            raise ValidationError("This account has no unused alias tokens.")
+        for r in rows:
+            refund_txn(r.txn_uuid)
+            db.delete(r)
+        note = f"{len(rows)} unused alias token(s) removed"
+    elif what == "alias":
+        row = db.scalar(select(ChatAlias).where(ChatAlias.user_id == user.id))
+        if row is None:
+            raise ValidationError("This account has no alias.")
+        note = f"alias '{row.alias}' removed: chat shows the username again"
+        db.delete(row)
+    else:
+        raise ValidationError("Unknown effect.")
+    audit.record(db, admin, "dev.store_revoke", entity_type="user", entity_id=user.id,
+                 after={"what": what, "refund": bool(refund), "note": note}, reason=reason[:255])
+    db.flush()
+    return note
 
 
 def price_text(cents: int) -> str:

@@ -2,7 +2,7 @@
 
 Fixes vs. the original:
 * role of the created account is validated server-side against the creator's
-  role (the old form merely offered a dropdown): Admin -> Master -> Cavo -> Kubrador;
+  role (the old form merely offered a dropdown): Admin -> Master Agent -> Agent -> Sub Agent;
 * passwords are Argon2id-hashed and never echoed back;
 * credit transfer is a balanced ledger transaction under row locks, scoped to
   the downline, idempotent, and cannot overdraw the sender;
@@ -18,9 +18,11 @@ from sqlalchemy.orm import Session
 from app.core import audit
 from app.core.errors import Conflict, Forbidden, NotFound, ValidationError
 from app.core.rbac import assert_user_in_scope, can_create_role, downline_ids, has_global_scope, is_top, scope_ids
-from app.core.security import USERNAME_RE, hash_password, password_problems, random_code
+import re
+
+from app.core.security import USERNAME_RE, hash_password, password_problems, pii, random_code
 from app.core.settings_registry import SettingsStore
-from app.db.models import Role, Status, User
+from app.db.models import UPLINE_ROLES, Role, Status, User
 from app.services import accounts, ledger
 
 
@@ -39,25 +41,40 @@ def _unique_ref(db: Session) -> str:
     raise Conflict("Could not allocate a referral code, please retry.")
 
 
+def _names(roles) -> str:
+    labels = [r.label for r in roles]
+    return labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " or " + labels[-1]
+
+
+def pick_upline(db: Session, role: str, parent_id: int | None) -> User:
+    """The active account a new `role` ('agent', 'sub_agent' or 'player')
+    reports to, for creators that are not part of the tree (Admin, Pawn). An explicit `parent_id`
+    may be any role allowed above `role` (see UPLINE_ROLES). With none given, the usual upline is
+    used if exactly one such active account exists."""
+    allowed = UPLINE_ROLES[role]
+    if parent_id:
+        parent = db.get(User, parent_id)
+    else:
+        found = db.scalars(select(User).where(User.role == allowed[0], User.status == Status.ACTIVE)
+                           .order_by(User.id).limit(2)).all()
+        parent = found[0] if len(found) == 1 else None
+    if parent is None or parent.role not in allowed or parent.status != Status.ACTIVE:
+        label = "Player" if role == "player" else Role(role).label
+        raise ValidationError(f"Choose the active {_names(allowed)} this {label} reports to.")
+    return parent
+
+
 def _resolve_parent(db: Session, actor: User, role: Role, parent_id: int | None) -> User | None:
     """Who the new account reports to.
 
-    A Cavo always sits under a Master and a Kubrador under a Cavo. Master/Cavo creating their own
-    downline are the upline. The Admin (and a Pawn allowed to create accounts) are not part of the
-    tree, so they must name the upline; if exactly one candidate exists it is used."""
+    An Agent sits under a Master Agent and a Sub Agent under an Agent. Anyone in
+    the tree creating their own downline is the upline. The Admin (and a Pawn allowed to create
+    accounts) are not part of the tree, so they must name the upline; if exactly one usual
+    candidate exists it is used."""
     if role == Role.ADMIN:
         return None
-    if role in (Role.CAVO, Role.KUBRADOR) and actor.role in (Role.ADMIN, Role.PAWN):
-        need = Role.MASTER if role == Role.CAVO else Role.CAVO
-        if parent_id:
-            parent = db.get(User, parent_id)
-        else:
-            candidates = db.scalars(select(User).where(User.role == need, User.status == Status.ACTIVE)
-                                    .order_by(User.id).limit(2)).all()
-            parent = candidates[0] if len(candidates) == 1 else None
-        if parent is None or parent.role != need or parent.status != Status.ACTIVE:
-            raise ValidationError(f"Choose the active {need.label} this {role.label} reports to.")
-        return parent
+    if role in (Role.AGENT, Role.SUB_AGENT) and actor.role in (Role.ADMIN, Role.PAWN):
+        return pick_upline(db, role.value, parent_id)
     if actor.role == Role.ADMIN and role == Role.MASTER:
         return db.get(User, parent_id) if parent_id else actor
     return actor
@@ -74,6 +91,7 @@ def create_agent(
     contact: str | None = None,
     parent_id: int | None = None,
     settings: SettingsStore | None = None,
+    gcash_number: str | None = None,
 ) -> User:
     username = username.strip()
     full_name = full_name.strip()
@@ -84,6 +102,9 @@ def create_agent(
     if not can_create_role(actor, role):
         raise Forbidden(f"A {actor.role_label} cannot create a {role.label}.")
     _unique_username(db, username)
+    gcash = (gcash_number or "").strip()
+    if role == Role.TELLER and not re.fullmatch(r"09\d{9}", gcash):
+        raise ValidationError("A Teller needs a GCash number (11 digits starting with 09).")
 
     min_len = int(settings.get("security.password_min_length")) if settings else 12
     problems = password_problems(password, username)
@@ -102,6 +123,7 @@ def create_agent(
         role=role,
         full_name=full_name,
         contact=(contact or "").strip()[:32] or None,
+        gcash_enc=pii.encrypt(gcash) if role == Role.TELLER else None,
         parent_id=parent.id if parent else None,
         ref_code=_unique_ref(db),
         status=Status.ACTIVE,
@@ -213,7 +235,9 @@ def list_agents(db: Session, actor: User, *, search: str | None = None,
                 role: Role | None = None, limit: int = 200, offset: int = 0) -> list[User]:
     stmt = select(User)
     if has_global_scope(actor):
-        stmt = stmt.where(User.role != Role.TELLER, User.id != actor.id)   # TELLER = retired legacy role
+        stmt = stmt.where(User.id != actor.id)
+        if actor.role != Role.ADMIN:
+            stmt = stmt.where(or_(User.role != Role.TELLER, User.gcash_enc.is_not(None)))
         if actor.role != Role.ADMIN:
             stmt = stmt.where(User.role != Role.ADMIN)      # the hidden account is never listed
     else:

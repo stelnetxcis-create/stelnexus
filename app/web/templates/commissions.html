@@ -1,53 +1,114 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
-{% block title %}Commissions · {{ brand }}{% endblock %}
-{% block heading %}Commission{% endblock %}
+{% block title %}Statements &amp; Commission · {{ brand }}{% endblock %}
+{% block heading %}Statements &amp; Commission{% endblock %}
 {% block actions %}
+<a class="btn btn-sm" href="/commissions.csv?start={{ stmt.start }}&amp;end={{ stmt.end }}&amp;game={{ game }}">CSV</a>
 {% if 'commissions.claim' in perms and not user.is_admin %}
 <button class="btn btn-sm" data-modal="withdraw-modal">Withdraw</button>
 <button class="btn btn-sm btn-brand" data-modal="convert-modal">Convert to credit</button>
 {% endif %}
 {% endblock %}
 {% block content %}
+{% macro pct(bps) %}{{ ('%.2f' | format(bps / 100)).rstrip('0').rstrip('.') }}%{% endmacro %}
+{% set t = stmt.totals %}
+{% set q = 'start=' ~ stmt.start ~ '&amp;end=' ~ stmt.end %}
 
 <div class="grid grid-3">
   {{ ui.stat('Unclaimed commissions', totals.unclaimed | money, 'available to claim', 'dark') }}
-  {{ ui.stat('Total earned', totals.earned | money, 'all settled fights', 'green') }}
+  {{ ui.stat('Total earned', totals.earned | money, 'all settled games', 'green') }}
   {{ ui.stat('My credit', totals.wallet | money, 'spendable / transferable', 'blue') }}
 </div>
 
 <div class="card">
-  <div class="card-head"><h2>How your commission is calculated</h2></div>
+  <div class="card-head"><h2>How commission is calculated</h2></div>
   <div class="card-body">
-    <p class="small">Basis: <strong>{{ basis }}</strong> — {{ 'a share of every settled stake in your downline' if basis == 'turnover' else 'a share of the house net win, apportioned by stake' }}.
-    The pool is split Master → Cavo → Kubrador (default Cavo side {{ '%g' | format(defaults.volume / 100) }}%, of which the Kubrador gets {{ '%g' | format(defaults.sop / 100) }}%). Master and Admin can change a Cavo's or Kubrador's cut on the Cuts page.</p>
-    <div class="table-actions">
-      <span class="chip">cap: {{ '%.2f%%' | format(settings['commission.cap_of_house_cut_bps'] / 100) }} of tong</span>
+    <p class="small">Each game's pool is split <strong>Master Agent → Agent → Sub Agent</strong>. The Agent side keeps the Volume % of the pool and the Master Agent gets the rest; the Sub Agent's SOP % comes out of the Agent's cut, not on top of it. A player placed straight under an Agent has no Sub Agent, so the Agent keeps the whole Agent cut.</p>
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>Game</th><th>Basis</th><th class="right">Pool</th><th class="right">Agent side (Volume %)</th><th class="right">Sub Agent (SOP % of the Agent's cut)</th><th class="right">Per ₱1,000 of pool: Master / Agent / Sub Agent</th></tr></thead>
+      <tbody>
+      {% for g, label in (('sabong', 'Meron / Wala'), ('bola', 'Bola')) %}
+        {% set d = defaults[g] %}
+        {% set gross = (1000 * d.volume / 10000) %}
+        {% set sub = gross * d.sop / 10000 %}
+        <tr><td>{{ label }}</td><td class="small">{{ d.basis }}</td><td class="right num">{{ pct(d.pool) }}</td>
+          <td class="right num">{{ pct(d.volume) }}</td><td class="right num">{{ pct(d.sop) }}</td>
+          <td class="right num">₱{{ '%.2f' | format(1000 - gross) }} / ₱{{ '%.2f' | format(gross - sub) }} / ₱{{ '%.2f' | format(sub) }}</td></tr>
+      {% endfor %}
+      </tbody></table></div>
+    <p class="small muted">These are the game defaults. The Admin can set a different Volume % / SOP % on one account (Cuts page); that one applies to every game.</p>
+    <div class="table-actions"><span class="chip">cap: {{ '%.2f%%' | format(settings['commission.cap_of_house_cut_bps'] / 100) }} of tong</span></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Statement · {{ stmt.start }}{% if stmt.end != stmt.start %} to {{ stmt.end }}{% endif %}</h2>
+    <div class="table-tools">
+      {% set st = '&amp;status=' ~ status if status else '' %}
+      <a class="chip {{ 'is-active' if game == 'all' }}" href="/commissions?{{ q }}{{ st }}">Both games</a>
+      <a class="chip {{ 'is-active' if game == 'sabong' }}" href="/commissions?{{ q }}&amp;game=sabong{{ st }}">Meron / Wala</a>
+      {% if bola_on %}<a class="chip {{ 'is-active' if game == 'bola' }}" href="/commissions?{{ q }}&amp;game=bola{{ st }}">Bola</a>{% endif %}
     </div>
+    <form method="get" action="/commissions" class="inline-form" style="display:inline-flex;gap:6px;flex-wrap:wrap">
+      <input type="hidden" name="game" value="{{ game }}">{% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+      <input type="date" name="start" value="{{ stmt.start }}" aria-label="From date">
+      <input type="date" name="end" value="{{ stmt.end }}" aria-label="To date">
+      <button class="btn btn-sm" type="submit">Show</button>
+    </form></div>
+  <div class="card-body tight">
+    <div class="grid grid-4" style="padding:12px">
+      {{ ui.stat('Tickets', t.tickets, t.canceled ~ ' cancelled') }}
+      {{ ui.stat('Staked', t.staked | money, 'live tickets sold') }}
+      {{ ui.stat('Paid to players', t.paid | money, t.winners ~ ' winning tickets', 'blue') }}
+      {{ ui.stat('Commission', t.commission | money, t.unclaimed | money ~ ' unclaimed', 'green') }}
+    </div>
+    {% if stmt.rows %}
+    <div class="table-wrap"><table class="table" data-table data-page-size="25"><thead><tr>
+      <th>Account</th><th>Role</th><th>Upline</th><th class="right">Tickets</th><th class="right">Staked</th>
+      <th class="right">Cancelled</th><th class="right">Paid to players</th>
+      <th class="right">Meron / Wala</th>{% if bola_on %}<th class="right">Bola</th>{% endif %}
+      <th class="right">Commission</th><th class="right">Unclaimed</th><th></th></tr></thead><tbody>
+    {% for r in stmt.rows %}
+      <tr{% if r.me %} style="background:rgba(212,175,55,.08)"{% endif %}>
+        <td>{{ r.name }}{% if r.me %} <span class="chip">you</span>{% endif %}{% if r.full_name %} <span class="muted small">{{ r.full_name }}</span>{% endif %}</td>
+        <td class="small">{{ r.role_label }}</td><td class="small">{{ r.upline or '—' }}</td>
+        <td class="right num">{{ r.tickets }}</td><td class="right num">{{ r.staked | money }}</td>
+        <td class="right num">{{ r.canceled }}</td><td class="right num">{{ r.paid | money }}</td>
+        <td class="right num">{{ r.commission_sabong | money }}</td>
+        {% if bola_on %}<td class="right num">{{ r.commission_bola | money }}</td>{% endif %}
+        <td class="right num" data-sort="{{ r.commission }}"><strong>{{ r.commission | money }}</strong></td>
+        <td class="right num">{{ r.unclaimed | money }}</td>
+        <td class="right nowrap"><a class="btn btn-sm" href="/commissions/{{ r.id }}?{{ q }}&amp;game={{ game }}">Statement</a></td>
+      </tr>
+    {% endfor %}
+    </tbody></table></div>
+    {% else %}{{ ui.empty('No sales or commission in this range.') }}{% endif %}
+    <p class="muted small" style="padding:0 12px 12px">There is no cash to remit: every stake moves through the player's credit. Commission is shown for the account that earned it, so an Agent's figure includes its share of its Sub Agents' tickets. You see yourself and everyone below you.</p>
   </div>
 </div>
 
 <div class="card">
   <div class="card-head">
-    <h2>Commission list</h2>
+    <h2>Commission list · you and your network</h2>
     <div class="table-tools">
-      <a class="chip" href="/commissions">All</a>
-      <a class="chip" href="/commissions?status=unclaimed">Unclaimed</a>
-      <a class="chip" href="/commissions?status=claimed">Claimed</a>
-      <a class="chip" href="/commissions?status=reversed">Reversed</a>
+      <a class="chip {{ 'is-active' if not status }}" href="/commissions?{{ q }}&amp;game={{ game }}">All</a>
+      <a class="chip {{ 'is-active' if status == 'unclaimed' }}" href="/commissions?{{ q }}&amp;game={{ game }}&amp;status=unclaimed">Unclaimed</a>
+      <a class="chip {{ 'is-active' if status == 'claimed' }}" href="/commissions?{{ q }}&amp;game={{ game }}&amp;status=claimed">Claimed</a>
+      <a class="chip {{ 'is-active' if status == 'reversed' }}" href="/commissions?{{ q }}&amp;game={{ game }}&amp;status=reversed">Reversed</a>
     </div>
   </div>
   <div class="card-body tight">
-    {% if rows %}
+    {% if lines %}
     <div class="table-wrap"><table class="table" data-table data-page-size="25">
-      <thead><tr><th>Type</th><th>Player</th><th>Game</th><th>Ticket</th><th class="right">Base</th><th class="right">Rate</th><th class="right">Commission</th><th>Status</th><th>Date</th>{% if user.is_admin %}<th>Formula</th>{% endif %}</tr></thead>
+      <thead><tr><th>Earned by</th><th>Type</th><th>Player</th><th>Game</th><th>Ticket</th><th class="right">Base</th><th class="right">Rate</th><th class="right">Commission</th><th>Status</th><th>Date</th>{% if user.is_admin %}<th>Formula</th>{% endif %}</tr></thead>
       <tbody>
-      {% for row in rows %}
+      {% for row in lines %}
         <tr>
-          <td>{{ ui.badge(row.tier) }}</td>
-          <td class="small">{{ row.ticket.player.full_name if row.ticket.player else 'walk-in' }}</td>
+          <td>{{ 'System' if row.earner.is_hidden else row.earner.username }}{% if row.earner.id == user.id %} <span class="chip">you</span>{% endif %}</td>
+          <td>{{ ui.badge(tier_label.get(row.tier, row.tier)) }}</td>
+          <td class="small">{{ row.player }}</td>
           <td class="num">{{ row.game_label }}</td>
-          <td class="mono small">{{ row.ticket.code }}</td>
+          <td class="mono small">{{ row.ticket }}</td>
           <td class="right num">{{ row.base_cents | money }}</td>
           <td class="right num">{{ '%.2f%%' | format(row.rate_bps / 100) }}</td>
           <td class="right num" data-sort="{{ row.amount_cents }}"><strong>{{ row.amount_cents | money }}</strong></td>
@@ -58,7 +119,7 @@
       {% endfor %}
       </tbody>
     </table></div>
-    {% else %}{{ ui.empty('No commissions yet. They accrue when a game in your downline settles.') }}{% endif %}
+    {% else %}{{ ui.empty('No commissions in this range. They accrue when a game in your network settles.') }}{% endif %}
   </div>
 </div>
 

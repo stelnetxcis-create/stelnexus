@@ -95,7 +95,7 @@ def create_request(
                  after={"direction": direction, "amount_cents": amount_cents, "method": method,
                         "player_id": player_id, "agent_id": agent_id, "reference": reference,
                         "target": request.target})
-    for admin_id in db.scalars(select(User.id).where(User.role.in_([Role.ADMIN, Role.MASTER]),
+    for admin_id in db.scalars(select(User.id).where(User.role.in_([Role.ADMIN, Role.MASTER, Role.TELLER]),
                                                       User.id != actor.id)).all():
         db.add(Notification(user_id=admin_id, level="info",
                             message=f"{actor.username} requested cash {direction} of {fmt(amount_cents)}",
@@ -113,6 +113,8 @@ def review(db: Session, actor: User, *, request_id: int, approve: bool, settings
         raise Conflict(f"That request was already {request.status}.")
     if request.requested_by_id == actor.id and not is_top(actor):
         raise Forbidden("You cannot approve your own request.")
+    if actor.role == Role.TELLER and not actor.gcash_enc:
+        raise Forbidden("A Teller needs a GCash number on file before approving requests.")
     if (request.requested_by_id == actor.id and request.agent_id is not None
             and request.target == "wallet" and actor.role != Role.ADMIN):
         # Nobody tops up or cashes out their own credit by themselves; the Admin is the checker.
@@ -218,7 +220,7 @@ def my_requests(db: Session, user: User, *, limit: int = 50) -> list[CashRequest
 
 def list_requests(db: Session, actor: User, *, view: str = "in", limit: int = 200) -> list[CashRequest]:
     stmt = select(CashRequest)
-    if not is_top(actor):
+    if not (is_top(actor) or actor.role == Role.TELLER):
         stmt = stmt.where(or_(CashRequest.requested_by_id == actor.id,
                               CashRequest.agent_id.in_(scope_ids(db, actor))))
     if view == "in":

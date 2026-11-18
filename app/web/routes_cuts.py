@@ -1,4 +1,4 @@
-"""Cuts: Volume % (Cavo) and SOP % (Kubrador). Admin, or a Pawn the Admin gave access to.
+"""Cuts: Volume % (Agent) and SOP % (Sub Agent). Admin, or a Pawn the Admin gave access to.
 
 Lives in the Admin Panel (/admin/cuts). Master no longer sees or changes cuts.
 """
@@ -23,6 +23,8 @@ async def cuts_page(ctx: Ctx = Depends(require_ctx)):
     return panel(ctx, "cuts", "cuts.html", rows=commissions.cut_rows(ctx.db, ctx.user, s),
                  defaults={"volume": int(s.get("commission.cavo_cut_bps")),
                            "sop": int(s.get("commission.kubrador_cut_bps")),
+                           "bola_volume": int(s.get("bola.commission.agent_cut_bps")),
+                           "bola_sop": int(s.get("bola.commission.sub_agent_cut_bps")),
                            "max_volume": int(s.get("commission.max_cavo_cut_bps")),
                            "max_sop": int(s.get("commission.max_kubrador_cut_bps"))},
                  unlimited=ctx.user.is_admin, can_edit=ctx.can(Perm.CUTS_MANAGE))

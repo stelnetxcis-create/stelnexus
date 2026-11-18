@@ -64,19 +64,28 @@ class Role(StrEnum):
     admin      Hidden developer account. Same powers as Master plus the hidden layer
                (Settings, Audit Trail, ledger integrity, System/Hidden Over). It never
                appears in any list, count, tree or name shown to anyone else.
-    master     Top of the visible network ("Management" in the old reports).
-    cavo       Invited by a Master. Earns the Volume % cut.
-    kubrador   Invited by a Cavo. Earns the SOP % taken out of the Cavo's cut.
-    teller     RETIRED. The platform is online-only; old rows are closed by the migration.
+    master     Top of the visible network ("Management" in the old reports). Shown as "Master Agent".
+               Keeps the remainder of every commission pool (default 70%).
+    agent      Invited by a Master Agent. Earns the Volume % (default 30% of the pool). Recruits
+               Sub Agents and players. (Replaces the old Cavo.)
+    sub_agent  Invited by an Agent. Earns the SOP % taken out of its Agent's cut (default 30% of the
+               Agent's 30%). Recruits players. (Replaces the old Kubrador.)
+    cavo       RETIRED. Merged into agent by the migration; kept only so old rows still parse.
+    kubrador   RETIRED. Merged into sub_agent by the migration; kept only so old rows still parse.
+    teller     Wallet desk. Admin creates it, directly under the Admin. Approves or rejects load / cash-out
+               requests and sees the Users list; nothing else. No balance: it moves money through its own
+               GCash account, so a GCash number is mandatory. (Legacy teller rows without one stay closed.)
     declarator Declares results only; never sees totals (was hard-coded id 78). No balance,
                cannot bet or move money: a spectator/helper for the event.
     pawn       Created by the Admin only. A spectator like the declarator (no balance, no betting)
                whose reach into the Admin Panel is set per account by the Admin (``User.grants``).
 
-    Normal accounts (players) are not users: a Kubrador's referral code creates a Player.
+    Normal accounts (players) are not users: an Agent's or Sub Agent's referral code creates a Player.
     """
     ADMIN = "admin"      # legacy UTYPE '0'
     MASTER = "master"
+    AGENT = "agent"
+    SUB_AGENT = "sub_agent"
     CAVO = "cavo"
     KUBRADOR = "kubrador"
     TELLER = "teller"
@@ -86,36 +95,60 @@ class Role(StrEnum):
     @property
     def label(self) -> str:
         return {
-            "admin": "Admin", "master": "Master", "cavo": "Cavo", "kubrador": "Kubrador",
+            "admin": "Admin", "master": "Master Agent", "agent": "Agent", "sub_agent": "Sub Agent",
+            "cavo": "Cavo", "kubrador": "Kubrador",
             "teller": "Teller", "declarator": "Declarator", "pawn": "Pawn",
         }[self.value]
 
 
-AGENT_ROLES = (Role.ADMIN, Role.MASTER, Role.CAVO, Role.KUBRADOR)
+AGENT_ROLES = (Role.ADMIN, Role.MASTER, Role.AGENT, Role.SUB_AGENT)
+# Every visible account that sells for players and earns commission (no Admin: it is hidden).
+NETWORK_ROLES = (Role.MASTER, Role.AGENT, Role.SUB_AGENT)
+# Retired tiers: still valid stored values (old rows, old ledger accounts) but nobody can be given them.
+RETIRED_ROLES = (Role.CAVO, Role.KUBRADOR)
 # Spectator / helper accounts: no balance, no bets, no money movement, nobody's upline.
-NO_WALLET_ROLES = (Role.DECLARATOR, Role.PAWN)
+NO_WALLET_ROLES = (Role.DECLARATOR, Role.PAWN, Role.TELLER)
 TOP_ROLES = (Role.ADMIN, Role.MASTER)          # the operator tier: see everything visible
-# Strict downline tree. A Kubrador's children are Players (a separate table).
-CHILD_ROLE: dict[Role, Role | None] = {
-    Role.ADMIN: Role.MASTER,
-    Role.MASTER: Role.CAVO,
-    Role.CAVO: Role.KUBRADOR,
-    Role.KUBRADOR: None,
-    Role.TELLER: None,
-    Role.DECLARATOR: None,
-    Role.PAWN: None,
+
+# The tree: Master Agent -> Agent -> Sub Agent -> Player. A role's children are the roles it may
+# recruit, the first one being what its referral code makes by default. An Agent may also recruit
+# players directly (it then keeps the whole Agent cut, there being no Sub Agent to share with).
+# A player is not a user row (separate table).
+CHILD_ROLES: dict[Role, tuple[Role, ...]] = {
+    Role.ADMIN: (Role.MASTER,),
+    Role.MASTER: (Role.AGENT,),
+    Role.AGENT: (Role.SUB_AGENT,),
+    Role.SUB_AGENT: (),
+    Role.CAVO: (),
+    Role.KUBRADOR: (),
+    Role.TELLER: (),
+    Role.DECLARATOR: (),
+    Role.PAWN: (),
 }
-# What a referral code issued by this role turns the invitee into.
-INVITE_ROLE: dict[Role, str | None] = {
-    Role.ADMIN: "master",
-    Role.MASTER: "cavo",
-    Role.CAVO: "kubrador",
-    Role.KUBRADOR: "player",
-    Role.TELLER: None,
-    Role.DECLARATOR: None,
-    Role.PAWN: None,
+# Referral codes: what each role may put on a code ("player" is not a user role). First = default.
+INVITE_ROLES: dict[Role, tuple[str, ...]] = {
+    Role.ADMIN: ("master", "agent", "sub_agent", "player"),
+    Role.MASTER: ("agent",),
+    Role.AGENT: ("sub_agent", "player"),
+    Role.SUB_AGENT: ("player",),
+    Role.CAVO: (),
+    Role.KUBRADOR: (),
+    Role.TELLER: (),
+    Role.DECLARATOR: (),
+    Role.PAWN: (),
 }
-CUT_ROLES = (Role.CAVO, Role.KUBRADOR)
+# Who an account of this role may report to (Admin / Pawn creation picks one). First = the usual
+# upline, the only one auto-picked when exactly one such account exists.
+UPLINE_ROLES: dict[str, tuple[Role, ...]] = {
+    "agent": (Role.MASTER,),
+    "sub_agent": (Role.AGENT,),
+    "player": (Role.SUB_AGENT, Role.AGENT),
+}
+# Kept for older callers: the first (default) child / invite role of each role.
+CHILD_ROLE: dict[Role, Role | None] = {r: (c[0] if c else None) for r, c in CHILD_ROLES.items()}
+INVITE_ROLE: dict[Role, str | None] = {r: (c[0] if c else None) for r, c in INVITE_ROLES.items()}
+# Agent and Sub Agent hold a cut. The Master Agent keeps what is left of the pool.
+CUT_ROLES = (Role.AGENT, Role.SUB_AGENT)
 
 
 class Status(StrEnum):
@@ -260,11 +293,14 @@ class User(UUIDMixin, TimestampMixin, Base):
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
     # Cut system (basis points; NULL = inherit the default from Settings -> Commissions).
-    #   cavo:      cut_bps = Volume %  (share of the commission pool the Cavo's network keeps)
-    #              sop_bps = SOP %     (share of that cut passed to each of its Kubradors)
-    #   kubrador:  cut_bps = personal SOP % override (NULL = use the Cavo's sop_bps)
+    #   agent:     cut_bps = Volume %  (share of the commission pool the Agent's network keeps)
+    #              sop_bps = SOP %     (share of that cut passed to each of its Sub Agents)
+    #   sub_agent: cut_bps = personal SOP % override (NULL = use the Agent's sop_bps)
     cut_bps: Mapped[int | None] = mapped_column(Integer)
     sop_bps: Mapped[int | None] = mapped_column(Integer)
+
+    # Teller only: the GCash number (encrypted at rest) it sends and receives money with.
+    gcash_enc: Mapped[str | None] = mapped_column(Text)
 
     # Pawn only: the list of grant keys the Admin switched on (see app.core.rbac.GRANTS).
     grants: Mapped[list | None] = mapped_column(JsonType)
@@ -275,7 +311,7 @@ class User(UUIDMixin, TimestampMixin, Base):
         back_populates="parent", foreign_keys="User.parent_id")
 
     __table_args__ = (
-        CheckConstraint("role in ('admin','master','cavo','kubrador','teller','declarator','pawn')", name="role_valid"),
+        CheckConstraint("role in ('admin','master','cavo','kubrador','teller','declarator','pawn','agent','sub_agent')", name="role_valid"),
         CheckConstraint("id <> parent_id", name="no_self_parent"),
         CheckConstraint("cut_bps is null or cut_bps between 0 and 10000", name="cut_range"),
         CheckConstraint("sop_bps is null or sop_bps between 0 and 10000", name="sop_range"),
@@ -753,6 +789,36 @@ class ChatToken(Base):
     used_fight_id: Mapped[int | None] = mapped_column(ForeignKey("fights.id", ondelete="SET NULL"), index=True)
     used_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
     created_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow)
+
+    user: Mapped[User] = relationship()
+
+
+class AliasToken(Base):
+    """Consumable: one-time alias change. Spending it sets the chat alias, then it is gone."""
+    __tablename__ = "alias_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    price_cents: Mapped[int] = mapped_column(Money)
+    txn_uuid: Mapped[str | None] = mapped_column(String(32))
+    used_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+    created_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow)
+
+    user: Mapped[User] = relationship()
+
+
+class ChatAlias(Base):
+    """The name shown in livestream chat instead of the username. One per user; the account behind
+    it stays on record (staff can see it). ``alias_key`` is the lowercase, punctuation-free form used
+    to keep aliases unique and to stop look-alikes of existing names."""
+    __tablename__ = "chat_aliases"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True)
+    alias: Mapped[str] = mapped_column(String(24))
+    alias_key: Mapped[str] = mapped_column(String(24), unique=True, index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow)
+    updated_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow)
 
     user: Mapped[User] = relationship()
 

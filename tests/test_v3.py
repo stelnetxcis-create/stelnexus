@@ -63,24 +63,30 @@ def _fresh_game(w):
 # ------------------------------------------------ admin / pawn create Cavo + Kubrador directly
 def test_admin_creates_cavo_and_kubrador_directly(chain):
     w = chain
-    cavo = agents.create_agent(w.db, w.admin, username=f"dc{w.tag}", password=PASSWORD, role=Role.CAVO,
+    cavo = agents.create_agent(w.db, w.admin, username=f"dc{w.tag}", password=PASSWORD, role=Role.AGENT,
                                full_name="DC", settings=w.store, parent_id=w.master.id)
     assert cavo.parent_id == w.master.id and cavo.created_by_id == w.admin.id and cavo.has_wallet
-    kub = agents.create_agent(w.db, w.admin, username=f"dk{w.tag}", password=PASSWORD, role=Role.KUBRADOR,
+    kub = agents.create_agent(w.db, w.admin, username=f"dk{w.tag}", password=PASSWORD, role=Role.SUB_AGENT,
                               full_name="DK", settings=w.store, parent_id=cavo.id)
-    assert kub.parent_id == cavo.id and kub.role == Role.KUBRADOR
+    assert kub.parent_id == cavo.id and kub.role == Role.SUB_AGENT
 
 
 def test_upline_must_be_the_right_tier(chain):
     w = chain
     with pytest.raises(ValidationError):        # a Cavo cannot sit under a Cavo
-        agents.create_agent(w.db, w.admin, username=f"x1{w.tag}", password=PASSWORD, role=Role.CAVO,
+        agents.create_agent(w.db, w.admin, username=f"x1{w.tag}", password=PASSWORD, role=Role.AGENT,
+                            full_name="X", settings=w.store, parent_id=w.cavo.id)
+    with pytest.raises(ValidationError):        # an Agent sits under a Master Agent, never under a Cavo
+        agents.create_agent(w.db, w.admin, username=f"x2{w.tag}", password=PASSWORD, role=Role.AGENT,
                             full_name="X", settings=w.store, parent_id=w.cavo.id)
     with pytest.raises(ValidationError):        # a Kubrador cannot sit under a Master
-        agents.create_agent(w.db, w.admin, username=f"x2{w.tag}", password=PASSWORD, role=Role.KUBRADOR,
+        agents.create_agent(w.db, w.admin, username=f"x5{w.tag}", password=PASSWORD, role=Role.SUB_AGENT,
+                            full_name="X", settings=w.store, parent_id=w.master.id)
+    with pytest.raises(ValidationError):        # a Sub Agent sits under an Agent, not directly under a Master Agent
+        agents.create_agent(w.db, w.admin, username=f"x4{w.tag}", password=PASSWORD, role=Role.SUB_AGENT,
                             full_name="X", settings=w.store, parent_id=w.master.id)
     with pytest.raises(ValidationError):        # and the upline must exist
-        agents.create_agent(w.db, w.admin, username=f"x3{w.tag}", password=PASSWORD, role=Role.KUBRADOR,
+        agents.create_agent(w.db, w.admin, username=f"x3{w.tag}", password=PASSWORD, role=Role.SUB_AGENT,
                             full_name="X", settings=w.store, parent_id=999_999)
 
 
@@ -88,16 +94,16 @@ def test_pawn_creates_accounts_only_when_granted(chain):
     w = chain
     plain = _pawn(w, name="pl")
     with pytest.raises(Forbidden):
-        agents.create_agent(w.db, plain, username=f"p1{w.tag}", password=PASSWORD, role=Role.CAVO,
+        agents.create_agent(w.db, plain, username=f"p1{w.tag}", password=PASSWORD, role=Role.AGENT,
                             full_name="P", settings=w.store, parent_id=w.master.id)
     assert creatable_roles(plain) == []
 
     allowed = _pawn(w, "agents:create", name="pa")
     assert Perm.AGENTS_CREATE in permissions_of(allowed)
-    assert creatable_roles(allowed) == [Role.CAVO, Role.KUBRADOR]
-    cavo = agents.create_agent(w.db, allowed, username=f"p2{w.tag}", password=PASSWORD, role=Role.CAVO,
+    assert creatable_roles(allowed) == [Role.AGENT, Role.SUB_AGENT]
+    cavo = agents.create_agent(w.db, allowed, username=f"p2{w.tag}", password=PASSWORD, role=Role.AGENT,
                                full_name="P", settings=w.store, parent_id=w.master.id)
-    kub = agents.create_agent(w.db, allowed, username=f"p3{w.tag}", password=PASSWORD, role=Role.KUBRADOR,
+    kub = agents.create_agent(w.db, allowed, username=f"p3{w.tag}", password=PASSWORD, role=Role.SUB_AGENT,
                               full_name="P", settings=w.store, parent_id=w.cavo.id)
     assert cavo.created_by_id == allowed.id and kub.parent_id == w.cavo.id
     for role in (Role.MASTER, Role.DECLARATOR, Role.PAWN, Role.ADMIN):
@@ -106,12 +112,15 @@ def test_pawn_creates_accounts_only_when_granted(chain):
                                 full_name="P", settings=w.store)
 
 
-def test_master_still_cannot_create_a_kubrador_directly(chain):
+def test_master_agent_creatable_roles(chain):
+    """The Master Agent recruits Agents (and Declarators). Never a Sub Agent directly: a Sub Agent
+    always sits under an Agent. The retired Cavo / Kubrador cannot be created at all."""
     w = chain
-    assert creatable_roles(w.master) == [Role.CAVO, Role.DECLARATOR]
-    with pytest.raises(Forbidden):
-        agents.create_agent(w.db, w.master, username=f"mk{w.tag}", password=PASSWORD, role=Role.KUBRADOR,
-                            full_name="MK", settings=w.store)
+    assert creatable_roles(w.master) == [Role.AGENT, Role.DECLARATOR]
+    for role in (Role.SUB_AGENT, Role.CAVO, Role.KUBRADOR):
+        with pytest.raises(Forbidden):
+            agents.create_agent(w.db, w.master, username=f"ms{role.value}{w.tag}", password=PASSWORD,
+                                role=role, full_name="MS", settings=w.store)
 
 
 def test_users_page_create_form_web(chain):
@@ -119,13 +128,14 @@ def test_users_page_create_form_web(chain):
     w.db.commit()
     a = _login("admin")
     html = a.get("/agents").text
-    assert 'name="parent_id"' in html and '<option value="cavo">' in html and '<option value="kubrador">' in html
-    r = a.post("/agents/create", data={"csrf_token": _csrf(a), "role": "kubrador", "parent_id": str(w.cavo.id),
+    assert 'name="parent_id"' in html and '<option value="agent">' in html and '<option value="sub_agent">' in html
+    assert '<option value="cavo">' not in html and '<option value="kubrador">' not in html
+    r = a.post("/agents/create", data={"csrf_token": _csrf(a), "role": "sub_agent", "parent_id": str(w.cavo.id),
                                        "full_name": "Web K", "username": f"wk{w.tag}", "password": PASSWORD})
     assert r.status_code == 303
     w.db.expire_all()
     made = w.db.scalar(select(User).where(User.username == f"wk{w.tag}"))
-    assert made is not None and made.role == Role.KUBRADOR and made.parent_id == w.cavo.id
+    assert made is not None and made.role == Role.SUB_AGENT and made.parent_id == w.cavo.id
 
     p = _login(_pawn(w, "agents:create", name="pw2").username)
     page = p.get("/agents")
@@ -157,8 +167,8 @@ def test_livestream_chat_is_admin_and_granted_pawns_only(chain):
 # ------------------------------------------------ who may declare
 def test_only_declare_roles_can_declare_cavo_and_kubrador_are_players(chain):
     w = chain
-    for role in (Role.CAVO, Role.KUBRADOR):
-        assert Perm.FIGHTS_DECLARE not in permissions_of(w.cavo if role == Role.CAVO else w.kub)
+    for role in (Role.AGENT, Role.SUB_AGENT):
+        assert Perm.FIGHTS_DECLARE not in permissions_of(w.cavo if role == Role.AGENT else w.kub)
     for who in (w.admin, _mk(w, Role.DECLARATOR, "dc"), _pawn(w, name="dp")):
         assert Perm.FIGHTS_DECLARE in permissions_of(who)
     assert not {Perm.FIGHTS_DECLARE, Perm.FIGHTS_REDECLARE} & permissions_of(w.master)   # Master cannot declare
@@ -177,8 +187,9 @@ def test_only_declare_roles_can_declare_cavo_and_kubrador_are_players(chain):
 # ------------------------------------------------ Admin referral codes can make every account type
 def test_admin_referral_codes_make_any_account_type(chain):
     w = chain
-    assert referrals.invite_roles(w.admin) == ["master", "cavo", "kubrador", "player"]
-    assert referrals.invite_roles(w.master) == ["cavo"] and referrals.invite_roles(w.kub) == ["player"]
+    assert referrals.invite_roles(w.admin) == ["master", "agent", "sub_agent", "player"]
+    assert referrals.invite_roles(w.master) == ["agent"]
+    assert referrals.invite_roles(w.cavo) == ["sub_agent", "player"] and referrals.invite_roles(w.kub) == ["player"]
 
     code = referrals.create_code(w.db, w.admin, ttl_minutes=60)            # default stays Master
     assert code.role == "master" and code.parent_id is None
@@ -186,15 +197,15 @@ def test_admin_referral_codes_make_any_account_type(chain):
                          contact=None, settings=w.store)
     assert m.role == Role.MASTER and m.parent_id == w.admin.id
 
-    code = referrals.create_code(w.db, w.admin, ttl_minutes=60, role="cavo", parent_id=w.master.id)
+    code = referrals.create_code(w.db, w.admin, ttl_minutes=60, role="agent", parent_id=w.master.id)
     c = referrals.redeem(w.db, code.code, username=f"ac{w.tag}", password=PASSWORD, full_name="AC",
                          contact=None, settings=w.store)
-    assert c.role == Role.CAVO and c.parent_id == w.master.id
+    assert c.role == Role.AGENT and c.parent_id == w.master.id
 
-    code = referrals.create_code(w.db, w.admin, ttl_minutes=60, role="kubrador", parent_id=w.cavo.id)
+    code = referrals.create_code(w.db, w.admin, ttl_minutes=60, role="sub_agent", parent_id=w.cavo.id)
     k = referrals.redeem(w.db, code.code, username=f"ak{w.tag}", password=PASSWORD, full_name="AK",
                          contact=None, settings=w.store)
-    assert k.role == Role.KUBRADOR and k.parent_id == w.cavo.id
+    assert k.role == Role.SUB_AGENT and k.parent_id == w.cavo.id
 
     code = referrals.create_code(w.db, w.admin, ttl_minutes=60, role="player", parent_id=w.kub.id)
     p = referrals.redeem(w.db, code.code, username=f"ap{w.tag}", password=PASSWORD, full_name="AP",
@@ -204,15 +215,19 @@ def test_admin_referral_codes_make_any_account_type(chain):
 
 def test_admin_referral_upline_must_fit_and_others_cannot_widen(chain):
     w = chain
-    with pytest.raises(ValidationError):                                     # a Kubrador cannot sit under a Master
-        referrals.create_code(w.db, w.admin, ttl_minutes=60, role="kubrador", parent_id=w.master.id)
+    with pytest.raises(ValidationError):                                     # a Sub Agent cannot sit under a Master
+        referrals.create_code(w.db, w.admin, ttl_minutes=60, role="sub_agent", parent_id=w.master.id)
+    with pytest.raises(ValidationError):                                     # an Agent cannot sit under an Agent
+        referrals.create_code(w.db, w.admin, ttl_minutes=60, role="agent", parent_id=w.cavo.id)
+    with pytest.raises(Forbidden):
+        referrals.create_code(w.db, w.admin, ttl_minutes=60, role="cavo")    # retired tier
     with pytest.raises(Forbidden):
         referrals.create_code(w.db, w.master, ttl_minutes=60, role="master")
     with pytest.raises(Forbidden):
-        referrals.create_code(w.db, w.cavo, ttl_minutes=60, role="cavo")
+        referrals.create_code(w.db, w.cavo, ttl_minutes=60, role="agent")
     with pytest.raises(Forbidden):
-        referrals.create_code(w.db, w.kub, ttl_minutes=60, role="kubrador")
-    assert referrals.create_code(w.db, w.master, ttl_minutes=60, role="cavo").role == "cavo"
+        referrals.create_code(w.db, w.kub, ttl_minutes=60, role="sub_agent")
+    assert referrals.create_code(w.db, w.master, ttl_minutes=60, role="agent").role == "agent"
 
 
 def test_admin_referrals_page_offers_the_role_picker(chain):
@@ -223,7 +238,7 @@ def test_admin_referrals_page_offers_the_role_picker(chain):
     w.master.must_change_password = False
     w.db.commit()
     m = _login(w.master.username).get("/referrals").text
-    assert 'name="parent_id"' not in m and "Cavo" in m
+    assert 'name="parent_id"' not in m and "Agent" in m
 
 
 # ------------------------------------------------ result pictures

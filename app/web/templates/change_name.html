@@ -4,7 +4,7 @@
 {% import "_player.html" as pl %}
 {% block title %}Game View · {{ brand }}{% endblock %}
 {% block heading %}Fight View{% if event %} — {{ event.title }}{% endif %}{% endblock %}
-{% block head %}<link rel="stylesheet" href="/static/css/store.css?v=3">{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/store.css?v=8">{% endblock %}
 {% block actions %}
 {% if event %}<a class="btn btn-sm" href="/events/{{ event.id }}">Betting sheet</a>{% endif %}
 {% endblock %}
@@ -55,12 +55,27 @@
     {% set pass_price = settings['store.pass_price_cents'] %}{% set pass_days = settings['store.pass_days'] %}{% set tok_price = settings['store.token_price_cents'] %}
     <section class="fc {{ 'is-closed' if chat_access.reason == 'closed' else ('is-locked' if not chat_access.can_send) }}" data-fightchat
              data-url="/fights/{{ fight.id }}/chat" data-fight="{{ fight.id }}" data-tokens="{{ chat_tokens }}" aria-label="Livestream chat for game {{ fight.number }}">
+      <div class="fc-stagewrap" data-stage>
+        {{ pl.stream_player('fight', 'Game #' ~ fight.number ~ ' · Live match video', fight.entry_name_meron, fight.entry_name_wala, stream_pass, chat_access.reason == 'closed') }}
+        <div class="fc-overlay" data-fc-overlay data-size="m" role="region" aria-label="Livestream chat">
       <div class="fc-head">
         <span class="fc-air"><i></i><span data-fc-air>{{ 'ENDED' if chat_access.reason == 'closed' else 'ON AIR' }}</span></span>
-        <div class="fc-title"><b>Livestream chat</b><small>Game #{{ fight.number }} · {{ fight.entry_name_meron }} vs {{ fight.entry_name_wala }}</small></div>
+        <div class="fc-title" data-fc-grip title="Drag to move · double-click to reset"><b>Livestream chat <span class="fc-unread" data-fc-unread hidden>0</span></b><small>Game #{{ fight.number }} · {{ fight.entry_name_meron }} vs {{ fight.entry_name_wala }}</small></div>
         <span class="fc-conn" data-fc-conn data-state="wait">connecting</span>
+        <button type="button" class="fc-toggle fc-cog" data-fc-cog aria-expanded="false" aria-label="Chat display settings" title="Size, transparency &amp; position"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg></button>
+        <button type="button" class="fc-toggle" data-fc-toggle aria-expanded="true" aria-label="Collapse chat" title="Collapse / expand chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       </div>
-      {{ pl.stream_player('fight', 'Game #' ~ fight.number ~ ' · Live match video', fight.entry_name_meron, fight.entry_name_wala, stream_pass, chat_access.reason == 'closed') }}
+          <div class="fc-body" data-fc-body>
+      <div class="fc-set" data-fc-set hidden>
+        <div class="fc-size" role="group" aria-label="Chat size">
+          <span>Size</span>
+          <button type="button" data-fc-size="s" aria-pressed="false">S</button>
+          <button type="button" data-fc-size="m" aria-pressed="true">M</button>
+          <button type="button" data-fc-size="l" aria-pressed="false">L</button>
+        </div>
+        <label class="fc-only-overlay">Transparency <input type="range" min="20" max="100" step="5" value="82" data-fc-alpha aria-label="Chat background opacity"><output data-fc-alpha-out>82%</output></label>
+        <button type="button" class="btn btn-sm fc-only-overlay" data-fc-reset>Reset position</button>
+      </div>
       <div class="fc-result {{ fight.result.value if fight.result and chat_access.reason == 'closed' }}" data-fc-result>
         <span class="crown"><svg class="ico"><use href="#i-crown"/></svg></span>
         <div><small>Declarator announced</small><strong data-fc-winner>{% if chat_access.reason == 'closed' %}{% if fight.result and fight.result.value == 'meron' %}{{ fight.entry_name_meron }} wins{% elif fight.result and fight.result.value == 'wala' %}{{ fight.entry_name_wala }} wins{% elif fight.result and fight.result.value == 'draw' %}Draw: stakes refunded{% else %}Game cancelled{% endif %}{% endif %}</strong></div>
@@ -72,7 +87,10 @@
           <input name="body" maxlength="300" placeholder="Say something about the fight…" aria-label="Chat message" required>
           <button class="btn btn-brand" type="submit">Send</button>
         </form>
-        <div class="fc-count" data-fc-count>0 / 300</div>
+        <div class="fc-meta">
+          <span class="fc-slow" data-fc-slow {% if not settings['store.slow_mode_seconds'] %}hidden{% endif %}>Slow mode · {{ settings['store.slow_mode_seconds'] }}s</span>
+          <span class="fc-count" data-fc-count>0 / 300</span>
+        </div>
         <div class="fc-lock">
           <div class="fc-lock-top"><svg class="ico"><use href="#i-lock"/></svg><div><b>Chat is locked.</b> You can read along. Unlock it to talk on this fight.</div></div>
           <div class="fc-lock-opts">
@@ -85,6 +103,9 @@
           </div>
         </div>
         <div class="fc-closed-note"><svg class="ico"><use href="#i-lock"/></svg>The result is announced, so this chat is closed. History stays here.</div>
+      </div>
+          </div>
+        </div>
       </div>
     </section>
     {% endif %}
@@ -350,5 +371,18 @@
   <div class="form-actions"><button class="btn btn-danger" type="submit">Cancel &amp; refund</button></div>
 </form>
 {% endcall %}
+{% if fight %}{% if is_dev and not viewing_as %}
+<div class="card" style="border-color:rgba(255,59,92,.45)">
+  <div class="card-head"><h2>Delete this game</h2>{{ ui.badge('DEV only', 'red') }}</div>
+  <div class="card-body">
+    <p class="notice">Permanently removes it with its tickets, settlements and chat. Wallet and ledger history is kept untouched. Anything still holding live stakes is refused: cancel / void it first so players are refunded.</p>
+    <form method="post" action="/dev/purge/fight/{{ fight.id }}" class="inline-form" data-confirm="Permanently delete Game #{{ fight.number }}? This cannot be undone.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="btn btn-danger" type="submit">Delete game #{{ fight.number }}</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endif %}
 {% endblock %}
-{% block scripts %}{% if fight %}<script src="/static/js/fightchat.js?v=3" defer></script><script src="/static/js/stream.js?v=1" defer></script>{% endif %}{% endblock %}
+{% block scripts %}{% if fight %}<script src="/static/js/fightchat.js?v=7" defer></script><script src="/static/js/stream.js?v=2" defer></script>{% endif %}{% endblock %}
