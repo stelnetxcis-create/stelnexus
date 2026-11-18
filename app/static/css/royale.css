@@ -320,3 +320,10 @@ body.is-seller .cursor-glow{display:none}
 .games .game-tile .game-soon{position:absolute;top:12px;right:14px;z-index:3;padding:4px 10px;font-size:10.5px}
 .games .game-tile.is-soon[data-game="esports"]::before,.games .game-tile.is-soon[data-game="number"]::before{margin-top:-44px;margin-right:0;right:6px;width:190px;height:95px}
 .games .game-tile.is-soon .game-body{position:relative;z-index:2}
+
+/* NBA tile: own basketball art (was inheriting the rooster duel.svg). Same box as the Esports art so both cards line up, vertically centered. */
+.games .game-tile[data-game="nba"]{background:radial-gradient(380px 160px at 90% 50%,rgba(249,115,22,.22),transparent 70%),radial-gradient(260px 120px at 75% 95%,rgba(229,56,79,.12),transparent 70%),linear-gradient(160deg,#16131a,#0e0d10)}
+.games .game-tile[data-game="nba"]::before,.games .game-tile.is-soon[data-game="nba"]::before{background-image:url(/static/img/games/nba.svg);
+  left:auto;right:6px;top:50%;width:190px;height:95px;margin:0;translate:0 -50%;animation:none;opacity:.55;filter:saturate(.85)}
+.games .game-tile.is-soon[data-game="nba"] .game-ico{color:#fb923c}
+@media (max-width:640px){.games .game-tile[data-game="nba"]::before,.games .game-tile.is-soon[data-game="nba"]::before{width:150px;height:75px;opacity:.4}}

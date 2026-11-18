@@ -165,8 +165,6 @@
 .vp-hint{display:flex;align-items:center;gap:7px;margin:9px 2px 0;font-size:12px;color:var(--ink-3)}
 .vp-hint svg{width:14px;height:14px;fill:var(--gold);flex:0 0 auto}
 .vp-hint a{color:var(--gold-hi,#f7de93)}
-.vp:fullscreen{display:flex;flex-direction:column;height:100%}
-.vp:fullscreen .vp-screen{aspect-ratio:auto;flex:1;min-height:0}
 @media (prefers-reduced-motion:reduce){.vp.is-playing .vp-sweep,.vp.is-playing .vp-ring{animation:none}}
 
 /* ---------- Lux VIP Battle Pass ---------- */
@@ -191,3 +189,295 @@
 .fc-msg.is-lux .fc-bub p{color:#fff6dc}
 .fc-msg.is-lux .fc-av{box-shadow:0 0 0 2px rgba(255,214,102,.8),0 0 16px rgba(255,200,70,.7)}
 @media (prefers-reduced-motion:reduce){.st-lux::after,.fc-msg.is-lux .fc-bub::after{animation:none}}
+
+/* ---------- chat floats over the video: draggable, adjustable transparency, survives full screen ---------- */
+.fc{overflow:visible}
+.fc-stagewrap{position:relative;container-type:inline-size;container-name:fcstage;background:#000}
+.fc-overlay{--fc-a:.82;--fc-x:0px;--fc-y:0px;position:absolute;z-index:5;left:12px;top:12px;width:min(340px,calc(100% - 24px));
+  max-height:calc(56.25cqw - 24px);display:flex;flex-direction:column;overflow:hidden;border-radius:14px;contain:layout paint;
+  border:1px solid rgba(217,177,85,calc(.15 + var(--fc-a)*.25));background:rgba(11,10,13,var(--fc-a));
+  -webkit-backdrop-filter:blur(calc(var(--fc-a)*8px));backdrop-filter:blur(calc(var(--fc-a)*8px));
+  box-shadow:0 18px 44px -20px rgba(0,0,0,calc(var(--fc-a)*1.2));transform:translate3d(var(--fc-x),var(--fc-y),0)}
+.fc-overlay.is-dragging{transition:none;will-change:transform;user-select:none;-webkit-user-select:none}
+.fc-overlay.is-dragging .fc-title{cursor:grabbing}
+.fc-overlay .fc-head{padding:9px 10px;gap:8px;flex:0 0 auto;background:linear-gradient(90deg,rgba(255,59,92,.16),rgba(217,177,85,.05) 60%,transparent);touch-action:none}
+.fc-overlay .fc-title{cursor:grab;touch-action:none}
+.fc-overlay .fc-title b{font-size:14px;display:flex;align-items:center;gap:6px}
+.fc-overlay .fc-title small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fc-unread{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;font:800 10.5px var(--sans,inherit);color:#fff;background:#ff3b5c;font-variant-numeric:tabular-nums}
+.fc-toggle{flex:0 0 auto;display:grid;place-items:center;width:28px;height:28px;border-radius:8px;cursor:pointer;color:var(--gold-hi);
+  border:1px solid var(--line-2);background:rgba(20,18,23,.9);transition:background .2s}
+.fc-toggle:hover,.fc-toggle[aria-expanded="true"].fc-cog{background:#1d1a22}
+.fc-toggle svg{width:16px;height:16px;transition:transform .2s}
+.fc-overlay.is-collapsed [data-fc-toggle] svg{transform:rotate(180deg)}
+.fc-body{display:flex;flex-direction:column;min-height:0;flex:1 1 auto;overflow:hidden}
+.fc-overlay.is-collapsed .fc-body,.fc-overlay.is-collapsed .fc-cog{display:none}
+.fc-overlay.is-collapsed{width:auto;max-width:min(340px,calc(100% - 24px))}
+.fc-overlay.is-collapsed .fc-title small,.fc-overlay.is-collapsed .fc-conn{display:none}
+.fc-set{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 10px;border-bottom:1px solid var(--line);font-size:12px;color:var(--ink-2)}
+.fc-set[hidden]{display:none}
+.fc-set label{display:flex;align-items:center;gap:8px;flex:1 1 160px}
+.fc-set input[type=range]{flex:1;min-width:70px;accent-color:#d9b155;height:4px;padding:0}
+.fc-set output{min-width:34px;text-align:right;font-variant-numeric:tabular-nums;color:var(--gold-hi)}
+.fc-overlay .fc-log{height:auto;min-height:120px;flex:1 1 auto;max-height:calc(56.25cqw - 190px);background:transparent;overscroll-behavior:contain;contain:content}
+.fc-overlay .fc-msg{animation-duration:.22s}
+.fc-overlay .fc-msg.no-anim{animation:none}
+.fc-overlay .fc-bub{background:rgba(23,21,27,calc(.35 + var(--fc-a)*.5))}
+.fc-overlay .fc-bub p,.fc-overlay .fc-bub b{text-shadow:0 1px 3px rgba(0,0,0,.85)}
+.fc-overlay .fc-foot{flex:0 0 auto;background:rgba(11,10,13,calc(var(--fc-a)*.6))}
+.fc-overlay .fc-result{padding:8px 10px}
+.fc-overlay .fc-result strong{font-size:15px}
+.fc-overlay .fc-lock-opts{grid-template-columns:1fr}
+.fc-overlay .fc-jump{bottom:92px}
+/* the video's own LIVE/ENDED badge + title move right so the chat owns the top-left */
+.fc .vp-badge{left:auto;right:12px}
+.fc .vp-title{left:auto;right:12px;top:44px;text-align:right}
+
+/* full screen: the whole stage (video + chat) goes full screen, chat stays pinned and draggable */
+.fc-stagewrap:fullscreen,.fc-stagewrap.is-fs{display:flex;flex-direction:column;width:100%;height:100%;background:#000}
+.fc-stagewrap.is-fs{position:fixed;inset:0;z-index:2147483000}
+.fc-stagewrap:fullscreen .vp,.fc-stagewrap.is-fs .vp{flex:1;min-height:0;display:flex;flex-direction:column;border:0}
+.fc-stagewrap:fullscreen .vp-screen,.fc-stagewrap.is-fs .vp-screen{aspect-ratio:auto;flex:1;min-height:0}
+.fc-stagewrap:fullscreen .fc-overlay,.fc-stagewrap.is-fs .fc-overlay{position:absolute;width:min(380px,calc(100% - 24px));max-height:calc(100% - 96px);margin:0;border-radius:14px;border-width:1px}
+.fc-stagewrap:fullscreen .fc-overlay .fc-log,.fc-stagewrap.is-fs .fc-overlay .fc-log{max-height:calc(100vh - 290px)}
+.fc-stagewrap:fullscreen .fc-overlay.is-collapsed,.fc-stagewrap.is-fs .fc-overlay.is-collapsed{width:auto}
+@container fcstage (max-width:560px){
+  .fc-stagewrap:not(.is-fs):not(:fullscreen) .fc-overlay:not(.is-collapsed){position:relative;left:auto;top:auto;width:auto;max-height:none;margin:0;border-radius:0;border-width:1px 0 0;transform:none}
+  .fc-stagewrap:not(.is-fs):not(:fullscreen) .fc-overlay .fc-log{max-height:44vh}
+  .fc-stagewrap:not(.is-fs):not(:fullscreen) .fc-cog{display:none}
+}
+@media (prefers-reduced-motion:reduce){.fc-overlay .fc-msg{animation:none}}
+
+/* =====================================================================================================
+   Store v6: passes stay big and eye-catching, consumables are small "material" tiles with the rules
+   always visible, and anything inferior to what you already own is greyed out.
+   ===================================================================================================== */
+.st-sechead{margin:22px 0 10px}
+.st-sechead h2{font-family:var(--serif);font-size:20px;margin:0;color:var(--gold-hi)}
+.st-sechead p{margin:3px 0 0}
+
+/* greyed out: the server refuses these purchases too, so a stray tap can never waste credit */
+.st-card.is-blocked,.st-mat.is-blocked{filter:grayscale(1) brightness(.78);opacity:.62;box-shadow:none}
+.st-card.is-blocked::after,.st-card.is-blocked .st-ribbon{display:none}
+.st-card.is-blocked .st-buy,.st-mat.is-blocked .st-buy{cursor:not-allowed;background:#1a181d;color:var(--ink-3);border-color:var(--line-2);box-shadow:none}
+.st-blockmsg{display:flex;gap:9px;align-items:flex-start;padding:10px 12px;border-radius:12px;font-size:12.5px;line-height:1.45;
+  color:var(--ink-2);border:1px dashed var(--line-2);background:rgba(255,255,255,.03)}
+.st-blockmsg .ico{flex:0 0 auto;width:16px;height:16px;margin-top:1px;color:var(--ink-3)}
+
+/* consumables */
+.st-mats{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;align-items:start}
+.st-mat{display:flex;flex-direction:column;gap:11px;padding:14px;border-radius:14px;border:1px solid var(--line-2);
+  background:linear-gradient(180deg,var(--panel-2),var(--panel))}
+.st-mat-top{display:flex;align-items:center;gap:11px}
+.st-mat-top>div{flex:1;min-width:0}
+.st-mat h3{font-size:16px;margin:0}
+.st-mat-price{font-family:var(--serif);font-size:20px;color:var(--gold-hi);font-variant-numeric:tabular-nums;white-space:nowrap}
+.st-mat-ico{position:relative;display:grid;place-items:center;flex:0 0 auto;width:46px;height:46px;border-radius:12px;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.18),0 8px 18px -10px #000}
+.st-mat-ico .ico{width:22px;height:22px}
+.st-mat-ico em{position:absolute;right:-6px;bottom:-6px;min-width:20px;padding:1px 5px;border-radius:999px;font:800 11px var(--sans,inherit);
+  font-style:normal;text-align:center;color:#fff;background:#14121a;border:1px solid var(--line-2);font-variant-numeric:tabular-nums}
+.st-ico-alias{background:linear-gradient(135deg,#d9c6ff,#8f6fe0);color:#1a1030}
+.st-rules{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:12.5px;line-height:1.45;color:var(--ink-2)}
+.st-rules li{position:relative;padding-left:14px}
+.st-rules li::before{content:"";position:absolute;left:2px;top:.55em;width:5px;height:5px;border-radius:50%;background:var(--ink-3)}
+.st-rules b{color:var(--ink)}
+.st-have-row{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:8px 11px;border-radius:10px;font-size:12.5px;
+  border:1px solid rgba(74,163,255,.3);background:var(--blue-bg);color:#9fceff}
+.st-have-row b{font-family:var(--serif);font-size:20px}
+.st-alias{font-style:normal;font-weight:800;color:var(--gold-hi)}
+.st-alias-form{display:flex;gap:8px}
+.st-alias-form input{flex:1;min-width:0;height:40px;padding:0 12px}
+.st-alias-form .btn{min-height:40px}
+.st-mat .st-buy{min-height:40px}
+
+/* =====================================================================================================
+   Chat v2: dense Twitch-style lines, size presets, slow-mode chip, tall panel on phones.
+   ===================================================================================================== */
+.fc-overlay{--fc-w:400px;--fc-fs:13.5px;--fc-hf:.85}
+.fc-overlay[data-size="s"]{--fc-w:320px;--fc-fs:12.5px;--fc-hf:.6}
+.fc-overlay[data-size="l"]{--fc-w:500px;--fc-fs:15px;--fc-hf:1}
+.fc-overlay{width:min(var(--fc-w),calc(100% - 24px));height:calc((56.25cqw - 24px) * var(--fc-hf));min-height:260px}
+.fc-overlay.is-collapsed{width:auto;height:auto;min-height:0}
+.fc-overlay .fc-log{padding:6px 0;gap:0;max-height:none;min-height:0;font-size:var(--fc-fs)}
+
+.fc-size{display:flex;align-items:center;gap:6px;flex:1 1 140px}
+.fc-size span{margin-right:2px}
+.fc-size button{min-width:32px;height:28px;border-radius:8px;cursor:pointer;font:700 12px var(--sans,inherit);color:var(--ink-2);
+  border:1px solid var(--line-2);background:rgba(20,18,23,.9)}
+.fc-size button[aria-pressed="true"]{color:#1a1208;border-color:#f0d27a;background:var(--gold-grad)}
+
+/* one line per message: [time] [badge] name: text */
+.fc-msg{display:block;max-width:100%;padding:3px 12px;line-height:1.42;font-size:var(--fc-fs);border-left:3px solid transparent;
+  word-break:break-word;animation:fc-in .18s var(--ease) both}
+.fc-msg.mine{align-self:stretch;background:rgba(217,177,85,.09)}
+.fc-msg:hover{background:rgba(255,255,255,.05)}
+.fc-msg .fc-t{margin-right:6px;font-size:.75em;color:var(--ink-3);font-variant-numeric:tabular-nums;opacity:.75}
+.fc-msg .fc-pass,.fc-msg .fc-role{margin-right:5px;vertical-align:1px}
+.fc-msg .fc-name{font-weight:800;color:var(--ink);cursor:default;text-shadow:0 1px 3px rgba(0,0,0,.85)}
+.fc-msg .fc-colon{margin:0 5px 0 1px;color:var(--ink-3)}
+.fc-msg .fc-text{color:var(--ink-2);white-space:pre-wrap;text-shadow:0 1px 3px rgba(0,0,0,.85)}
+.fc-tone-gold .fc-name{color:var(--gold-hi)}.fc-tone-purple .fc-name{color:#cdb9ff}.fc-tone-blue .fc-name{color:#9fceff}
+.fc-tone-green .fc-name{color:#7ee8bd}.fc-tone-amber .fc-name{color:#f2cd7c}
+.fc-msg.is-lux{padding-top:5px;padding-bottom:5px;border-left-color:#ffc83d;margin:2px 0;
+  background:linear-gradient(90deg,rgba(255,200,61,.2),rgba(255,92,122,.08) 70%,transparent)}
+.fc-msg.is-lux .fc-name{color:#ffe08a}
+.fc-msg.is-lux .fc-text{color:#fff6dc}
+.fc-overlay .fc-msg.no-anim{animation:none}
+.fc-overlay .fc-msg.is-lux .fc-av,.fc-overlay .fc-msg .fc-av{display:none}
+
+/* composer row: slow-mode chip + counter */
+.fc-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:5px}
+.fc-meta .fc-count{margin:0}
+.fc-slow{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:800;letter-spacing:.06em;
+  text-transform:uppercase;color:#f2cd7c;border:1px solid rgba(232,182,74,.4);background:rgba(232,182,74,.1)}
+.fc-slow[hidden]{display:none}
+.fc-slow.is-off{color:#7ee8bd;border-color:rgba(47,191,134,.4);background:rgba(47,191,134,.1)}
+.fc-slow.is-lux{color:#1a1208;border-color:#ffe08a;background:linear-gradient(135deg,#fff3b0,#ffc83d 50%,#d4881a)}
+.fc.is-locked .fc-meta,.fc.is-closed .fc-meta{display:none}
+.fc-compose .btn:disabled{opacity:.6;cursor:not-allowed}
+
+/* full screen: the chat can use the whole height */
+.fc-stagewrap:fullscreen .fc-overlay,.fc-stagewrap.is-fs .fc-overlay{width:min(var(--fc-w),calc(100% - 24px));height:calc((100% - 96px) * var(--fc-hf));max-height:none}
+.fc-stagewrap:fullscreen .fc-overlay.is-collapsed,.fc-stagewrap.is-fs .fc-overlay.is-collapsed{height:auto}
+.fc-stagewrap:fullscreen .fc-overlay .fc-log,.fc-stagewrap.is-fs .fc-overlay .fc-log{max-height:none}
+
+/* phones: the chat sits under the video as a tall, fixed-height panel (not as tall as its content) */
+@container fcstage (max-width:560px){
+  .fc-stagewrap:not(.is-fs):not(:fullscreen) .fc-overlay:not(.is-collapsed){height:auto;width:auto;min-height:0}
+  .fc-stagewrap:not(.is-fs):not(:fullscreen) .fc-overlay .fc-body{min-height:0}
+  .fc-stagewrap:not(.is-fs):not(:fullscreen) .fc-overlay .fc-log{flex:none;height:clamp(200px,32vh,320px);min-height:0;max-height:none}
+  .fc-stagewrap:not(.is-fs):not(:fullscreen) .fc-overlay[data-size="s"] .fc-log{height:clamp(140px,22vh,220px)}
+  .fc-stagewrap:not(.is-fs):not(:fullscreen) .fc-overlay[data-size="l"] .fc-log{height:clamp(260px,46vh,460px)}
+  .fc-stagewrap:not(.is-fs):not(:fullscreen) .fc-cog{display:grid}
+  .fc-stagewrap:not(.is-fs):not(:fullscreen) .fc-only-overlay{display:none}
+  .fc-msg{padding:4px 12px}
+}
+@media (prefers-reduced-motion:reduce){.fc-msg{animation:none}}
+
+/* Lux VIP: the name itself flashes (animated gold-to-rose shimmer), the row sweeps with light, the crest glows */
+.fc-msg.is-lux{position:relative;overflow:hidden;animation:none}
+.fc-msg.is-lux::after{content:"";position:absolute;inset:0;pointer-events:none;transform:translateX(-120%);
+  background:linear-gradient(110deg,transparent 38%,rgba(255,244,190,.26) 50%,transparent 62%);animation:lux-row 4.5s ease-in-out infinite}
+.fc-msg.is-lux .fc-name{font-weight:900;letter-spacing:.01em;text-shadow:none;
+  background:linear-gradient(100deg,#ffd45a 0%,#fff7d0 22%,#ffc83d 44%,#ff6f91 66%,#fff0a8 84%,#ffd45a 100%);background-size:260% 100%;
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;
+  filter:drop-shadow(0 0 6px rgba(255,200,70,.65));animation:lux-name 2.2s linear infinite}
+.fc-msg.is-lux .fc-pass.fc-lux{animation:lux-glow 1.8s ease-in-out infinite}
+.fc-msg.is-lux{border-left-color:#ffc83d;animation:none}
+@keyframes lux-name{from{background-position:0% 50%}to{background-position:260% 50%}}
+@keyframes lux-row{0%,55%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
+@keyframes lux-glow{0%,100%{box-shadow:0 0 8px -1px rgba(255,200,70,.7)}50%{box-shadow:0 0 18px 1px rgba(255,200,70,1)}}
+@media (prefers-reduced-motion:reduce){
+  .fc-msg.is-lux::after,.fc-msg.is-lux .fc-name,.fc-msg.is-lux .fc-pass.fc-lux{animation:none}
+}
+
+/* =====================================================================================================
+   Chat v3: the panel adapts to the video it sits on, and the CONTENT adapts to the panel.
+   - fightchat.js measures the video screen (--fc-sw / --fc-sh / --fc-st, px) so the panel never covers
+     the control bar and is never taller than the picture. No more fixed 260px minimum.
+   - The panel is a size container: header, rows, composer and lock options step down through density
+     tiers based on ITS OWN width / height, and text scales fluidly (never below 11px).
+   - Rows can no longer be squashed into slivers: they never shrink, the log scrolls instead.
+   ===================================================================================================== */
+.fc-overlay{--fc-wf:.5;--fc-hf:.78}
+.fc-overlay[data-size="s"]{--fc-wf:.4;--fc-hf:.5}
+.fc-overlay[data-size="l"]{--fc-wf:.62;--fc-hf:1}
+.fc-stagewrap .fc-overlay{
+  --fc-pad:clamp(6px,calc(var(--fc-sh,56.25cqw) * .035),12px);
+  left:var(--fc-pad);top:calc(var(--fc-st,0px) + var(--fc-pad))}
+.fc-stagewrap .fc-overlay:not(.is-collapsed){
+  container-type:size;
+  min-height:0;max-height:none;
+  width:min(var(--fc-w), max(190px, calc(var(--fc-sw,100cqw) * var(--fc-wf))), calc(var(--fc-sw,100cqw) - 2 * var(--fc-pad)));
+  height:min(calc(var(--fc-sh,56.25cqw) - 2 * var(--fc-pad)), max(120px, calc((var(--fc-sh,56.25cqw) - 2 * var(--fc-pad)) * var(--fc-hf))))}
+.fc-stagewrap .fc-overlay.is-collapsed{container-type:normal;height:auto;min-height:0}
+/* stacked under the video (narrow stage): width-only container, natural height */
+@container fcstage (max-width:560px){
+  .fc-stagewrap:not(.is-fs):not(:fullscreen) .fc-overlay{container-type:inline-size}
+}
+
+/* rows keep their natural height; the log scrolls (this is what turned Lux rows into thin lines) */
+.fc-overlay .fc-log{flex:1 1 0;min-height:0;overflow-y:auto;overflow-x:hidden;font-size:clamp(11px,3.8cqw,var(--fc-fs))}
+.fc-log > .fc-msg,.fc-log > .fc-empty{flex:0 0 auto}
+.fc-log > .fc-empty{margin:auto}
+.fc-body{min-height:0}
+.fc-overlay .fc-foot{flex:0 0 auto}
+.fc-overlay .fc-title{min-width:0}
+.fc-overlay .fc-title b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fc-overlay .fc-title b .fc-unread{display:inline-grid;vertical-align:1px;margin-left:5px}
+
+/* "jump to latest" floats just above the composer whatever height the composer has */
+.fc-overlay .fc-jump{position:relative;left:auto;bottom:auto;transform:none;align-self:center;flex:0 0 auto;
+  margin:-36px 0 8px;padding:5px 12px;font-size:11.5px}
+
+/* connection state shrinks to a dot when space is tight */
+@container (max-height:210px),(max-width:300px){
+  .fc-overlay .fc-conn{font-size:0;width:8px;height:8px;padding:0;border-radius:50%;background:currentColor;flex:0 0 auto}
+}
+
+/* tier 1: modest panels (about a 600px-wide window and smaller) */
+@container (max-height:270px),(max-width:340px){
+  .fc-overlay .fc-head{padding:6px 8px;gap:6px}
+  .fc-overlay .fc-title b{font-size:13px}
+  .fc-overlay .fc-title small{display:none}
+  .fc-overlay .fc-air{padding:3px 8px;font-size:10px;letter-spacing:.12em}
+  .fc-overlay .fc-toggle{width:24px;height:24px;border-radius:7px}
+  .fc-overlay .fc-toggle svg{width:14px;height:14px}
+  .fc-overlay .fc-set{padding:5px 8px;gap:6px;max-height:42cqh;overflow-y:auto}
+  .fc-overlay .fc-size button{height:24px;min-width:28px}
+  .fc-overlay .fc-foot{padding:6px 8px 7px}
+  .fc-overlay .fc-compose{gap:6px}
+  .fc-overlay .fc-compose input{height:34px;padding:0 10px;font-size:12.5px}
+  .fc-overlay .fc-compose .btn{min-height:34px;padding:0 13px;font-size:12.5px}
+  .fc-overlay .fc-meta{margin-top:4px}
+  .fc-overlay .fc-slow{font-size:9.5px;padding:1px 7px}
+  .fc-overlay .fc-count{font-size:10px}
+  .fc-overlay .fc-msg{padding:2px 9px}
+  .fc-overlay .fc-msg.is-lux{padding-top:3px;padding-bottom:3px;margin:1px 0}
+  .fc-overlay .fc-msg .fc-pass,.fc-overlay .fc-msg .fc-role{font-size:8.5px;padding:0 4px;letter-spacing:.04em;margin-right:4px}
+  .fc-overlay .fc-result{padding:6px 8px;gap:8px}
+  .fc-overlay .fc-result .crown{width:26px;height:26px;border-radius:8px}
+  .fc-overlay .fc-result small{display:none}
+  .fc-overlay .fc-result strong{font-size:13px}
+}
+/* tier 2: small panels: the composer keeps its place, the extras go */
+@container (max-height:200px),(max-width:290px){
+  .fc-overlay .fc-meta{display:none}
+  .fc-overlay .fc-head{padding:4px 7px}
+  .fc-overlay .fc-air [data-fc-air]{display:none}
+  .fc-overlay .fc-air{padding:0;width:20px;height:20px;justify-content:center;border-radius:50%}
+  .fc-overlay .fc-msg .fc-t{display:none}
+  .fc-overlay .fc-foot{padding:5px 7px 6px}
+  .fc-overlay .fc-compose input{height:30px}
+  .fc-overlay .fc-compose .btn{min-height:30px;padding:0 11px}
+}
+/* tier 3: tiny panels */
+@container (max-height:150px){
+  .fc-overlay .fc-title b{font-size:12px}
+  .fc-overlay .fc-set{display:none}
+  .fc-overlay .fc-foot{padding:4px 6px 5px}
+  .fc-overlay .fc-compose input{height:28px;font-size:12px}
+  .fc-overlay .fc-compose .btn{min-height:28px;padding:0 9px;font-size:12px}
+}
+/* width-only: timestamps are the first thing to go when lines get short */
+@container (max-width:330px){ .fc-overlay .fc-msg .fc-t{display:none} }
+
+/* locked / closed footers: compact, and never allowed to eat the whole panel */
+@container (max-height:320px){
+  .fc-overlay .fc-foot{max-height:60cqh;overflow-y:auto;overscroll-behavior:contain}
+  .fc-overlay .fc-lock{gap:6px}
+  .fc-overlay .fc-lock-top{font-size:11.5px;gap:7px;line-height:1.3}
+  .fc-overlay .fc-lock-top .ico{width:15px;height:15px}
+  .fc-overlay .fc-opt{padding:6px 9px;border-radius:10px}
+  .fc-overlay .fc-opt small{font-size:9px}
+  .fc-overlay .fc-opt strong{font-size:12px}
+  .fc-overlay .fc-opt span{display:none}
+  .fc-overlay .fc-closed-note{font-size:11px;gap:6px;line-height:1.3}
+}
+@container (max-height:320px) and (min-width:250px){
+  .fc-overlay .fc-lock-opts{grid-template-columns:1fr 1fr;gap:6px}
+}
+@container (max-height:170px){
+  .fc-overlay .fc-lock-top{display:none}
+}

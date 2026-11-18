@@ -74,11 +74,23 @@
       if (ev.key === 'ArrowRight') { ev.preventDefault(); next.click(); }
     });
 
+    // Full screen the whole stage (video + floating chat) so the chat stays pinned on top.
+    // Browsers without element fullscreen (iPhone Safari) get a fixed full-viewport fallback.
     const full = $('[data-vp-full]');
+    const stage = root.closest('[data-stage]') || root;
+    const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement || null;
+    const sync = () => { const on = fsEl() === stage || stage.classList.contains('is-pseudo'); stage.classList.toggle('is-fs', on);
+      full.setAttribute('aria-label', on ? 'Exit full screen' : 'Full screen'); stage.dispatchEvent(new CustomEvent('snx:fs', { detail: on })); };
     full.addEventListener('click', () => {
-      if (document.fullscreenElement) { document.exitFullscreen(); return; }
-      if (root.requestFullscreen) root.requestFullscreen().catch(() => {});
+      if (fsEl()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+      if (stage.classList.contains('is-pseudo')) { stage.classList.remove('is-pseudo'); document.documentElement.style.overflow = ''; sync(); return; }
+      const req = stage.requestFullscreen || stage.webkitRequestFullscreen;
+      if (req) { Promise.resolve(req.call(stage)).catch(() => {}); }
+      else { stage.classList.add('is-pseudo'); document.documentElement.style.overflow = 'hidden'; sync(); }
     });
+    document.addEventListener('fullscreenchange', sync);
+    document.addEventListener('webkitfullscreenchange', sync);
+    document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && stage.classList.contains('is-pseudo')) full.click(); });
 
     paint();
   });

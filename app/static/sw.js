@@ -2,7 +2,7 @@
    Security rule: NEVER cache authenticated HTML or API responses — a shared
    tablet must not serve one user's session data to the next. Only the static
    shell (css/js/icons) and an offline fallback page are cached. */
-const CACHE = 'stelnexus-shell-royale6';
+const CACHE = 'stelnexus-shell-royale10';
 const SHELL = [
   '/static/css/app.css',
   '/static/css/luxe.css',

@@ -39,16 +39,17 @@
     }
   }
 
-  /* Users > Create user: a Cavo reports to a Master, a Kubrador to a Cavo. Show only the right uplines. */
+  /* Users > Create user: an Agent or Sub Agent reports to someone. Each upline option lists
+     (data-for, space separated) the account types it may take; show only the ones that fit. */
   var role = document.getElementById('new-role');
   var upline = document.getElementById('new-upline');
   if (role && upline) {
     var field = document.getElementById('upline-field');
     var sync = function () {
-      var need = role.value === 'cavo' || role.value === 'kubrador';
+      var need = ['agent', 'sub_agent'].indexOf(role.value) > -1;
       var firstShown = null;
       Array.prototype.forEach.call(upline.options, function (o) {
-        var ok = need && o.getAttribute('data-for') === role.value;
+        var ok = need && (o.getAttribute('data-for') || '').split(' ').indexOf(role.value) > -1;
         o.hidden = !ok; o.disabled = !ok;
         if (ok && !firstShown) firstShown = o;
       });
