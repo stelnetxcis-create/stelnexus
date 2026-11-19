@@ -65,6 +65,10 @@ async def admin_home(ctx: Ctx = Depends(require_ctx)):
         cards.append(("Locations", n, "active venues", "/admin/locations"))
     open_events = int(db.scalar(select(func.count(Event.id)).where(Event.status == EventStatus.OPEN)) or 0)
     cards.append(("Open events", open_events, "taking bets", "/events"))
+    if ctx.can(Perm.STAFF_TELLER):
+        from app.services import gcash as _gcash
+        live = sum(1 for a in _gcash.list_accounts(db) if a.is_active)
+        cards.append(("GCash pool", live, "numbers in rotation", "/staff/teller"))
     if ctx.can(Perm.PAWNS_MANAGE):
         n = int(db.scalar(select(func.count(User.id)).where(User.role == Role.PAWN)) or 0)
         cards.append(("Pawns", n, "spectator accounts", "/admin/pawns"))
@@ -123,6 +127,9 @@ def _location_form(form) -> dict:
         default_fight_count=form.get("default_fight_count"),
         default_payout_model=form.get("default_payout_model"),
         default_house_cut_bps=form.get("default_house_cut_bps"),
+        bola_limit_per_line=form.get("bola_limit_per_line"),
+        bola_max_liability_per_outcome=form.get("bola_max_liability_per_outcome"),
+        bola_max_liability_per_draw=form.get("bola_max_liability_per_draw"),
     )
 
 

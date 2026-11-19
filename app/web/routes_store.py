@@ -19,7 +19,9 @@ from app.core import ratelimit
 from app.core.errors import ValidationError
 from app.core.rbac import Perm
 from app.db.models import ChatMessage, ChatPass, Fight
-from app.services import events, store as store_svc
+from app.db.session import session_scope
+from app.services import events, realtime, store as store_svc
+from app.web.conditional import json_reply
 from app.web.deps import Ctx, flash_redirect, form_data, render, require_ctx
 
 router = APIRouter()
@@ -179,16 +181,42 @@ def _state(ctx: Ctx, fight: Fight) -> dict:
     }
 
 
-@router.get("/fights/{fight_id}/chat")
-async def chat_poll(fight_id: int, after: int = 0, ctx: Ctx = Depends(require_ctx)):
+def _poll_payload(ctx: Ctx, fight_id: int, after: int) -> tuple[dict, int]:
+    """Messages after ``after`` (or the recent history when 0) plus the room state. Shared by poll and stream.
+    Returns (payload, highest message id in it)."""
     fight = _fight(ctx, fight_id)
     q = select(ChatMessage).where(ChatMessage.fight_id == fight.id)
     if after > 0:
         rows = list(ctx.db.scalars(q.where(ChatMessage.id > after).order_by(ChatMessage.id).limit(CHAT_LIMIT)).all())
     else:
         rows = list(reversed(list(ctx.db.scalars(q.order_by(ChatMessage.id.desc()).limit(HISTORY)).all())))
-    return JSONResponse({"messages": _messages_json(ctx, rows), **_state(ctx, fight)},
-                        headers={"Cache-Control": "no-store"})
+    return {"messages": _messages_json(ctx, rows), **_state(ctx, fight)}, max((m.id for m in rows), default=0)
+
+
+@router.get("/fights/{fight_id}/chat")
+async def chat_poll(fight_id: int, request: Request, after: int = 0, ctx: Ctx = Depends(require_ctx)):
+    """Poll fallback. ``304`` when the caller's ``If-None-Match`` is still current (nothing said, nothing changed)."""
+    payload, _ = _poll_payload(ctx, fight_id, after)
+    return json_reply(request, payload)
+
+
+def _fight_snapshot(request: Request, fight_id: int, after: int) -> realtime.Snapshot:
+    """One stream pass: own short DB session, re-authenticated every time."""
+    with session_scope() as db:
+        ctx = require_ctx(request, db)
+        payload, last = _poll_payload(ctx, fight_id, after)
+    return realtime.Snapshot(payload, last_id=last, more=after > 0 and len(payload["messages"]) >= CHAT_LIMIT)
+
+
+@router.get("/fights/{fight_id}/chat/stream")
+async def chat_stream(fight_id: int, request: Request, after: int = 0):
+    """Server-sent events for one game's chat: new lines, the result being announced, slow-mode changes."""
+    with session_scope() as db:                       # authorise before the response starts: clean 401 / 403 / 404
+        ctx = require_ctx(request, db)
+        _fight(ctx, fight_id)
+        user_id = ctx.user.id
+    return realtime.open_stream(request, user_id, {realtime.fight_topic(fight_id)},
+                                lambda a: _fight_snapshot(request, fight_id, a), after=after)
 
 
 @router.post("/fights/{fight_id}/chat/send")

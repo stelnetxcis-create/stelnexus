@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Staff Panel · {{ brand }}{% endblock %}
+{% block heading %}Staff Panel{% endblock %}
+{% block content %}
+{% include "_staff_nav.html" %}
+<p class="notice">One section per staff role. A section opens only for its own role, the Admin, and a Pawn the Admin switched it on for.</p>
+<div class="grid grid-4">
+  {% for s in sections %}
+  {% if s.open %}
+  <a class="staff-card" href="{{ s.url }}">{{ ui.stat(s.label, s.value, s.hint, s.tone) }}</a>
+  {% else %}
+  <div class="staff-card is-locked" aria-disabled="true">{{ ui.stat(s.label, 'Locked', s.locked_hint) }}</div>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endblock %}

@@ -13,3 +13,4 @@ venv/
 .pytest_cache/
 backups/
 var/
+node_modules/

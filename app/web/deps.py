@@ -15,14 +15,16 @@ from sqlalchemy.orm import Session as DbSession
 from app.core import audit
 from app.core.config import get_settings
 from app.core.errors import AuthError, Forbidden
-from app.core.middleware import CSRF_COOKIE, cookie_header, make_csrf_cookie
+from app.core.middleware import CSRF_COOKIE, cookie_header, csrf_cookie_valid, make_csrf_cookie
 from app.core.money import fmt, pesos
+from app.core import assets
 from app.core.rbac import Perm, bola_dev_only, permissions_of
 from app.core.settings_registry import SettingsStore
 from app.db.models import Notification, Role, Status, User
 from app.db.models import Session as SessionRow
 from app.db.session import get_db
 from app.services import auth
+from app.web.conditional import fragment_response, wants_fragment
 
 _cfg = get_settings()
 TEMPLATE_DIR = Path(__file__).resolve().parent / "templates"
@@ -43,6 +45,7 @@ templates.env.globals.update(
     datefmt=lambda value, pattern="%Y-%m-%d %H:%M": value.strftime(pattern) if value else "—",
     dayfmt=lambda value: value.strftime("%Y-%m-%d") if value else "—",
 )
+templates.env.globals.update(css=assets.css, js=assets.js, asset_urls=assets.asset_urls, preload_fonts=assets.preload_fonts)
 templates.env.filters["money"] = fmt
 templates.env.filters["datetime"] = lambda v, p="%Y-%m-%d %H:%M": v.strftime(p) if v else "—"
 templates.env.filters["date"] = lambda v: v.strftime("%Y-%m-%d") if v else "—"
@@ -159,11 +162,30 @@ def require_ctx(request: Request, db: DbSession = Depends(get_db)) -> Ctx:
     return ctx
 
 
+def _fragment_name(ctx: Ctx) -> str | None:
+    """The region the browser asked for (``X-Fragment``), if this request can be answered with one.
+
+    The CSRF token is random per page render and its cookie is re-issued each time, so a fragment must reuse
+    the token the page already holds (and must not touch the cookie), or the forms OUTSIDE the refreshed box
+    would stop working. No valid token cookie: no fragment, the caller gets the whole page and falls back.
+    """
+    name = wants_fragment(ctx.request) if ctx.request.method == "GET" else None
+    if not name or ctx.user is None:
+        return None
+    cookie = ctx.request.cookies.get(CSRF_COOKIE, "")
+    token = cookie.rsplit(".", 1)[0] if "." in cookie else ""
+    if not csrf_cookie_valid(cookie, token, ctx.request.cookies.get(_cfg.SESSION_COOKIE, "")):
+        return None
+    ctx.csrf_token = token
+    return name
+
+
 def render(ctx: Ctx, template: str, status_code: int = 200, **extra: Any):
     store = ctx.store
     settings = store.all()
+    fragment = _fragment_name(ctx)
     notifications: list[Notification] = []
-    if ctx.user is not None:
+    if ctx.user is not None and fragment is None:          # the bell lives in the page header, not in a region
         from sqlalchemy import select
         notifications = list(ctx.db.scalars(
             select(Notification).where(Notification.user_id == ctx.user.id, Notification.is_read.is_(False))
@@ -194,6 +216,8 @@ def render(ctx: Ctx, template: str, status_code: int = 200, **extra: Any):
         **extra,
     }
     response = templates.TemplateResponse(ctx.request, template, context, status_code=status_code)
+    if fragment is not None:                               # no cookies: the page's own flash / CSRF state stays as is
+        return fragment_response(ctx.request, response, fragment)
     if ctx.flashes:
         response.delete_cookie("snx_flash", path="/")
     if ctx.csrf_token:

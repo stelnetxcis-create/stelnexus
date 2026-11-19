@@ -220,6 +220,48 @@ def _retire_tellers(engine: Engine) -> list[str]:
     return changed
 
 
+def _seed_gcash_pool(engine: Engine) -> list[str]:
+    """Every active teller that has a personal GCash number but no pool entry gets one, so an
+    existing install keeps routing to the same numbers after the pool feature arrives.
+
+    Plain SQL on purpose: this runs before the other upgrades may have finished on an old
+    database, so it must not depend on the full ORM column set of ``users``."""
+    inspector = inspect(engine)
+    if not (inspector.has_table("users") and inspector.has_table("gcash_accounts")):
+        return []
+    user_cols = {c["name"] for c in inspector.get_columns("users")}
+    if not {"id", "role", "status", "gcash_enc", "full_name"} <= user_cols:
+        return []
+    from app.core.security import pii
+    from app.db.models import GcashAccount
+    from app.services import gcash
+    seeded: list[str] = []
+    try:
+        with engine.begin() as conn:
+            rows = conn.execute(text(
+                "SELECT u.id, u.username, u.full_name, u.gcash_enc FROM users u "
+                "WHERE u.role = 'teller' AND u.status = 'active' AND u.gcash_enc IS NOT NULL "
+                "AND NOT EXISTS (SELECT 1 FROM gcash_accounts g WHERE g.owner_id = u.id)")).all()
+            order = int(conn.execute(text("SELECT COALESCE(MAX(sort_order), 0) FROM gcash_accounts")).scalar() or 0)
+            for user_id, username, full_name, enc in rows:
+                try:
+                    number = gcash.normalize_number(pii.decrypt(enc) or "")
+                except Exception:  # noqa: BLE001 - an unreadable legacy value must not block startup
+                    log.warning("Could not seed a GCash number for %s", username)
+                    continue
+                digest = gcash._hash(number)
+                if conn.execute(text("SELECT 1 FROM gcash_accounts WHERE number_hash = :h"), {"h": digest}).first():
+                    continue
+                order += 1
+                conn.execute(GcashAccount.__table__.insert().values(
+                    owner_id=user_id, label=f"{full_name or username} \u00b7 main", number_enc=pii.encrypt(number),
+                    number_hash=digest, is_active=True, sort_order=order))
+                seeded.append(f"gcash_accounts: seeded {username}")
+    except Exception:  # noqa: BLE001 - never block startup; the pool can always be filled by hand
+        log.exception("GCash pool seeding skipped")
+    return seeded
+
+
 def upgrade(engine: Engine) -> dict[str, list[str]]:
     import app.db.models  # noqa: F401  (register tables)
     Base.metadata.create_all(engine)
@@ -231,6 +273,7 @@ def upgrade(engine: Engine) -> dict[str, list[str]]:
     report["roles"] = _rename_roles(engine)
     report["tiers"] = _merge_tiers(engine)
     report["tellers"] = _retire_tellers(engine)
+    report["gcash_pool"] = _seed_gcash_pool(engine)
     inspector = inspect(engine)
     if inspector.has_table("accounts"):
         with engine.begin() as conn:

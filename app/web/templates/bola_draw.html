@@ -2,7 +2,7 @@
 {% import "_macros.html" as ui %}
 {% block title %}Bola draw · {{ brand }}{% endblock %}
 {% block heading %}{{ draw.location.name }} · slot {{ draw.slot }}{% endblock %}
-{% block head %}<link rel="stylesheet" href="/static/css/bola-ui.css?v=2">{% endblock %}
+{% block head %}{{ css('bola-ui') }}{% endblock %}
 {% block actions %}
 {% if can_report %}<a class="btn btn-sm" href="/bola/draws/{{ draw.id }}/report.csv">Report CSV</a><a class="btn btn-sm" href="/bola/reports?date={{ draw.draw_date }}">Reports</a>{% endif %}
 <a class="btn btn-sm" href="/bola">All draws</a>
@@ -253,4 +253,4 @@
 </div>
 {% endif %}
 {% endblock %}
-{% block scripts %}<script src="/static/js/bola.js?v=2" defer></script>{% endblock %}
+{% block scripts %}{{ js('bola') }}{% endblock %}

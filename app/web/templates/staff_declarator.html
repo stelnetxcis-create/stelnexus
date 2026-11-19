@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Declarator · Staff Panel · {{ brand }}{% endblock %}
+{% block heading %}Staff Panel{% endblock %}
+{% block content %}
+{% include "_staff_nav.html" %}
+<div class="card"><div class="card-body">
+  {{ ui.empty('The Declarator section is empty for now. Tools for declarators will appear here.') }}
+</div></div>
+{% endblock %}

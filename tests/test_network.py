@@ -191,6 +191,8 @@ def test_permissions_master_is_admin_minus_admin_panel(monkeypatch):
                   # account tools, IP bans and the experimental Seller Desk
                   Perm.ACCOUNTS_VIEW, Perm.ACCOUNTS_EDIT, Perm.ACCOUNTS_REMOVE, Perm.IPBANS_MANAGE,
                   Perm.SELL_DESK, Perm.CANCEL_LOG,
+                  # Staff Panel: each section opens for its own role, the Admin and granted Pawns
+                  Perm.STAFF_VIEW, Perm.STAFF_TELLER, Perm.STAFF_DECLARATOR,
                   # Master never enters or changes a result
                   Perm.FIGHTS_DECLARE, Perm.FIGHTS_REDECLARE,
                   Perm.BOLA_DECLARE, Perm.BOLA_REDECLARE}

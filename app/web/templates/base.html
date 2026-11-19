@@ -13,12 +13,10 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/static/icons/icon-180.png">
-<link rel="stylesheet" href="/static/css/app.css">
-<link rel="stylesheet" href="/static/css/luxe.css?v=fix4">
-<link rel="stylesheet" href="/static/css/arena.css?v=1">
-<link rel="stylesheet" href="/static/css/royale.css?v=4">
+{{ preload_fonts() }}
+{{ css('site') }}
 {% block head %}{% endblock %}
-<script src="/static/js/nav-init.js"></script>
+{{ js('nav-init', defer=False) }}
 </head>
 <body>
 <svg class="sprite" aria-hidden="true" focusable="false"><defs>
@@ -77,7 +75,8 @@
         ('', [
           ('dashboard', '/dashboard', 'i-grid', 'Dashboard', 'dashboard.view'),
           ('store', '/store', 'i-crown', 'Store', 'wallet.transfer'),
-          ('admin', '/admin', 'i-sliders', 'Admin Panel', 'panel.view')]),
+          ('admin', '/admin', 'i-sliders', 'Admin Panel', 'panel.view'),
+          ('staff', '/staff', 'i-users', 'Staff Panel', 'staff.view')]),
         ('Sabong · Meron / Wala', [
           ('events', '/events', 'i-calendar', 'Events', 'events.view'),
           ('sell', '/sell', 'i-coins', 'Seller Desk (dev)', 'sell.desk'),
@@ -273,12 +272,7 @@
   <button class="tab" data-open-nav type="button"><svg class="ico"><use href="#i-menu"/></svg><span>More</span></button>
 </nav>
 {% endif %}
-<script src="/static/js/app.js?v=fix2" defer></script>
-<script src="/static/js/luxe.js?v=fix2" defer></script>
-<script src="/static/js/pages.js?v=1" defer></script>
-<script src="/static/js/arena.js?v=1" defer></script>
-<script src="/static/js/royale.js?v=1" defer></script>
-<script src="/static/js/menus.js?v=1" defer></script>
+{{ js('site') }}
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="spark-fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9b155" stop-opacity=".28"/><stop offset="1" stop-color="#d9b155" stop-opacity="0"/></linearGradient></defs></svg>
 <div id="toasts" role="region" aria-label="Notifications" aria-live="polite"></div>
 {% block scripts %}{% endblock %}

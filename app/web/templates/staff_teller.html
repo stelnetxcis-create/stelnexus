@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Teller · Staff Panel · {{ brand }}{% endblock %}
+{% block heading %}Staff Panel{% endblock %}
+{% block actions %}{% if can_manage %}<button class="btn btn-sm btn-brand" data-modal="gc-add"><svg class="ico"><use href="#i-plus"/></svg>Add GCash number</button>{% endif %}{% endblock %}
+{% block content %}
+{% include "_staff_nav.html" %}
+
+{% macro meter(used, limit, pct, state) %}
+<div class="gmeter">
+  <div class="gbar {{ 'is-full' if pct >= 100 else ('is-near' if state == 'near' else '') }}" role="progressbar" aria-valuenow="{{ pct }}" aria-valuemin="0" aria-valuemax="100"><span style="width:{{ pct }}%"></span></div>
+  <small>{{ used | money }} of {{ limit | money }} · {{ pct }}%</small>
+</div>
+{% endmacro %}
+
+{% if not can_manage %}<div class="notice">Read-only view. Only the Teller who owns a number, or the Admin, can change it.</div>{% endif %}
+
+<div class="grid grid-4">
+  {{ ui.stat('Numbers live', live_count ~ ' / ' ~ rows | length, 'active in the rotation', 'green' if live_count else 'red') }}
+  {{ ui.stat('Used today', pool_day_used | money, 'across ' ~ ('the whole pool' if pool_scope == 'all' else 'your numbers')) }}
+  {{ ui.stat('Room left today', pool_day_room | money, 'on live numbers') }}
+  {{ ui.stat('Next up', next_label or 'None', ('takes the next request' if next_label else 'no number has room'), '' if next_label else 'red') }}
+</div>
+
+<p class="notice">
+  Each number follows <strong>{{ default_day | money }}</strong> a day and <strong>{{ default_month | money }}</strong> a month unless it has its own limit.
+  New GCash requests go to the first number that has room, and move on to the next once a request would take a number past
+  <strong>{{ rotate_pct }}%</strong> of its limit ({{ 'list order' if strategy == 'fill' else 'most room first' }}). Pending requests hold their room for
+  {{ (hold_minutes ~ ' minutes') if hold_minutes else 'as long as they are pending' }}.
+  {% if 'settings.manage' in perms %}<a href="/admin/variables">Change these in Admin Panel → Variables → GCash.</a>{% endif %}
+</p>
+
+<div class="card"><div class="card-head"><h2>GCash numbers</h2><span class="muted small">Limits reset at midnight Manila time; the month resets on the 1st.</span></div>
+<div class="card-body tight">
+{% if rows %}
+<div class="table-wrap"><table class="table"><thead><tr>
+  <th>#</th><th>Number</th>{% if pool_scope == 'all' %}<th>Teller</th>{% endif %}<th>Today</th><th>This month</th><th>Status</th>{% if can_manage %}<th class="right">Actions</th>{% endif %}
+</tr></thead><tbody>
+{% for u in rows %}{% set a = u.account %}
+<tr>
+  <td class="nowrap">
+    {% if can_reorder %}<span class="gorder">
+      <form method="post" action="/staff/teller/accounts/{{ a.id }}/move" style="display:inline">{{ ui.csrf(csrf_token) }}<input type="hidden" name="dir" value="up"><button class="btn btn-sm btn-ghost" type="submit" aria-label="Move up" {{ 'disabled' if loop.first }}>▲</button></form>
+      <form method="post" action="/staff/teller/accounts/{{ a.id }}/move" style="display:inline">{{ ui.csrf(csrf_token) }}<input type="hidden" name="dir" value="down"><button class="btn btn-sm btn-ghost" type="submit" aria-label="Move down" {{ 'disabled' if loop.last }}>▼</button></form>
+    </span>{% endif %}{{ loop.index }}
+  </td>
+  <td><strong>{{ a.label }}</strong><div class="gnum small">{{ numbers[a.id] }}</div>{% if a.note %}<div class="small muted">{{ a.note }}</div>{% endif %}
+      {% if a.daily_limit_cents or a.monthly_limit_cents %}<div class="small muted">own limit</div>{% endif %}</td>
+  {% if pool_scope == 'all' %}<td class="small">{{ a.owner.full_name if a.owner else '—' }}</td>{% endif %}
+  <td>{{ meter(u.day_used, u.day_limit, u.day_pct, u.state) }}</td>
+  <td>{{ meter(u.month_used, u.month_limit, u.month_pct, u.state) }}</td>
+  <td>{{ ui.badge({'ok': 'In rotation', 'near': 'Near limit', 'full': 'Full', 'paused': 'Paused'}[u.state],
+                  {'ok': 'green', 'near': 'amber', 'full': 'red', 'paused': 'slate'}[u.state]) }}
+      {% if next_id == a.id %}<div class="small" style="margin-top:4px">{{ ui.badge('Next up', 'blue') }}</div>{% endif %}</td>
+  {% if can_manage %}<td class="right"><div class="table-actions" style="justify-content:flex-end">
+    <button class="btn btn-sm" data-modal="gc-edit" data-action="/staff/teller/accounts/{{ a.id }}/update" data-label="{{ a.label }}"
+      data-name="{{ a.label }}" data-note="{{ a.note or '' }}"
+      data-daily="{{ (a.daily_limit_cents / 100) | int if a.daily_limit_cents else '' }}" data-monthly="{{ (a.monthly_limit_cents / 100) | int if a.monthly_limit_cents else '' }}">Edit</button>
+    <button class="btn btn-sm" data-modal="gc-adjust" data-action="/staff/teller/accounts/{{ a.id }}/adjust" data-label="{{ a.label }}">Log usage</button>
+    <form method="post" action="/staff/teller/accounts/{{ a.id }}/{{ 'pause' if a.is_active else 'resume' }}" style="display:inline">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm btn-ghost" type="submit">{{ 'Pause' if a.is_active else 'Resume' }}</button></form>
+    <form method="post" action="/staff/teller/accounts/{{ a.id }}/remove" style="display:inline" data-confirm="Remove {{ a.label }}? A number with history is paused instead.">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm btn-danger" type="submit">Remove</button></form>
+  </div></td>{% endif %}
+</tr>
+{% endfor %}</tbody></table></div>
+{% else %}{{ ui.empty('No GCash numbers yet. Add the first one and requests will start routing to it.') }}{% endif %}
+</div></div>
+
+<div class="card"><div class="card-head"><h2>Recent routed requests</h2><a class="btn btn-sm" href="/wallet?t=approvals">Open approvals{% if wallet_pending %} ({{ wallet_pending }}){% endif %}</a></div>
+<div class="card-body tight">
+{% if recent %}
+<div class="table-wrap"><table class="table"><thead><tr><th>When</th><th>Number</th><th>Type</th><th class="right">Amount</th><th>Status</th></tr></thead><tbody>
+{% for r in recent %}
+<tr><td class="small nowrap">{{ r.created_at | datetime }}</td><td class="small">{{ r.gcash_account.label if r.gcash_account else '—' }}</td>
+<td>{{ ui.badge('Load' if r.direction.value == 'in' else 'Cash out', 'green' if r.direction.value == 'in' else 'red') }}</td>
+<td class="right num">{{ r.amount_cents | money }}</td><td>{{ ui.status_badge(r.status) }}</td></tr>
+{% endfor %}</tbody></table></div>
+{% else %}{{ ui.empty('No request has been routed to these numbers yet.') }}{% endif %}
+</div></div>
+
+{% if can_manage %}
+{% call ui.modal('gc-add', 'Add GCash number') %}
+<form method="post" action="/staff/teller/accounts">
+  {{ ui.csrf(csrf_token) }}
+  <div class="form-grid">
+    {{ ui.field('Name', 'label', required=true, attrs='maxlength=60 placeholder="e.g. Main, Backup 2"') }}
+    {{ ui.field('GCash number', 'number', required=true, attrs='maxlength=16 inputmode="tel" placeholder="09XXXXXXXXX"') }}
+    {{ ui.field('Daily limit (PHP)', 'daily', 'number', help='Blank = ' ~ (default_day | money), attrs='min=100 step=1 inputmode=numeric') }}
+    {{ ui.field('Monthly limit (PHP)', 'monthly', 'number', help='Blank = ' ~ (default_month | money), attrs='min=100 step=1 inputmode=numeric') }}
+  </div>
+  {% if pool_scope == 'all' %}
+  <label class="field"><span>Belongs to <em>*</em></span><select name="owner_id" required>{% for t in tellers %}<option value="{{ t.id }}">{{ t.full_name }} ({{ t.username }})</option>{% endfor %}</select></label>
+  {% endif %}
+  {{ ui.field('Note', 'note', attrs='maxlength=255 placeholder="optional"') }}
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Add to rotation</button></div>
+</form>
+{% endcall %}
+{% call ui.modal('gc-edit', 'Edit GCash number') %}
+<form method="post" action="/staff/teller/accounts/0/update" data-action-from>
+  {{ ui.csrf(csrf_token) }}
+  <p class="small muted" data-text="label"></p>
+  <div class="form-grid">
+    {{ ui.field('Name', 'label', required=true, attrs='maxlength=60 data-fill=name') }}
+    {{ ui.field('Daily limit (PHP)', 'daily', 'number', help='Blank = follow the default', attrs='min=100 step=1 inputmode=numeric data-fill=daily') }}
+    {{ ui.field('Monthly limit (PHP)', 'monthly', 'number', help='Blank = follow the default', attrs='min=100 step=1 inputmode=numeric data-fill=monthly') }}
+  </div>
+  {{ ui.field('Note', 'note', attrs='maxlength=255 data-fill=note') }}
+  <p class="small muted">The number itself cannot be edited. Add the new number and remove this one.</p>
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Save</button></div>
+</form>
+{% endcall %}
+{% call ui.modal('gc-adjust', 'Log outside usage') %}
+<form method="post" action="/staff/teller/accounts/0/adjust" data-action-from>
+  {{ ui.csrf(csrf_token) }}{{ ui.idem() }}
+  <p class="small muted" data-text="label"></p>
+  <p class="small">Money you moved on this number outside the system (personal use, a manual transfer). It counts toward today's and this month's limit.</p>
+  {{ ui.field('Amount (PHP)', 'amount', required=true, attrs='inputmode=decimal') }}
+  {{ ui.field('Note', 'note', attrs='maxlength=255 placeholder="optional"') }}
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Add to usage</button></div>
+</form>
+{% endcall %}
+{% endif %}
+{% endblock %}

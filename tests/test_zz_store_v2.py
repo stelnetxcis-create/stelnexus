@@ -4,6 +4,7 @@ Named test_zz_ so it runs after the tests that count open games."""
 import pytest
 from sqlalchemy import select
 
+from app.core.assets import asset_urls
 from app.core.errors import Conflict, ValidationError
 from app.core.settings_registry import SettingsStore
 from app.db.models import AliasToken, ChatAlias, ChatPass, Role, User
@@ -291,11 +292,11 @@ def test_only_admin_and_pawn_may_see_through_an_alias():
 def test_layout_uses_container_queries_lux_name_flashes_and_page_loads_fresh_css():
     c, _ = login("admin")
     css = c.get("/static/css/store.css").text
-    assert "@container (max-width:560px)" in css and "lux-name" in css
+    assert "@container fcstage (max-width:560px)" in css and "lux-name" in css
     name, event_id, (fight_id, _) = _setup()
     try:
         cu, _ = login(name)
         page = cu.get(f"/change_name?event_id={event_id}&fight_id={fight_id}").text
-        assert "store.css?v=7" in page and "store.css?v=5" not in page
+        assert asset_urls("css", "store")[0] in page      # hashed (built) or mtime-versioned (unbuilt): never a stale hand-set ?v=
     finally:
         _cleanup(event_id)

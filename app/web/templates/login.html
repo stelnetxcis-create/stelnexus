@@ -8,8 +8,7 @@
 <title>Sign in · {{ brand }}</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/static/css/app.css">
-<link rel="stylesheet" href="/static/css/luxe.css?v=2">
+{{ css('auth') }}
 </head>
 <body class="auth-body">
 <main class="auth-card">
@@ -33,7 +32,6 @@
   <p class="auth-foot">Protected by StelNet System, CSRF and Argon2id.<br>
   <span class="muted">Authorised personnel only. All actions are logged.</span></p>
 </main>
-<script src="/static/js/app.js" defer></script>
-<script src="/static/js/luxe.js" defer></script>
+{{ js('auth') }}
 </body>
 </html>

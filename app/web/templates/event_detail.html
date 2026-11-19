@@ -22,7 +22,7 @@
 {% endif %}
 {% endblock %}
 {% block content %}
-
+{% call ui.region('event-head') %}
 <div class="grid grid-4">
   {{ ui.stat('Date', event.event_date | date, event.status.value | upper, 'dark') }}
   {{ ui.stat('Games', event.fight_count, 'numbered 1–' ~ event.fight_count) }}
@@ -35,6 +35,7 @@
 {% elif event.status.value != 'open' %}
 <div class="alert alert-warning">This event is <strong>{{ event.status.value }}</strong>. Set it to OPEN before selling tickets.</div>
 {% endif %}
+{% endcall %}
 
 <div class="card">
   <div class="card-head"><h2>Games</h2><span class="muted small">tap a box to open that game</span></div>
@@ -44,6 +45,7 @@
   </div>
 </div>
 
+{% call ui.region('event-body') %}
 {% if 'bets.place' in perms and not hide_totals and event.status.value != 'canceled' %}
 <div class="card">
   <div class="card-head"><h2>Sell ticket</h2><span class="muted small">Meron / Wala / Draw · printed receipt with unique code</span></div>
@@ -172,4 +174,5 @@
   </div>
 </div>
 {% endif %}
+{% endcall %}
 {% endblock %}

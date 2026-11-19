@@ -5,8 +5,10 @@ flip from OPEN to LOCKED to MERON without a refresh. Every endpoint:
 
   * needs the same permission as the page it feeds,
   * hides money (pool sizes, stake) from accounts that must not see totals,
-  * accepts ``?rev=<token>`` and answers ``{"same": true}`` when nothing changed, so an idle poll is a
-    few bytes and the browser skips all DOM work.
+  * sends an ``ETag`` and answers ``304 Not Modified`` (no body) when the caller's ``If-None-Match`` is
+    still current: an idle poll is a few header bytes and the browser skips all DOM work,
+  * still accepts ``?rev=<token>`` and answers ``{"same": true}``, so a page that loaded the previous
+    release of the script (it is cached by the service worker) keeps working until it reloads.
 """
 from __future__ import annotations
 
@@ -15,12 +17,13 @@ import hashlib
 import json
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func, select
 
 from app.core.rbac import Perm, hides_totals
 from app.db.models import Fight, FightStatus, Ticket, TicketStatus
 from app.services import events, reports
+from app.web.conditional import etag_matches, not_modified
 from app.web.deps import Ctx, require_ctx
 
 router = APIRouter()
@@ -30,11 +33,14 @@ HOT_SHARE = 0.70
 HOT_MIN_TICKETS = 4
 
 
-def _reply(request: Request, payload: dict) -> JSONResponse:
+def _reply(request: Request, payload: dict) -> Response:
     """Attach a revision token; short-circuit when the caller already has this exact state."""
     body = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
     rev = hashlib.sha1(body.encode()).hexdigest()[:12]
-    headers = {"Cache-Control": "no-store"}
+    etag = f'"{rev}"'
+    headers = {"Cache-Control": "no-store", "ETag": etag}
+    if etag_matches(request, etag):
+        return not_modified(etag)
     if request.query_params.get("rev") == rev:
         return JSONResponse({"same": True, "rev": rev}, headers=headers)
     payload["rev"] = rev

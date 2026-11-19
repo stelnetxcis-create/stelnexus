@@ -1,5 +1,6 @@
 /* Livestream chat inside the fight view.
-   Short-poll (3s, paused in background tabs). The server decides who may type (and how fast: slow mode);
+   Server-sent events, with short-poll as the fallback (3 s, stretching to 15-30 s when quiet, off in background tabs).
+   The server decides who may type (and how fast: slow mode);
    this file only shows it. Messages are dense Twitch-style lines: [badges] name: text.
    Everything user-written goes in through textContent, never innerHTML. */
 (function () {
@@ -12,7 +13,8 @@
   const url = root.dataset.url;
   const csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
   const snx = window.snx || {};
-  let settled = false, last = 0, pinned = true, timer = 0, wasClosed = root.classList.contains('is-closed'), busy = false, failures = 0;
+  let settled = false, last = 0, pinned = true, wasClosed = root.classList.contains('is-closed'), busy = false, failures = 0;
+  let loaded = false, etag = '', es = null, sseFails = 0, pollT = 0, hiddenT = 0, retryT = 0;
   const seen = new Set();
 
   const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
@@ -94,32 +96,110 @@
     refreshSend();
   }
 
-  async function poll() {
-    clearTimeout(timer);
-    if (!document.hidden && !busy) {
-      try {
-        const first = last === 0;
-        const ac = new AbortController(), kill = setTimeout(() => ac.abort(), 8000);
-        const r = await fetch(url + '?after=' + last, { headers: { Accept: 'application/json' }, credentials: 'same-origin', cache: 'no-store', signal: ac.signal });
-        clearTimeout(kill);
-        if (r.status === 401 || r.status === 403) { conn.dataset.state = 'off'; conn.textContent = 'signed out'; return; }
-        if (!r.ok) throw new Error(r.status);
-        const d = await r.json();
-        failures = 0;
-        const stick = pinned || first;
-        const frag = document.createDocumentFragment();
-        d.messages.forEach((m) => add(m, !first, frag));
-        if (frag.childNodes.length) log.appendChild(frag);
-        while (log.childElementCount > MAX_ROWS) log.firstElementChild.remove();
-        apply(d);
-        if (d.locked && d.messages.length === 0 && !first) { settled = true; }
-        if (d.messages.length) { if (stick) toBottom(!first); else { jump.hidden = false; } }
-      } catch (e) { failures++; conn.dataset.state = 'off'; conn.textContent = 'reconnecting'; }
-    }
-    if (settled) { conn.textContent = 'ended'; return; }                       // match over and history loaded: stop polling
-    timer = setTimeout(poll, (collapsed() ? 6000 : 3000) * Math.min(1 + failures, 5));
+  // ------------------------------------------------------------------ delivery
+  // Stream first (/fights/ID/chat/stream: the server pushes new lines, the result being announced, slow-mode changes).
+  // If it cannot be had we poll the same URL without "/stream", politely: If-None-Match (304 while nothing changed),
+  // 3 s -> 15 s after a quiet minute -> 30 s after five (a message, key press or tap snaps it back), nothing in a hidden tab.
+  const pace = (snx.pacer || (window.StelNexus && window.StelNexus.pacer))
+    ? (snx.pacer || window.StelNexus.pacer)({ base: 3000, onWake: () => schedulePoll(0) })
+    : { bump() {}, delay: () => 3000 };
+  const connected = () => !!es && es.readyState === 1;
+
+  function onData(d) {
+    const first = !loaded;
+    loaded = true;
+    const stick = pinned || first;
+    const frag = document.createDocumentFragment();
+    d.messages.forEach((m) => add(m, !first, frag));
+    if (frag.childNodes.length) log.appendChild(frag);
+    while (log.childElementCount > MAX_ROWS) log.firstElementChild.remove();
+    apply(d);
+    if (d.messages.length) { pace.bump(); if (stick) toBottom(!first); else { jump.hidden = false; } }
+    // Result announced and every line delivered (a full page means more are waiting): this chat is over.
+    if (d.locked && d.messages.length < 100) settled = true;
+    if (settled) finish();
   }
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+
+  function finish() {
+    window.clearTimeout(pollT); window.clearTimeout(hiddenT); window.clearTimeout(retryT);
+    closeStream();
+    conn.textContent = 'ended';
+  }
+
+  async function poll() {
+    if (settled || document.hidden || busy) return;
+    try {
+      const ac = new AbortController(), kill = setTimeout(() => ac.abort(), 8000);
+      const headers = { Accept: 'application/json' };
+      if (etag) headers['If-None-Match'] = etag;       // by hand: the request is no-store, so the browser would not
+      const r = await fetch(url + '?after=' + last, { headers, credentials: 'same-origin', cache: 'no-store', signal: ac.signal });
+      clearTimeout(kill);
+      if (r.status === 401 || r.status === 403) { settled = true; conn.dataset.state = 'off'; conn.textContent = 'signed out'; return; }
+      if (r.status === 304) { failures = 0; conn.dataset.state = 'on'; conn.textContent = 'live'; return; }
+      if (!r.ok) throw new Error(r.status);
+      const d = await r.json();
+      failures = 0;
+      onData(d);
+      etag = r.headers.get('ETag') || '';              // only after it was applied: a half-applied answer must come again
+    } catch (e) { failures++; conn.dataset.state = 'off'; conn.textContent = 'reconnecting'; }
+  }
+
+  function schedulePoll(ms) {
+    window.clearTimeout(pollT);
+    if (settled || document.hidden || connected()) return;
+    pollT = window.setTimeout(async () => {
+      await poll();
+      const base = pace.delay() * (collapsed() ? 2 : 1);               // a collapsed overlay is looked at less
+      schedulePoll(Math.min(base, 60000) * Math.min(1 + failures, 5));
+    }, ms);
+  }
+
+  function closeStream() { if (es) { es.close(); es = null; } }
+
+  function openStream() {
+    if (settled || es || typeof window.EventSource === 'undefined') return false;
+    let source;
+    try { source = new window.EventSource(url + '/stream?after=' + last); } catch (e) { return false; }
+    es = source;
+    source.addEventListener('open', () => { sseFails = 0; failures = 0; window.clearTimeout(pollT); conn.dataset.state = 'on'; conn.textContent = 'live'; });
+    source.addEventListener('state', (ev) => { try { onData(JSON.parse(ev.data)); } catch (e) { /* skip a bad frame; the next one repairs the view */ } });
+    source.addEventListener('auth', (ev) => {            // signed out, or this game is not visible to the account any more
+      closeStream(); settled = true;
+      conn.dataset.state = 'off'; conn.textContent = 'signed out';
+    });
+    source.addEventListener('bye', () => {               // the server recycles long streams: reconnect from where we are
+      closeStream();
+      window.clearTimeout(retryT);
+      retryT = window.setTimeout(() => { if (!settled && !document.hidden && !openStream()) schedulePoll(0); }, 300);
+    });
+    source.addEventListener('retry', () => { source.onerror(); });
+    source.onerror = () => {
+      sseFails++;
+      conn.dataset.state = 'off'; conn.textContent = 'reconnecting';
+      if (source.readyState === 2 || sseFails >= 3) {    // the browser gave up (HTTP 401 / 429 ...) or keeps failing: poll, retry later
+        closeStream();
+        schedulePoll(0);
+        window.clearTimeout(retryT);
+        retryT = window.setTimeout(() => { if (!settled && !document.hidden) openStream(); }, 60000);
+      }
+    };
+    return true;
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      window.clearTimeout(pollT);                        // a hidden tab polls nothing
+      window.clearTimeout(hiddenT);
+      hiddenT = window.setTimeout(closeStream, 60000);   // a long absence also frees the server's stream slot
+      return;
+    }
+    window.clearTimeout(hiddenT);
+    pace.bump();
+    if (settled || connected()) return;
+    if (!openStream()) poll().then(() => schedulePoll(pace.delay()));
+  });
+  window.addEventListener('pagehide', () => { settled = true; finish(); });
+  ['pointerdown', 'keydown', 'focusin'].forEach((evt) => root.addEventListener(evt, () => pace.bump(), { passive: true }));
 
   async function post(path, body) {
     const r = await fetch(path, { method: 'POST', credentials: 'same-origin',
@@ -142,9 +222,14 @@
     if (!body || busy || cooldownLeft() > 0) return;
     busy = true; refreshSend();
     try {
-      await post(url + '/send', { body }); input.value = ''; count.textContent = '0 / 300'; pinned = true;
+      const sent = await post(url + '/send', { body }); input.value = ''; count.textContent = '0 / 300'; pinned = true;
       if (slowSecs > 0) startCooldown(slowSecs);
-      busy = false; await poll();
+      busy = false;
+      pace.bump();
+      if (connected()) {                                  // the stream delivers it in a moment; if it did not, fetch it
+        const id = sent && sent.id;
+        window.setTimeout(() => { if (id && !seen.has(id)) poll(); }, 1500);
+      } else await poll();
     }
     catch (e) { say(e.message); }
     finally { busy = false; refreshSend(); input.focus(); }
@@ -284,5 +369,5 @@
   setCollapsed(saved === null ? (window.matchMedia('(max-width:640px)').matches || tinyStage) : saved === '1', false);
   place();
 
-  poll();
+  if (!openStream()) { poll(); schedulePoll(pace.delay()); }
 })();

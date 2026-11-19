@@ -1,0 +1,1 @@
+(function(){try{localStorage.getItem("snx.nav.collapsed")==="1"&&document.documentElement.classList.add("nav-collapsed")}catch(n){}window.addEventListener("load",function(){requestAnimationFrame(function(){requestAnimationFrame(function(){document.documentElement.classList.add("nav-ready")})})})})();

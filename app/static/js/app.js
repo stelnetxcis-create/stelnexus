@@ -39,43 +39,52 @@
   }));
 
   /* ---- copy-to-clipboard buttons ---- */
-  $$('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
-    const text = b.getAttribute('data-copy');
-    try { await navigator.clipboard.writeText(text); } catch (e) {
-      const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select();
-      try { document.execCommand('copy'); } catch (e2) { /* ignore */ } t.remove();
-    }
-    const old = b.textContent; b.textContent = 'Copied'; setTimeout(() => { b.textContent = old; }, 1400);
-  }));
+  function enhanceCopy(root) {
+    $$('[data-copy]', root).forEach((b) => {
+      if (b.dataset.enh) return; b.dataset.enh = '1';
+      b.addEventListener('click', async () => {
+        const text = b.getAttribute('data-copy');
+        try { await navigator.clipboard.writeText(text); } catch (e) {
+          const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select();
+          try { document.execCommand('copy'); } catch (e2) { /* ignore */ } t.remove();
+        }
+        const old = b.textContent; b.textContent = 'Copied'; setTimeout(() => { b.textContent = old; }, 1400);
+      });
+    });
+  }
 
   /* ---- modals ---- */
-  $$('[data-modal]').forEach((trigger) => {
-    trigger.addEventListener('click', () => {
-      const dialog = document.getElementById(trigger.getAttribute('data-modal'));
-      if (!dialog) return;
-      $$('[data-fill]', dialog).forEach((input) => {
-        const value = trigger.getAttribute('data-' + input.getAttribute('data-fill'));
-        if (value !== null) input.value = value;
+  function enhanceModals(root) {
+    $$('[data-modal]', root).forEach((trigger) => {
+      if (trigger.dataset.enh) return; trigger.dataset.enh = '1';
+      trigger.addEventListener('click', () => {
+        const dialog = document.getElementById(trigger.getAttribute('data-modal'));
+        if (!dialog) return;
+        $$('[data-fill]', dialog).forEach((input) => {
+          const value = trigger.getAttribute('data-' + input.getAttribute('data-fill'));
+          if (value !== null) input.value = value;
+        });
+        $$('[data-action-from]', dialog).forEach((form) => {
+          const template = trigger.getAttribute('data-action');
+          if (template) form.action = template;
+        });
+        $$('[data-text]', dialog).forEach((el) => {
+          const value = trigger.getAttribute('data-' + el.getAttribute('data-text'));
+          if (value !== null) el.textContent = value;
+        });
+        document.documentElement.classList.add('modal-open');
+        if (typeof dialog.showModal === 'function') dialog.showModal();
+        else dialog.setAttribute('open', '');
       });
-      $$('[data-action-from]', dialog).forEach((form) => {
-        const template = trigger.getAttribute('data-action');
-        if (template) form.action = template;
-      });
-      $$('[data-text]', dialog).forEach((el) => {
-        const value = trigger.getAttribute('data-' + el.getAttribute('data-text'));
-        if (value !== null) el.textContent = value;
-      });
-      document.documentElement.classList.add('modal-open');
-      if (typeof dialog.showModal === 'function') dialog.showModal();
-      else dialog.setAttribute('open', '');
     });
-  });
-  $$('dialog.modal').forEach((dialog) => {
-    dialog.addEventListener('close', () => document.documentElement.classList.remove('modal-open'));
-    dialog.addEventListener('click', (e) => {
-      if (e.target === dialog) dialog.close();
+    $$('dialog.modal', root).forEach((dialog) => {
+      if (dialog.dataset.enh) return; dialog.dataset.enh = '1';
+      dialog.addEventListener('close', () => document.documentElement.classList.remove('modal-open'));
+      dialog.addEventListener('click', (e) => {
+        if (e.target === dialog) dialog.close();
+      });
     });
-  });
+  }
 
   /* ---- idempotency + double-submit guard ----
      One key per form render: retrying after a network failure reuses the key,
@@ -84,7 +93,9 @@
     if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
     return 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
   }
-  $$('form[method="post"]').forEach((form) => {
+  function enhanceForms(root) {
+  $$('form[method="post"]', root).forEach((form) => {
+    if (form.dataset.enh) return; form.dataset.enh = '1';
     const keyField = form.querySelector('[data-idem]');
     if (keyField && !keyField.value) keyField.value = uuid();
     form.addEventListener('submit', (e) => {
@@ -106,9 +117,11 @@
       }, 8000);
     });
   });
+  }
 
   /* ---- client-side table search / sort / paging ---- */
-  $$('[data-table]').forEach((table) => {
+  function enhanceTables(root) {
+  $$('[data-table]', root).forEach((table) => {
     const wrap = table.closest('.table-wrap');
     if (!wrap || wrap.dataset.enhanced) return;
     wrap.dataset.enhanced = '1';
@@ -192,6 +205,12 @@
     });
     render();
   });
+  }
+
+  function enhance(root) {
+    enhanceCopy(root); enhanceModals(root); enhanceForms(root); enhanceTables(root);
+  }
+  enhance(document);
 
   /* ---- flash auto-dismiss ---- */
   setTimeout(() => {
@@ -201,23 +220,106 @@
     });
   }, 6000);
 
-  /* ---- optional live refresh (pool view) ---- */
+  /* ---- partial page refresh: replace one box, not the whole page ----
+     A box is marked on the server with {% call ui.region('name') %} (it renders <div data-region="name">).
+     Asking the same URL with "X-Fragment: name" returns only that box's HTML, with an ETag; sending the ETag
+     back gets "304 Not Modified" and no body when nothing changed. The swap leaves the rest of the page, the
+     scroll position, the video player and the chat untouched, then re-binds the page's handlers to the new HTML
+     (enhance) and announces it ("snx:region") so other scripts can do the same. */
+  const regionState = {};                                     // name -> { etag, busy }
+  const typingIn = (el) => { const a = document.activeElement; return !!(a && el.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)); };
+  const blocked = (el) => typingIn(el) || !!document.querySelector('dialog[open]');
+
+  function swapRegion(el, name, html) {
+    const x = window.scrollX, y = window.scrollY;
+    el.innerHTML = '<!--region:' + name + '-->' + html + '<!--/region:' + name + '-->';
+    enhance(el);
+    if (window.scrollY !== y) window.scrollTo(x, y);          // keep the reader where they were
+    document.dispatchEvent(new CustomEvent('snx:region', { detail: { name: name, el: el } }));
+  }
+
+  /* Resolves to 'updated' | 'same' | 'skipped' (user is typing / a dialog is open) | 'busy' | 'missing' | 'failed'.
+     opts.force ignores the typing / dialog guard (the person pressed "Refresh"). */
+  async function refreshRegion(name, opts) {
+    opts = opts || {};
+    const el = document.querySelector('[data-region="' + name + '"]');
+    if (!el) return 'missing';
+    const st = regionState[name] || (regionState[name] = { etag: '', busy: false });
+    if (st.busy) return 'busy';
+    if (!opts.force && blocked(el)) return 'skipped';
+    st.busy = true;
+    try {
+      const headers = { 'X-Fragment': name, 'Accept': 'text/html' };
+      if (st.etag) headers['If-None-Match'] = st.etag;        // set by hand: the request is no-store, so the browser would not
+      const r = await fetch(location.pathname + location.search,
+        { headers: headers, credentials: 'same-origin', cache: 'no-store' });
+      if (r.status === 304) return 'same';
+      // A redirect (signed out), an error page or a full page (no such region) all mean: not a fragment.
+      if (!r.ok || r.redirected || r.headers.get('X-Fragment') !== name) return 'failed';
+      const html = await r.text();
+      if (!opts.force && blocked(el)) return 'skipped';       // they started typing while we waited: try again later
+      st.etag = r.headers.get('ETag') || '';                  // remembered only once applied, or a skipped update would be lost
+      swapRegion(el, name, html);
+      return 'updated';
+    } catch (e) {
+      return 'failed';
+    } finally {
+      st.busy = false;
+    }
+  }
+
+  /* ---- shared helper: how long to wait before the next poll ----
+     Quiet for a minute: 4 s -> 15 s. Quiet for five: -> 30 s. Any activity ("bump": a message, a key press, a tap,
+     the tab coming back) snaps it back, and calls onWake so a sleeping timer fires now, not up to 30 s late. */
+  function pacer(opts) {
+    opts = opts || {};
+    const base = opts.base || 4000;
+    const steps = opts.steps || [[60000, 15000], [300000, 30000]];
+    let lastActive = Date.now();
+    const quiet = () => Date.now() - lastActive;
+    return {
+      bump() { const was = quiet() >= steps[0][0]; lastActive = Date.now(); if (was && opts.onWake) opts.onWake(); },
+      delay() { let d = base; steps.forEach((st) => { if (quiet() >= st[0] && st[1] > d) d = st[1]; }); return d; },
+    };
+  }
+
+  /* ---- optional live refresh: <section data-autorefresh="20" data-autorefresh-region="name"> ----
+     Refreshes that one box every N seconds (stretching the wait while nothing changes, pausing in a hidden tab).
+     Markup that names no box keeps the old behaviour (reload the page), so nothing silently stops updating. */
   const live = $('[data-autorefresh]');
   if (live) {
-    const seconds = parseInt(live.getAttribute('data-autorefresh'), 10) || 20;
-    let timer = setInterval(() => { if (!document.hidden) window.location.reload(); }, seconds * 1000);
+    const base = (parseInt(live.getAttribute('data-autorefresh'), 10) || 20) * 1000;
+    const owner = live.closest('[data-region]');
+    const name = live.getAttribute('data-autorefresh-region') || live.getAttribute('data-region') || (owner && owner.getAttribute('data-region')) || '';
     const toggle = $('[data-live-toggle]');
+    let timer = 0, running = true, unchanged = 0;
+    const wait = () => base * Math.min(1 + Math.floor(unchanged / 3), 4);       // every 3 identical answers adds one interval, up to 4x
+    async function tick() {
+      clearTimeout(timer);
+      if (!running || document.hidden) return;                                   // hidden: no timer at all; visibilitychange restarts it
+      if (!name) { window.location.reload(); return; }
+      const result = await refreshRegion(name);
+      if (result === 'updated') unchanged = 0;
+      else if (result === 'same') unchanged += 1;
+      else if (result === 'failed' || result === 'missing') unchanged = Math.min(unchanged + 3, 9);
+      if (running && !document.hidden) timer = setTimeout(tick, wait());
+    }
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && running) tick(); });
     if (toggle) {
       toggle.addEventListener('change', () => {
-        if (toggle.checked) timer = setInterval(() => { if (!document.hidden) window.location.reload(); }, seconds * 1000);
-        else clearInterval(timer);
+        running = toggle.checked;
+        if (running) tick(); else clearTimeout(timer);
       });
     }
+    timer = setTimeout(tick, base);
   }
 
   /* ---- JSON helper for the mobile API / future native shell ---- */
   window.StelNexus = {
     csrf: csrf,
+    refreshRegion: refreshRegion,
+    enhance: enhance,
+    pacer: pacer,
     async api(path, options) {
       const opts = Object.assign({ headers: {} }, options || {});
       opts.headers = Object.assign({

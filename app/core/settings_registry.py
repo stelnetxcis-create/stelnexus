@@ -137,12 +137,15 @@ DEFS: tuple[SettingDef, ...] = (
                "Each of tumbok / sahod is either 0 or at least this. 100 = PHP 1.", 1, 10**9),
     SettingDef("bola.limit_per_line_cents", "Limit per combination", "money", 150000, "Bola",
                "Sum of all stakes on the same ordered pair in one draw (the legacy rule, now actually "
-               "enforced). 150000 = PHP 1,500. 0 = off.", 0, 10**11),
+               "enforced). 150000 = PHP 1,500. 0 = off. Default for every area; an area can "
+               "override it under Admin > Locations.", 0, 10**11),
     SettingDef("bola.max_liability_per_outcome_cents", "Liability cap per outcome", "money", 0, "Bola",
                "Most one drawn outcome may owe: multiplier x (tumbok on (x,y) + sahod on (y,x)). "
-               "A bet that would push an outcome past this is refused. 0 = off.", 0, 10**13),
+               "A bet that would push an outcome past this is refused. 0 = off. Default for every "
+               "area; an area can override it under Admin > Locations.", 0, 10**13),
     SettingDef("bola.max_liability_per_draw_cents", "Liability cap per draw", "money", 0, "Bola",
-               "Same cap applied to the worst outcome of the whole draw. 0 = off.", 0, 10**13),
+               "Same cap applied to the worst outcome of the whole draw. 0 = off. Default for every "
+               "area; an area can override it under Admin > Locations.", 0, 10**13),
     SettingDef("bola.cutoff_minutes", "Betting cut-off (minutes before draw)", "int", 10, "Bola",
                "Bets are refused from this many minutes before the draw time. Enforced by timestamp "
                "inside the bet transaction, so it does not depend on the scheduler.", 0, 1440),
@@ -208,6 +211,23 @@ DEFS: tuple[SettingDef, ...] = (
                choices=("anyone", "network")),
     SettingDef("wallet.allow_agent_overdraft", "Allow agent credit to go negative", "bool", False, "Credit",
                "Off is strongly recommended: credit must be pre-funded down the tree."),
+    # ---- GCash pool (Staff Panel -> Teller) --------------------------------
+    SettingDef("gcash.daily_limit_cents", "Daily limit per GCash number", "money", 10_000_000, "GCash",
+               "Centavos (10000000 = \u20b1100,000). Counted per Manila day. A number can override this.", 10000, 10**11),
+    SettingDef("gcash.monthly_limit_cents", "Monthly limit per GCash number", "money", 100_000_000, "GCash",
+               "Centavos (100000000 = \u20b11,000,000). Counted per Manila month. A number can override this.", 10000, 10**12),
+    SettingDef("gcash.rotate_at_pct", "Move to the next number at (%)", "int", 90, "GCash",
+               "Once a request would take a number past this share of its daily or monthly limit, the "
+               "next number with more room is used instead. 100 = only switch when it would not fit.", 1, 100),
+    SettingDef("gcash.strategy", "Rotation strategy", "choice", "fill", "GCash",
+               "fill = use numbers in list order and move on when one is near its limit. "
+               "balance = always use the number with the most room left today.",
+               choices=("fill", "balance")),
+    SettingDef("gcash.count_cashout", "Count cash-outs toward the limit", "bool", True, "GCash",
+               "On: money a teller sends out counts like money received. Off: only loads count."),
+    SettingDef("gcash.hold_minutes", "Hold a pending request's room for (minutes)", "int", 120, "GCash",
+               "A pending request reserves room on its number. After this long unreviewed it stops "
+               "counting. 0 = hold until it is reviewed.", 0, 10080),
     # ---- players / responsible gaming ------------------------------------
     SettingDef("player.min_age", "Minimum player age", "int", 21, "Players", "Enforced at registration.", 18, 99),
     SettingDef("player.daily_bet_limit_cents", "Default daily bet limit", "money", 0, "Players",

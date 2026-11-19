@@ -2,7 +2,7 @@
 {% import "_macros.html" as ui %}
 {% block title %}Store · {{ brand }}{% endblock %}
 {% block heading %}Store{% endblock %}
-{% block head %}<link rel="stylesheet" href="/static/css/store.css?v=6">{% endblock %}
+{% block head %}{{ css('store') }}{% endblock %}
 {% block actions %}<a class="btn btn-sm" href="/wallet?t=history">Money history</a>{% endblock %}
 {% block content %}
 

@@ -64,12 +64,12 @@ def create_app() -> FastAPI:
     from app.web import (
         routes_admin, routes_agents, routes_auth, routes_bets, routes_dashboard,
         routes_cuts, routes_extra, routes_fights, routes_money, routes_players, routes_referrals,
-        routes_wallet, routes_dev, routes_bola, routes_live, routes_sell, routes_store,
+        routes_wallet, routes_dev, routes_bola, routes_live, routes_sell, routes_store, routes_staff,
     )
     for module in (routes_auth, routes_dashboard, routes_agents, routes_players,
                    routes_fights, routes_bets, routes_money, routes_admin, routes_referrals,
                    routes_cuts, routes_extra, routes_wallet, routes_dev, routes_bola,
-                   routes_live, routes_sell, routes_store):
+                   routes_live, routes_sell, routes_store, routes_staff):
         app.include_router(module.router)
 
     from app.api.v1 import routes as api_routes
@@ -93,7 +93,8 @@ def create_app() -> FastAPI:
     @app.get("/sw.js", include_in_schema=False)
     async def service_worker():
         from fastapi.responses import FileResponse
-        return FileResponse(static_dir / "sw.js", media_type="application/javascript",
+        from app.core.assets import service_worker_file
+        return FileResponse(service_worker_file(), media_type="application/javascript",
                             headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"})
 
     return app

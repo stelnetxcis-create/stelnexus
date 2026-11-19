@@ -44,12 +44,16 @@ def test_teller_approves_requests_and_sees_nothing_else(world):
 def test_teller_without_gcash_cannot_approve(world):
     import pytest
     from app.core.errors import Forbidden
+    from app.services import gcash
     db, admin, store = world.db, world.admin, world.store
     teller = _mk(db, admin, store, Role.TELLER, "tn", gcash_number="09171234567")
-    teller.gcash_enc = None
     req = cashdesk.create_request(db, admin, direction=RequestDirection.IN, amount_cents=50_000,
                                   settings=store, player_id=world.player.id, method="gcash",
                                   reference="GC-TELLER-2")
+    teller.gcash_enc = None
+    for account in gcash.list_accounts(db, owner_id=teller.id):   # no live number left in the pool
+        account.is_active = False
+    db.flush()
     with pytest.raises(Forbidden):
         cashdesk.review(db, teller, request_id=req.id, approve=True, settings=store)
 

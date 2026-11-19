@@ -1,3 +1,8 @@
+{# A box the browser can refresh on its own: {% call ui.region('name') %}...{% endcall %}.
+   The comment markers let the server hand back just this slice (X-Fragment: name); display:contents keeps
+   the wrapper out of the layout. See StelNexus.refreshRegion in app.js. #}
+{% macro region(name) %}<div data-region="{{ name }}" style="display:contents"><!--region:{{ name }}-->{{ caller() }}<!--/region:{{ name }}--></div>{% endmacro %}
+
 {% macro csrf(token) %}<input type="hidden" name="csrf_token" value="{{ token }}">{% endmacro %}
 
 {% macro idem() %}<input type="hidden" name="idempotency_key" value="" data-idem>{% endmacro %}

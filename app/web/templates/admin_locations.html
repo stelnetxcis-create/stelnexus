@@ -8,7 +8,7 @@
 <p class="notice">Venues for events. Custom fields can hold anything you need (capacity, contact, rules). Defaults pre-fill the event form for that venue. A location with events can be archived, not deleted.</p>
 <div class="card"><div class="card-body tight">
 {% if rows %}
-<div class="table-wrap"><table class="table"><thead><tr><th>Picture</th><th>Name</th><th>Where</th><th>Custom fields</th><th>Defaults</th><th class="right">Events</th><th>Status</th>{% if can_manage %}<th class="right">Actions</th>{% endif %}</tr></thead><tbody>
+<div class="table-wrap"><table class="table"><thead><tr><th>Picture</th><th>Name</th><th>Where</th><th>Custom fields</th><th>Defaults</th><th>Bola caps</th><th class="right">Events</th><th>Status</th>{% if can_manage %}<th class="right">Actions</th>{% endif %}</tr></thead><tbody>
 {% for l in rows %}
 <tr>
   <td>{% if l.image_url %}<img class="venue-thumb" src="{{ l.image_url }}" alt="" width="64" height="32">{% else %}—{% endif %}</td>
@@ -16,12 +16,16 @@
   <td class="small">{{ l.address or '' }}{{ ', ' if l.address and l.city else '' }}{{ l.city or '' }}{% if not l.address and not l.city %}—{% endif %}</td>
   <td class="small">{% for f in (l.custom_fields or []) %}<div><span class="muted">{{ f.label }}:</span> {{ f.value }}</div>{% else %}—{% endfor %}</td>
   <td class="small">{{ (l.default_fight_count ~ ' games') if l.default_fight_count else 'global' }}{% if l.default_payout_model %} · {{ l.default_payout_model }}{% endif %}{% if l.default_house_cut_bps is not none %} · tong {{ '%.2f%%' | format(l.default_house_cut_bps / 100) }}{% endif %}</td>
+  <td class="small">{% if l.bola_limit_per_line_cents is none and l.bola_max_liability_per_outcome_cents is none and l.bola_max_liability_per_draw_cents is none %}global{% else %}{% if l.bola_limit_per_line_cents is not none %}<div>line {{ ('₱%.2f' | format(l.bola_limit_per_line_cents / 100)) if l.bola_limit_per_line_cents else 'no cap' }}</div>{% endif %}{% if l.bola_max_liability_per_outcome_cents is not none %}<div>outcome {{ ('₱%.2f' | format(l.bola_max_liability_per_outcome_cents / 100)) if l.bola_max_liability_per_outcome_cents else 'no cap' }}</div>{% endif %}{% if l.bola_max_liability_per_draw_cents is not none %}<div>draw {{ ('₱%.2f' | format(l.bola_max_liability_per_draw_cents / 100)) if l.bola_max_liability_per_draw_cents else 'no cap' }}</div>{% endif %}{% endif %}</td>
   <td class="right num">{{ counts.get(l.id, 0) }}</td>
   <td>{{ ui.badge('active' if l.is_active else 'archived', 'green' if l.is_active else 'slate') }}</td>
   {% if can_manage %}<td class="right"><div class="table-actions" style="justify-content:flex-end">
     <button class="btn btn-sm" data-modal="loc-modal" data-action="/admin/locations/{{ l.id }}/update" data-label="Edit {{ l.name }}"
       data-name="{{ l.name }}" data-image="{{ l.image or '' }}" data-address="{{ l.address or '' }}" data-city="{{ l.city or '' }}" data-notes="{{ l.notes or '' }}"
       data-fights="{{ l.default_fight_count or '' }}" data-model="{{ l.default_payout_model or '' }}" data-cut="{{ l.default_house_cut_bps if l.default_house_cut_bps is not none else '' }}"
+      data-bolaline="{{ (l.bola_limit_per_line_cents / 100) if l.bola_limit_per_line_cents is not none else '' }}"
+      data-bolaout="{{ (l.bola_max_liability_per_outcome_cents / 100) if l.bola_max_liability_per_outcome_cents is not none else '' }}"
+      data-boladraw="{{ (l.bola_max_liability_per_draw_cents / 100) if l.bola_max_liability_per_draw_cents is not none else '' }}"
       data-fields='{{ (l.custom_fields or []) | tojson }}'>Edit</button>
     <form method="post" action="/admin/locations/{{ l.id }}/{{ 'archive' if l.is_active else 'restore' }}" style="display:inline">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm btn-ghost" type="submit">{{ 'Archive' if l.is_active else 'Restore' }}</button></form>
     {% if not counts.get(l.id) %}<form method="post" action="/admin/locations/{{ l.id }}/delete" style="display:inline" data-confirm="Delete {{ l.name }} for good?">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm btn-danger" type="submit">Delete</button></form>{% endif %}
@@ -50,6 +54,12 @@
     {{ ui.field('Games', 'default_fight_count', 'number', attrs='min=1 max=200 data-fill=fights') }}
     <label class="field"><span>Payout model</span><select name="default_payout_model" data-fill="model"><option value="">Global default</option><option value="pool">Pool</option><option value="fixed">Fixed odds</option></select></label>
     {{ ui.field('Tong (bps)', 'default_house_cut_bps', 'number', attrs='min=0 max=10000 data-fill=cut') }}
+  </div>
+  <h4 style="margin:14px 0 6px">Bola caps for this area <small class="muted">(PHP; blank = global setting, 0 = no cap here)</small></h4>
+  <div class="form-grid">
+    {{ ui.field('Limit per combination', 'bola_limit_per_line', 'number', attrs='min=0 step=0.01 data-fill=bolaline') }}
+    {{ ui.field('Liability cap per outcome', 'bola_max_liability_per_outcome', 'number', attrs='min=0 step=0.01 data-fill=bolaout') }}
+    {{ ui.field('Liability cap per draw', 'bola_max_liability_per_draw', 'number', attrs='min=0 step=0.01 data-fill=boladraw') }}
   </div>
   <h4 style="margin:14px 0 6px">Custom fields <small class="muted">(up to {{ max_fields }})</small></h4>
   <div id="cf-rows"></div>

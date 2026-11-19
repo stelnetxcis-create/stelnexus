@@ -73,4 +73,4 @@
 {% endcall %}
 {% endif %}
 {% endblock %}
-{% block scripts %}{% if invite_roles | length > 1 %}<script src="/static/js/referrals.js?v=2" defer></script>{% endif %}{% endblock %}
+{% block scripts %}{% if invite_roles | length > 1 %}{{ js('referrals') }}{% endif %}{% endblock %}

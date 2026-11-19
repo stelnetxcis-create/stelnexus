@@ -156,6 +156,8 @@ class SecurityHeadersMiddleware:
             f"frame-ancestors {_cfg.FRAME_ANCESTORS}"
         )
         is_static = scope["path"].startswith("/static/")
+        # Build output is content-hashed (tools/build_static.mjs): a name never changes meaning, so cache for good.
+        is_hashed = scope["path"].startswith("/static/dist/")
 
         async def send_wrapper(message: Message) -> None:
             if message["type"] == "http.response.start":
@@ -170,7 +172,9 @@ class SecurityHeadersMiddleware:
                 ])
                 if _cfg.ENV == "prod":
                     headers.append((b"strict-transport-security", b"max-age=31536000; includeSubDomains"))
-                if is_static:
+                if is_hashed:
+                    headers.append((b"cache-control", b"public, max-age=31536000, immutable"))
+                elif is_static:
                     headers.append((b"cache-control", b"public, max-age=3600"))
                 else:
                     headers.append((b"cache-control", b"no-store"))

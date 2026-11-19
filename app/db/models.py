@@ -520,6 +520,10 @@ class Location(TimestampMixin, Base):
     default_fight_count: Mapped[int | None] = mapped_column(Integer)
     default_payout_model: Mapped[str | None] = mapped_column(String(8))
     default_house_cut_bps: Mapped[int | None] = mapped_column(Integer)
+    # Bola caps for this area. NULL = follow the global bola.* setting, 0 = no cap here.
+    bola_limit_per_line_cents: Mapped[int | None] = mapped_column(Money, nullable=True)
+    bola_max_liability_per_outcome_cents: Mapped[int | None] = mapped_column(Money, nullable=True)
+    bola_max_liability_per_draw_cents: Mapped[int | None] = mapped_column(Money, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False, index=True)
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
@@ -714,10 +718,15 @@ class CashRequest(UUIDMixin, TimestampMixin, Base):
     review_note: Mapped[str | None] = mapped_column(String(255))
     txn_id: Mapped[int | None] = mapped_column(ForeignKey("ledger_txns.id", ondelete="RESTRICT"))
     idempotency_key: Mapped[str | None] = mapped_column(String(120), unique=True)
+    # The pooled GCash number this request was routed to (picked automatically by services.gcash).
+    # NULL = bank request, or no pool configured yet (the legacy behaviour).
+    gcash_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("gcash_accounts.id", ondelete="SET NULL"), index=True)
 
     player: Mapped[Player | None] = relationship()
     agent: Mapped[User | None] = relationship(foreign_keys=[agent_id])
     requester: Mapped[User] = relationship(foreign_keys=[requested_by_id])
+    gcash_account: Mapped["GcashAccount | None"] = relationship(foreign_keys=[gcash_account_id])
 
     __table_args__ = (
         CheckConstraint("amount_cents > 0", name="positive_amount"),
@@ -726,6 +735,45 @@ class CashRequest(UUIDMixin, TimestampMixin, Base):
             name="one_subject",
         ),
     )
+
+
+class GcashAccount(TimestampMixin, Base):
+    """One GCash number in the teller pool.
+
+    A teller may register as many as they like. The cash desk routes each new GCash request to
+    whichever number still has room under its daily / monthly limit (see ``services.gcash``), so
+    nobody has to juggle numbers by hand. Usage is never stored: it is always summed from the
+    requests routed to the number (plus manual ``GcashAdjustment`` rows), so it cannot drift.
+    """
+    __tablename__ = "gcash_accounts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    label: Mapped[str] = mapped_column(String(60))
+    number_enc: Mapped[str] = mapped_column(Text)                       # encrypted at rest
+    number_hash: Mapped[str] = mapped_column(String(64), unique=True)   # duplicate guard (SHA-256)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), index=True)
+    # NULL = follow the global limit (Admin Panel -> Variables -> GCash).
+    daily_limit_cents: Mapped[int | None] = mapped_column(Money)
+    monthly_limit_cents: Mapped[int | None] = mapped_column(Money)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    note: Mapped[str | None] = mapped_column(String(255))
+
+    owner: Mapped["User | None"] = relationship(foreign_keys=[owner_id])
+
+
+class GcashAdjustment(TimestampMixin, Base):
+    """Usage that happened outside the system (the teller used the number personally, a transfer
+    made by hand). It counts toward the day / month exactly like a routed request."""
+    __tablename__ = "gcash_adjustments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("gcash_accounts.id", ondelete="CASCADE"), index=True)
+    amount_cents: Mapped[int] = mapped_column(Money)
+    note: Mapped[str | None] = mapped_column(String(255))
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    __table_args__ = (CheckConstraint("amount_cents > 0", name="positive_amount"),)
 
 
 class EventExpense(TimestampMixin, Base):

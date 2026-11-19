@@ -1,6 +1,32 @@
 # Automatic HTTPS + reverse proxy. Replace the domain, then:  caddy run --config deploy/Caddyfile
 stelnexus.example.com {
-	encode zstd gzip
-	reverse_proxy 127.0.0.1:8000
+	# Live chat streams are server-sent events (/chat/stream, /fights/<id>/chat/stream). They must NOT be compressed
+	# (the compressor holds bytes back, so messages would arrive in bursts) and must be flushed to the browser
+	# the instant the app writes them (flush_interval -1). Everything else is compressed as before.
+	@sse path /chat/stream /fights/*/chat/stream
+	@plain not path /chat/stream /fights/*/chat/stream
+	encode @plain zstd gzip
 	header -Server
+
+	# Content-hashed build output (`npm run build`): site.3fa9c1d2.css, fonts, images the CSS uses.
+	# The file name changes whenever the content does, so browsers may keep it for a year without asking.
+	# header_down (not `header`) so this replaces the Cache-Control the app itself sends.
+	@hashed path /static/dist/*
+	handle @hashed {
+		reverse_proxy 127.0.0.1:8000 {
+			header_down Cache-Control "public, max-age=31536000, immutable"
+		}
+	}
+
+	handle @sse {
+		reverse_proxy 127.0.0.1:8000 {
+			flush_interval -1
+		}
+	}
+
+	# Everything else, including /sw.js (the app sends no-cache for it) and the un-hashed /static/ files:
+	# pass through untouched. Do NOT add a long Cache-Control to /sw.js or browsers will not see new releases.
+	handle {
+		reverse_proxy 127.0.0.1:8000
+	}
 }

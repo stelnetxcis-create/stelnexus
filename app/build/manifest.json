@@ -1,0 +1,32 @@
+{
+  "build": "9f04d1c1",
+  "inputs": "0b3e0ac33d219002edf46b27e5870af6e2dcbcbac417664faa9548e50a86d6e9",
+  "css": {
+    "auth": "/static/dist/auth.fe35e70b.css",
+    "site": "/static/dist/site.74a2a048.css",
+    "store": "/static/dist/store.0b6706f2.css",
+    "bola-ui": "/static/dist/bola-ui.36c32a5c.css",
+    "livestream": "/static/dist/livestream.f6922ca2.css"
+  },
+  "js": {
+    "nav-init": "/static/dist/nav-init.adaac247.js",
+    "auth": "/static/dist/auth.ff37ee08.js",
+    "site": "/static/dist/site.d841745c.js",
+    "bola": "/static/dist/bola.bf04ab47.js",
+    "chat": "/static/dist/chat.a5798df9.js",
+    "dash": "/static/dist/dash.5aec12c6.js",
+    "fightchat": "/static/dist/fightchat.9ca43107.js",
+    "referrals": "/static/dist/referrals.0ec603de.js",
+    "sell": "/static/dist/sell.e4ee46fa.js",
+    "stream": "/static/dist/stream.bd195187.js"
+  },
+  "preload": [
+    "/static/dist/fonts/manrope-latin-wght-normal.a30ddcd3.woff2",
+    "/static/dist/fonts/cormorant-garamond-latin-600-normal.ae062b6d.woff2"
+  ],
+  "shell": [
+    "/static/dist/site.74a2a048.css",
+    "/static/dist/site.d841745c.js",
+    "/static/dist/nav-init.adaac247.js"
+  ]
+}

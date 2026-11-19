@@ -1,0 +1,23 @@
+{
+  "css": {
+    "auth": ["css/app.css", "css/luxe.css"],
+    "site": ["css/app.css", "css/luxe.css", "css/arena.css", "css/royale.css"],
+    "store": ["css/store.css"],
+    "bola-ui": ["css/bola-ui.css"],
+    "livestream": ["css/livestream.css"]
+  },
+  "js": {
+    "nav-init": ["js/nav-init.js"],
+    "auth": ["js/app.js", "js/luxe.js", "js/login-extras.js"],
+    "site": ["js/app.js", "js/luxe.js", "js/pages.js", "js/arena.js", "js/royale.js", "js/menus.js", "js/anim-pause.js"],
+    "bola": ["js/bola.js"],
+    "chat": ["js/chat.js"],
+    "dash": ["js/dash.js"],
+    "fightchat": ["js/fightchat.js"],
+    "referrals": ["js/referrals.js"],
+    "sell": ["js/sell.js"],
+    "stream": ["js/stream.js"]
+  },
+  "preload": ["fonts/manrope-latin-wght-normal.woff2", "fonts/cormorant-garamond-latin-600-normal.woff2"],
+  "shell": [["css", "site"], ["js", "site"], ["js", "nav-init"]]
+}

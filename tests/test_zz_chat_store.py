@@ -1,9 +1,11 @@
 """Store (Battle Pass + Chat Token) and the livestream chat inside the fight view.
 Named test_zz_ so it runs after the tests that count open games."""
 import datetime as dt
+import re
 
 from sqlalchemy import select
 
+from app.core.assets import asset_urls
 from app.core.settings_registry import SettingsStore
 from app.db.models import ChatMessage, ChatPass, ChatToken, EventStatus, Fight, FightStatus, Location, Result, Role, User
 from app.db.session import session_scope
@@ -234,7 +236,7 @@ def test_fight_view_has_a_playable_dummy_player_and_pass_only_skip_buttons():
         assert "data-player" in page and 'data-pass="0"' in page
         for hook in ("data-vp-play", "data-vp-prev", "data-vp-next"):
             assert hook in page
-        assert "Battle Pass" in page and "stream.js" in page
+        assert "Battle Pass" in page and asset_urls("js", "stream")[0] in page
         c.post("/store/pass", headers={"X-CSRF-Token": _csrf(c)}, data={"idempotency_key": "pass-vp"})
         page = c.get(f"/change_name?event_id={event_id}&fight_id={fight_id}").text
         assert 'data-pass="1"' in page and "Previous and forward come with" not in page
@@ -257,12 +259,14 @@ def test_battle_pass_chats_on_every_stream_including_esports():
         _cleanup(event_id)
 
 
-def test_scripts_are_versioned_and_service_worker_is_network_first_for_code():
+def test_scripts_are_versioned_and_service_worker_is_network_first_for_unhashed_code():
     c, _ = login("admin")
     sw = c.get("/static/sw.js").text
-    assert "royale8" in sw and "fetch(request).then" in sw
+    assert "fetch(request).then" in sw and "/static/dist/" in sw      # hashed: cache first; plain code: network first
     lobby = c.get("/bola").text
-    assert "bola.js?v=2" in lobby and "bola-ui.css?v=2" in lobby
+    # Built: a content-hashed name. Unbuilt: the source file with an mtime cache-buster. Never a bare, cacheable name.
+    assert re.search(r"/(static/dist/bola\.[0-9a-f]{8}\.js|static/js/bola\.js\?v=\d+)", lobby)
+    assert re.search(r"/(static/dist/bola-ui\.[0-9a-f]{8}\.css|static/css/bola-ui\.css\?v=\d+)", lobby)
 
 
 def _extra_event(title):
@@ -352,4 +356,4 @@ def test_commission_in_wallet_menu_and_referrals_in_account_menu_only_for_those_
 def test_header_menus_close_each_other():
     c, _ = login("admin")
     js = c.get("/static/js/menus.js").text
-    assert "closeAll" in js and "menus.js" in c.get("/dashboard").text
+    assert "closeAll" in js and asset_urls("js", "site")[-1] in c.get("/dashboard").text

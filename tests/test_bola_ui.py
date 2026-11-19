@@ -5,6 +5,7 @@ import re
 
 from fastapi.testclient import TestClient
 
+from app.core.assets import asset_urls
 from tests.test_bola import _web_setup, _web_teardown
 from tests.test_web import app, login
 from tests.conftest import PASSWORD
@@ -30,7 +31,7 @@ def test_draw_page_has_every_control_the_routes_expect():
         c, _ = login("admin")
         html = c.get(f"/bola/draws/{ids['draw']}").text
         for needle in ("data-bola-grid", 'data-max="40"', "Draw expenses", "Add expense",
-                       'enctype="multipart/form-data"', "Report CSV", "/static/js/bola.js"):
+                       'enctype="multipart/form-data"', "Report CSV", asset_urls("js", "bola")[0]):
             assert needle in html, needle
         js = c.get("/static/js/bola.js")
         assert js.status_code == 200 and "bola-ball" in js.text

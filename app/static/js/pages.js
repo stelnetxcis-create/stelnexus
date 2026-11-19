@@ -3,20 +3,27 @@
 (function () {
   'use strict';
 
-  /* Lobby: filter the event boxes by status. */
-  var bar = document.querySelector('[data-lobby-filter]');
-  var grid = document.querySelector('[data-lobby]');
-  if (bar && grid) {
-    bar.addEventListener('click', function (e) {
-      var btn = e.target.closest('[data-f]');
-      if (!btn) return;
-      var f = btn.getAttribute('data-f');
-      bar.querySelectorAll('.chip-btn').forEach(function (b) { b.classList.toggle('is-on', b === btn); });
-      grid.querySelectorAll('.lobby-card').forEach(function (card) {
-        card.hidden = !(f === 'all' || card.getAttribute('data-status') === f);
-      });
+  /* Lobby: filter the event boxes by status. Delegated from the document, because the filter bar and the grid are
+     replaced in place when a new event appears (StelNexus.refreshRegion); the chosen filter is re-applied after that. */
+  var lobbyFilter = 'all';
+  function applyLobbyFilter() {
+    var bar = document.querySelector('[data-lobby-filter]');
+    var grid = document.querySelector('[data-lobby]');
+    if (!bar || !grid) return;
+    bar.querySelectorAll('.chip-btn').forEach(function (b) { b.classList.toggle('is-on', b.getAttribute('data-f') === lobbyFilter); });
+    grid.querySelectorAll('.lobby-card').forEach(function (card) {
+      card.hidden = !(lobbyFilter === 'all' || card.getAttribute('data-status') === lobbyFilter);
     });
   }
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest ? e.target.closest('[data-lobby-filter] [data-f]') : null;
+    if (!btn) return;
+    lobbyFilter = btn.getAttribute('data-f');
+    applyLobbyFilter();
+  });
+  document.addEventListener('snx:region', function (e) {
+    if (e.detail && e.detail.name === 'lobby' && lobbyFilter !== 'all') applyLobbyFilter();
+  });
 
   /* Create event: a venue pre-fills games / payout model / tong; ?create=1 opens the form. */
   var loc = document.getElementById('ev-location');

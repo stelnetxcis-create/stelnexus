@@ -45,12 +45,14 @@ def test_sidebar_has_no_account_block_and_menu_has_signout():
     html = c.get("/dashboard").text
     assert "sidebar-foot" not in html
     assert 'class="menu account-menu"' in html and 'action="/logout"' in html
-    assert 'src="/static/js/nav-init.js"' in html
+    from app.core.assets import asset_urls
+    assert f'src="{asset_urls("js", "nav-init")[0]}' in html
 
 
 def test_chat_script_loads_via_scripts_block():
     c, _ = login("admin")
-    assert "/static/js/chat.js" in c.get("/chat").text
+    from app.core.assets import asset_urls
+    assert asset_urls("js", "chat")[0] in c.get("/chat").text
 
 
 def test_counter_pages_are_gone():

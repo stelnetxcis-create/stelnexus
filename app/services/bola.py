@@ -146,6 +146,21 @@ def multiplier(settings: SettingsStore) -> int:
     return int(settings.get("bola.payout_multiplier_x100"))
 
 
+def effective_caps(settings: SettingsStore, location) -> tuple[int, int, int]:
+    """(line limit, outcome cap, draw cap) for one area, in cents.
+
+    A cap set on the Location wins (0 = no cap in that area); NULL follows the global
+    ``bola.*`` setting.
+    """
+    def pick(override, key: str) -> int:
+        return int(override) if override is not None else int(settings.get(key))
+    return (
+        pick(location.bola_limit_per_line_cents, "bola.limit_per_line_cents"),
+        pick(location.bola_max_liability_per_outcome_cents, "bola.max_liability_per_outcome_cents"),
+        pick(location.bola_max_liability_per_draw_cents, "bola.max_liability_per_draw_cents"),
+    )
+
+
 def max_number(settings: SettingsStore) -> int:
     return int(settings.get("bola.max_number"))
 
@@ -571,9 +586,7 @@ def check_limits(db: Session, draw: BolaDraw, lines: list[Pair], tumbok_cents: i
 
     A cap is the maximum allowed: reaching it exactly is fine, going past it is refused.
     """
-    line_limit = int(settings.get("bola.limit_per_line_cents"))
-    outcome_cap = int(settings.get("bola.max_liability_per_outcome_cents"))
-    draw_cap = int(settings.get("bola.max_liability_per_draw_cents"))
+    line_limit, outcome_cap, draw_cap = effective_caps(settings, draw.location)
     if not (line_limit or outcome_cap or draw_cap):
         return
     current = exposure_map(db, draw.id)
@@ -621,8 +634,7 @@ def exposure_summary(db: Session, draw: BolaDraw, settings: SettingsStore) -> di
     worst = worst_of(view, rate)
     staked = sum(t + s for t, s in view.values())
     lines = sum(row.line_count for row in exposure_rows(db, draw.id))
-    outcome_cap = int(settings.get("bola.max_liability_per_outcome_cents"))
-    draw_cap = int(settings.get("bola.max_liability_per_draw_cents"))
+    _, outcome_cap, draw_cap = effective_caps(settings, draw.location)
     caps = [c for c in (outcome_cap, draw_cap) if c]
     ceiling = min(caps) if caps else 0
     return {

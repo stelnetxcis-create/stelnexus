@@ -34,7 +34,7 @@ It handles real-money flows (GCash / bank cash-in and cash-out), so it must be d
 - **Audit and integrity.** Every sensitive action is written to an audit log, the ledger has an integrity check, and audit-log tables are guarded against edits.
 - **Live board.** A public read-only board at `/live` (toggle with the `live.board_enabled` setting).
 - **Reports.** Game history, event summaries, event expenses, report archives with CSV export, and per-player history.
-- **Livestream chat (experimental).** A live operations room for the Admin and for Pawns granted the `chat` permission: stored messages, who is in the room, a results wire and the next draw countdown. Delivery is short-poll (about four seconds) and the typing indicator is best-effort in-process presence; everything else (permissions, CSRF, storage) is production behaviour. One visible switch mutes the message sounds.
+- **Livestream chat (experimental).** A live operations room for the Admin and for Pawns granted the `chat` permission: stored messages, who is in the room, a results wire and the next draw countdown. Delivery is server-sent events (`/chat/stream`, instant) with an automatic short-poll fallback, and the typing indicator is best-effort in-process presence; everything else (permissions, CSRF, storage) is production behaviour. One visible switch mutes the message sounds.
 
 ## Tech stack
 
@@ -63,8 +63,11 @@ app/
   services/            Business logic: accounts, wallet, cashdesk, betting, settlement,
                        commissions, referrals, events, reports, ledger, locations, presence, proofs
   web/                 HTML routes and Jinja templates (templates/)
-  static/              CSS, JS, images, service worker, web manifest
+  static/              CSS, JS, images, service worker (source), web manifest; static/dist/ is build output
+  build/               Build output: manifest.json (name -> hashed URL) and the generated service worker
+  asset_bundles.json   Which CSS/JS files make up each bundle (single source of truth)
 deploy/                stelnexus.service, Caddyfile, backup.sh
+tools/                 build_static.mjs, css-dedupe.mjs (static asset build)
 scripts/               security_check.sh
 tests/                 pytest suite
 SECURITY.md            Production security checklist
@@ -261,9 +264,23 @@ The same run is available to pytest with `BOLA_PG_URL=<scratch url> python -m py
 3. Install into `/opt/stelnexus`, create the virtualenv and install `requirements.txt`.
 4. Run `python -m app.cli init-db` and create the Admin and Master accounts.
 5. Install `deploy/stelnexus.service` as a systemd unit (adjust the user and paths). It binds to `127.0.0.1:8000` and runs **one worker**, because the rate limiter keeps state in process memory.
-6. Put Caddy (or nginx) in front for HTTPS. `deploy/Caddyfile` is a working example: replace the domain, then run `caddy run --config deploy/Caddyfile`.
+6. Make sure the static build is current (`npm ci && npm run build`, see Static assets) unless you deploy the committed `app/static/dist` and `app/build` as they are. Put Caddy (or nginx) in front for HTTPS. `deploy/Caddyfile` is a working example: replace the domain, then run `caddy run --config deploy/Caddyfile`.
 7. Run `scripts/security_check.sh` before every deploy.
 8. Optional, only if you use the number game: install the two `stelnexus-bola-*` timers (see Number game above).
+
+## Static assets (CSS and JS)
+
+Pages load a few bundles, not a dozen loose files: `site.css`, `site.js` and `nav-init.js` for the console (`auth.css` / `auth.js` for the login, register and error pages), plus one small bundle per feature page (store, bola, chat, ...). `npm run build` bundles, minifies and content-hashes them into `app/static/dist/` (for example `site.3fa9c1d2.css`), and writes `app/build/manifest.json` and `app/build/sw.js`. Templates ask for a bundle by name (`{{ css('site') }}`, `{{ js('chat') }}`), so no template carries a version number any more.
+
+- **After editing any file under `app/static/css`, `app/static/js`, `img`, `icons`, `fonts` or `sw.js`, or `app/asset_bundles.json`: run `npm run build`.** Needs Node 18 or later; run `npm ci` once. The build output is committed, so servers without Node can deploy as before.
+- To add a file to a bundle, or add a bundle, edit `app/asset_bundles.json`, then build.
+- Dev (`ENV=dev`): if the sources are newer than the build, the app serves the plain source files with an mtime cache-buster instead, so an edit always shows. Prod trusts the build and logs a warning if it is stale. `npm run build:check` (also run by `scripts/security_check.sh`) exits 1 when the build is stale.
+- `npm run build:report` lists CSS selectors that `app.css`, `luxe.css`, `arena.css` and `royale.css` all define. The build drops declarations a later rule with the identical selector overrides, so the browser never downloads them. It never reorders rules.
+- Hashed files are served with `Cache-Control: public, max-age=31536000, immutable` (by the app and by `deploy/Caddyfile`). Do not put a long cache on `/sw.js`.
+- The two fonts the first paint needs (Manrope, Cormorant Garamond 600) are preloaded on console pages (`preload` in `asset_bundles.json`, `{{ preload_fonts() }}` in `base.html`), using the same hashed URLs as the CSS.
+- `js/anim-pause.js` (in the site bundle) pauses infinite CSS animations while their element is scrolled out of view, to save battery. `prefers-reduced-motion` already switches all animations off in `app.css` / `luxe.css`.
+- `js/login-extras.js` (auth bundle only) holds the login-page effects that used to sit in `luxe.js`.
+- The service worker's cache name is the build id, so a new build updates installed apps by itself. There is no cache name to bump.
 
 ## Backups
 

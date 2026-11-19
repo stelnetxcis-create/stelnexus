@@ -327,3 +327,6 @@ body.is-seller .cursor-glow{display:none}
   left:auto;right:6px;top:50%;width:190px;height:95px;margin:0;translate:0 -50%;animation:none;opacity:.55;filter:saturate(.85)}
 .games .game-tile.is-soon[data-game="nba"] .game-ico{color:#fb923c}
 @media (max-width:640px){.games .game-tile[data-game="nba"]::before,.games .game-tile.is-soon[data-game="nba"]::before{width:150px;height:75px;opacity:.4}}
+
+/* Battery: anim-pause.js adds .is-offscreen to elements with an infinite animation while they are scrolled out of view. */
+.is-offscreen,.is-offscreen::before,.is-offscreen::after{animation-play-state:paused!important}

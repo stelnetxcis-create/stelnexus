@@ -7,8 +7,7 @@
 <meta name="theme-color" content="#09080a">
 <title>Create account · {{ brand }}</title>
 <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/static/css/app.css">
-<link rel="stylesheet" href="/static/css/luxe.css?v=2">
+{{ css('auth') }}
 </head>
 <body class="auth-body">
 <main class="auth-card">
@@ -46,7 +45,6 @@
   {% endif %}
   <p class="auth-foot"><a href="/login">← Back to sign in</a></p>
 </main>
-<script src="/static/js/app.js" defer></script>
-<script src="/static/js/luxe.js" defer></script>
+{{ js('auth') }}
 </body>
 </html>

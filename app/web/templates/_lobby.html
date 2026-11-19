@@ -1,6 +1,8 @@
+{% import "_macros.html" as ui %}
 {# Clickable boxes. Two macros: event cards (the lobby) and numbered game tiles (inside an event). #}
 
 {% macro event_cards(rows, stats, base) %}
+{% call ui.region('lobby') %}
 <div class="lobby-filter" role="group" aria-label="Filter events" data-lobby-filter>
   <button type="button" class="chip-btn is-on" data-f="all">All <b>{{ rows | length }}</b></button>
   {% for st in ['open', 'draft', 'closed', 'canceled'] %}
@@ -34,6 +36,7 @@
   </a>
   {% endfor %}
 </div>
+{% endcall %}
 {% endmacro %}
 
 {% macro game_tiles(fights, event_id, active_id=0) %}

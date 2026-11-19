@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.core import ratelimit
+from app.core.assets import asset_urls
 from app.core.errors import Forbidden, ValidationError
 from app.core.rbac import Perm, creatable_roles, permissions_of
 from app.db.models import Fight, FightStatus, Role, User
@@ -234,7 +235,7 @@ def test_admin_referrals_page_offers_the_role_picker(chain):
     w = chain
     w.db.commit()
     html = _login("admin").get("/referrals").text
-    assert 'name="role"' in html and 'name="parent_id"' in html and "/static/js/referrals.js" in html
+    assert 'name="role"' in html and 'name="parent_id"' in html and asset_urls("js", "referrals")[0] in html
     w.master.must_change_password = False
     w.db.commit()
     m = _login(w.master.username).get("/referrals").text

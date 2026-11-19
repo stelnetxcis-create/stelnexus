@@ -1,4 +1,4 @@
-/* Livestream Chat (experimental) — short-poll delivery, live room list, typing dots,
+/* Livestream Chat (experimental) — server-sent events (short-poll fallback), live room list, typing dots,
    a wire ticker, and an audible cue for incoming messages with one visible mute control.
    No frameworks, no CDN. Every piece of user text is written with textContent. */
 (function () {
@@ -37,6 +37,9 @@
   let failures = 0;
   let polling = false;
   let stopped = false;
+  let etag = '';                     // validator of the last poll answer: sent back as If-None-Match
+  const seen = new Set();            // message ids already on screen (the stream and the poll can overlap)
+  log.querySelectorAll('[data-id]').forEach((n) => seen.add(n.getAttribute('data-id')));
   let nextIso = nextBox ? nextBox.getAttribute('data-iso') : null;
   const seenDays = new Set();
   log.querySelectorAll('[data-day]').forEach((n) => seenDays.add(n.getAttribute('data-day')));
@@ -148,6 +151,7 @@
     bubble.appendChild(el('p', null, m.body));
     row.appendChild(bubble);
     log.appendChild(row);
+    seen.add(String(m.id));
     last = Math.max(last, m.id);
     while (log.querySelectorAll('.ls-msg').length > 200) {
       const first = log.querySelector('.ls-msg');
@@ -238,26 +242,57 @@
     countdown.classList.toggle('is-soon', h === 0 && m < 10);
   }
 
-  /* ---------------- polling ---------------- */
+  /* ---------------- delivery ----------------
+     Primary: server-sent events (/chat/stream). One open request; the server pushes the moment something happens,
+     so there is no per-viewer polling at all. If the stream cannot be had (old browser, proxy that buffers, too many
+     connections, repeated errors) we poll /chat/messages instead and try the stream again a minute later.
+     Polling is polite: it sends If-None-Match (an idle room answers 304 with no body), stretches from 4 s to
+     15 s after a quiet minute and 30 s after five (any message, key press or tap snaps it back), and does not run at all
+     in a hidden tab. A stream in a tab hidden for over a minute is closed, so it does not hold a server slot. */
+  const pace = (window.StelNexus && window.StelNexus.pacer)
+    ? window.StelNexus.pacer({ base: 4000, onWake: () => schedulePoll(0) })
+    : { bump() {}, delay: () => 4000 };
+  let es = null;
+  let sseFails = 0;
+  let pollTimer = 0;
+  let hiddenTimer = 0;
+  let retryTimer = 0;
+  const connected = () => !!es && es.readyState === 1;
+
+  function onData(data) {
+    const rows = (data.messages || []).filter((m) => !seen.has(String(m.id)));
+    const wasPinned = atBottom();
+    let foreign = 0;
+    rows.forEach((m) => { add(m, true); if (m.user !== me) foreign += 1; });
+    if (rows.length) {
+      pace.bump();
+      if (wasPinned) { toBottom(true); } else { unread += rows.length; showJump(); }
+      if (foreign && !document.hidden) chimeIncoming();
+    }
+    paintRoom(data.room);
+    paintTicker(data.on_air && data.on_air.ticker);
+    paintNext(data.on_air);
+    paintTyping(data.typing);
+  }
+
   async function poll() {
     if (polling || stopped || document.hidden) return;
     polling = true;
     try {
-      const data = await api('/chat/messages?after=' + last, { method: 'GET' });
+      const headers = { 'Accept': 'application/json' };
+      if (etag) headers['If-None-Match'] = etag;       // by hand: the request is no-store, so the browser would not
+      const r = await fetch('/chat/messages?after=' + last, { headers: headers, credentials: 'same-origin', cache: 'no-store' });
+      if (r.status === 304) {
+        failures = 0;
+        paintConn('live', 'Live');
+        return;
+      }
+      if (!r.ok) throw new Error(String(r.status));
+      const data = await r.json();
       failures = 0;
       paintConn('live', 'Live');
-      const rows = data.messages || [];
-      const wasPinned = atBottom();
-      let foreign = 0;
-      rows.forEach((m) => { add(m, true); if (m.user !== me) foreign += 1; });
-      if (rows.length) {
-        if (wasPinned) { toBottom(true); } else { unread += rows.length; showJump(); }
-        if (foreign) chimeIncoming();
-      }
-      paintRoom(data.room);
-      paintTicker(data.on_air && data.on_air.ticker);
-      paintNext(data.on_air);
-      paintTyping(data.typing);
+      onData(data);
+      etag = r.headers.get('ETag') || '';              // only after it was applied: a half-applied answer must come again
     } catch (e) {
       failures += 1;
       paintConn(failures > 2 ? 'off' : 'wait', failures > 2 ? 'Reconnecting' : 'Catching up');
@@ -266,12 +301,65 @@
     }
   }
 
+  function schedulePoll(ms) {
+    window.clearTimeout(pollTimer);
+    if (stopped || document.hidden || connected()) return;
+    pollTimer = window.setTimeout(async () => {
+      await poll();
+      schedulePoll(pace.delay() * Math.min(1 + failures, 5));
+    }, ms);
+  }
+
+  function closeStream() {
+    if (es) { es.close(); es = null; }
+  }
+
+  function openStream() {
+    if (stopped || es || typeof window.EventSource === 'undefined') return false;
+    let source;
+    try { source = new window.EventSource('/chat/stream?after=' + last); } catch (e) { return false; }
+    es = source;
+    source.addEventListener('open', () => {
+      sseFails = 0;
+      failures = 0;
+      window.clearTimeout(pollTimer);                   // the stream carries everything now
+      paintConn('live', 'Live');
+    });
+    source.addEventListener('state', (ev) => {
+      try { onData(JSON.parse(ev.data)); } catch (e) { /* a bad frame is skipped; the next one repairs the view */ }
+    });
+    source.addEventListener('auth', () => {              // signed out, or no longer allowed in this room
+      closeStream();
+      stopped = true;
+      paintConn('off', 'Signed out');
+    });
+    source.addEventListener('bye', () => {               // the server recycles long streams: reconnect with a fresh position
+      closeStream();
+      window.clearTimeout(retryTimer);
+      retryTimer = window.setTimeout(() => { if (!document.hidden && !openStream()) schedulePoll(0); }, 300);
+    });
+    source.addEventListener('retry', () => { source.onerror(); });
+    source.onerror = () => {
+      sseFails += 1;
+      paintConn('wait', 'Catching up');
+      // readyState 0: the browser is reconnecting by itself. 2: it gave up (HTTP 401 / 429 ...).
+      if (source.readyState === 2 || sseFails >= 3) {
+        closeStream();
+        schedulePoll(0);                                 // fall back to polling now,
+        window.clearTimeout(retryTimer);
+        retryTimer = window.setTimeout(() => { if (!stopped && !document.hidden) openStream(); }, 60000);   // and try the stream again later
+      }
+    };
+    return true;
+  }
+
   log.addEventListener('scroll', () => {
     pinned = atBottom();
     if (pinned) { unread = 0; if (jump) jump.hidden = true; }
     else if (unread) showJump();
   });
   if (jump) jump.addEventListener('click', () => toBottom(true));
+  ['pointerdown', 'keydown', 'focusin'].forEach((evt) => root.addEventListener(evt, () => pace.bump(), { passive: true }));
 
   /* ---------------- composer ---------------- */
   function paintCount() {
@@ -311,10 +399,16 @@
     field.value = '';
     paintCount();
     try {
-      await api('/chat/send', { method: 'POST', body: { body: body } });
+      const sent = await api('/chat/send', { method: 'POST', body: { body: body } });
       chimeSent();
-      await poll();
-      toBottom(true);
+      pace.bump();
+      if (connected()) {
+        toBottom(true);                                   // the stream delivers the message in a moment ...
+        window.setTimeout(() => { if (sent && sent.id && !seen.has(String(sent.id))) poll(); }, 1500);   // ... and if it did not, fetch it
+      } else {
+        await poll();
+        toBottom(true);
+      }
     } catch (e) {
       field.value = body;
       paintCount();
@@ -325,18 +419,31 @@
     }
   });
 
-  /* ---------------- lifecycle: one interval, no duplicates ---------------- */
+  /* ---------------- lifecycle: one transport at a time, no duplicates ---------------- */
   paintCount();
   toBottom(false);
   tickCountdown();
-  const pollTimer = window.setInterval(poll, 4000);
   const clockTimer = window.setInterval(tickCountdown, 1000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      window.clearTimeout(pollTimer);                    // a hidden tab polls nothing
+      window.clearTimeout(hiddenTimer);
+      hiddenTimer = window.setTimeout(closeStream, 60000);
+      return;
+    }
+    window.clearTimeout(hiddenTimer);
+    pace.bump();
+    if (stopped || connected()) return;
+    if (!openStream()) poll().then(() => schedulePoll(pace.delay()));   // catch up now, then carry on
+  });
   window.addEventListener('pagehide', () => {
     stopped = true;
-    window.clearInterval(pollTimer);
+    window.clearTimeout(pollTimer);
+    window.clearTimeout(hiddenTimer);
+    window.clearTimeout(retryTimer);
     window.clearInterval(clockTimer);
+    closeStream();
     if (audio) { audio.close().catch(() => {}); audio = null; }
   });
-  poll();
+  if (!openStream()) { poll(); schedulePoll(pace.delay()); }
 })();

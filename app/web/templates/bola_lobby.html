@@ -2,7 +2,7 @@
 {% import "_macros.html" as ui %}
 {% block title %}Bola · {{ brand }}{% endblock %}
 {% block heading %}Bola{% endblock %}
-{% block head %}<link rel="stylesheet" href="/static/css/bola-ui.css?v=2">{% endblock %}
+{% block head %}{{ css('bola-ui') }}{% endblock %}
 {% block actions %}
 <a class="btn btn-sm" href="/bola/results">Results</a>
 {% if can_manage %}
@@ -71,4 +71,4 @@
 </div>
 {% endif %}
 {% endblock %}
-{% block scripts %}<script src="/static/js/bola.js?v=2" defer></script>{% endblock %}
+{% block scripts %}{{ js('bola') }}{% endblock %}

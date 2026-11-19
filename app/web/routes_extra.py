@@ -16,8 +16,9 @@ from app.core.errors import NotFound, ValidationError
 from app.core.rbac import Perm, bola_visible_to, hides_totals, permissions_of
 from app.db.models import ChatMessage, DrawStatus, Fight, FightStatus, Ticket, TicketStatus, User
 from app.db.models import Session as SessionRow
-from app.db.session import get_db
-from app.services import betting, events, reports
+from app.db.session import get_db, session_scope
+from app.services import betting, events, realtime, reports
+from app.web.conditional import json_reply
 from app.web.deps import Ctx, base_ctx, flash_redirect, form_data, render, require_ctx
 
 router = APIRouter()
@@ -47,7 +48,8 @@ async def live_board(request: Request, db: Session = Depends(get_db)):
 # on air right now, who is typing, and an audible cue for incoming messages.
 #
 # Experimental means exactly two things, and both are stated on the page:
-#   * delivery is short-poll (every 4s), not a websocket, so a message can lag a few seconds;
+#   * delivery is server-sent events (instant) with a short-poll fallback (4s, backing off when idle),
+#     so on a bad connection a message can lag a few seconds;
 #   * the typing indicator lives in this process's memory (the app runs one worker), so it is
 #     best-effort presence, never a record of anything.
 # Messages themselves are ordinary rows: persisted, permission-checked, and never anonymous.
@@ -162,14 +164,42 @@ async def chat_page(ctx: Ctx = Depends(require_ctx)):
                   room=_room(ctx.db, ctx), on_air=_on_air(ctx.db, ctx), typing=_typing_now(ctx))
 
 
-@router.get("/chat/messages")
-async def chat_messages(after: int = 0, ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.CHAT_USE)
+CHAT_PAGE = 100          # messages per poll / stream frame
+
+
+def _chat_payload(ctx: Ctx, after: int) -> dict:
+    """Everything the chat page needs after message ``after``. Shared by the poll and the stream."""
     rows = list(ctx.db.scalars(select(ChatMessage).where(ChatMessage.fight_id.is_(None), ChatMessage.id > max(after, 0))
-                               .order_by(ChatMessage.id).limit(100)).all())
-    return JSONResponse({"messages": _chat_json(rows, ctx), "typing": _typing_now(ctx),
-                         "room": _room(ctx.db, ctx), "on_air": _on_air(ctx.db, ctx)},
-                        headers={"Cache-Control": "no-store"})
+                               .order_by(ChatMessage.id).limit(CHAT_PAGE)).all())
+    return {"messages": _chat_json(rows, ctx), "typing": _typing_now(ctx),
+            "room": _room(ctx.db, ctx), "on_air": _on_air(ctx.db, ctx)}
+
+
+@router.get("/chat/messages")
+async def chat_messages(request: Request, after: int = 0, ctx: Ctx = Depends(require_ctx)):
+    """Poll fallback. Answers ``304`` when the caller's ``If-None-Match`` is still current (an idle room)."""
+    ctx.need(Perm.CHAT_USE)
+    return json_reply(request, _chat_payload(ctx, after))
+
+
+def _chat_snapshot(request: Request, after: int) -> realtime.Snapshot:
+    """One stream pass: own short DB session, re-authenticated every time (a revoked session ends the stream)."""
+    with session_scope() as db:
+        ctx = require_ctx(request, db)
+        ctx.need(Perm.CHAT_USE)
+        payload = _chat_payload(ctx, after)
+    last = max((m["id"] for m in payload["messages"]), default=0)
+    return realtime.Snapshot(payload, last_id=last, fast=bool(payload["typing"]), more=len(payload["messages"]) >= CHAT_PAGE)
+
+
+@router.get("/chat/stream")
+async def chat_stream(request: Request, after: int = 0):
+    """Server-sent events: the poll payload, pushed when something happens (plus a slow heartbeat)."""
+    with session_scope() as db:                       # authorise before the response starts: clean 401 / 403
+        ctx = require_ctx(request, db)
+        ctx.need(Perm.CHAT_USE)
+        user_id = ctx.user.id
+    return realtime.open_stream(request, user_id, {realtime.chat_topic()}, lambda a: _chat_snapshot(request, a), after=after)
 
 
 @router.post("/chat/typing")
@@ -183,6 +213,7 @@ async def chat_typing(ctx: Ctx = Depends(require_ctx)):
             for uid in [uid for uid, (_, exp) in _typing.items() if exp <= now]:
                 _typing.pop(uid, None)
         _typing[ctx.user.id] = (name, time.monotonic() + _TYPING_TTL)
+    realtime.hub.publish(realtime.chat_topic())     # streams show the dots now, not at the next heartbeat
     return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
 
 
@@ -204,7 +235,7 @@ async def chat_send(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.db.add(message)
     ctx.db.flush()
     with _typing_lock:
-        _typing.pop(ctx.user.id, None)            # sent: stop showing them as typing
+        _typing.pop(ctx.user.id, None)            # sent: stop showing them as typing (the commit wakes the streams)
     if request.headers.get("accept", "").startswith("application/json"):
         return JSONResponse({"ok": True, "id": message.id})
     return flash_redirect("/chat")

@@ -4,7 +4,7 @@
 {% import "_player.html" as pl %}
 {% block title %}Game View · {{ brand }}{% endblock %}
 {% block heading %}Fight View{% if event %} — {{ event.title }}{% endif %}{% endblock %}
-{% block head %}<link rel="stylesheet" href="/static/css/store.css?v=8">{% endblock %}
+{% block head %}{{ css('store') }}{% endblock %}
 {% block actions %}
 {% if event %}<a class="btn btn-sm" href="/events/{{ event.id }}">Betting sheet</a>{% endif %}
 {% endblock %}
@@ -110,6 +110,7 @@
     </section>
     {% endif %}
 
+    {% call ui.region('fight-panel') %}
     {% if fight %}
     <div class="card">
       <div class="card-head">
@@ -359,6 +360,7 @@
     </div>
     {% endif %}
     {% endif %}
+    {% endcall %}
   </div>
 </div>
 {% endif %}
@@ -385,4 +387,4 @@
 {% endif %}
 {% endif %}
 {% endblock %}
-{% block scripts %}{% if fight %}<script src="/static/js/fightchat.js?v=7" defer></script><script src="/static/js/stream.js?v=2" defer></script>{% endif %}{% endblock %}
+{% block scripts %}{% if fight %}{{ js('fightchat') }}{{ js('stream') }}{% endif %}{% endblock %}

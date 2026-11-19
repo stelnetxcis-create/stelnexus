@@ -2,8 +2,8 @@
 {% import "_macros.html" as ui %}
 {% block title %}Livestream Chat (experimental) · {{ brand }}{% endblock %}
 {% block heading %}Livestream Chat{% endblock %}
-{% block head %}<link rel="stylesheet" href="/static/css/livestream.css?v=1">{% endblock %}
-{% block actions %}<span class="chip chip-exp" title="This room is experimental: delivery is short-poll, presence is best-effort">Experimental</span>{% endblock %}
+{% block head %}{{ css('livestream') }}{% endblock %}
+{% block actions %}<span class="chip chip-exp" title="This room is experimental: messages are pushed live (with a slower fallback), presence is best-effort">Experimental</span>{% endblock %}
 {% block content %}
 <div class="ls" data-ls
      data-me="{{ user.username }}"
@@ -130,4 +130,4 @@
   </aside>
 </div>
 {% endblock %}
-{% block scripts %}<script src="/static/js/chat.js?v=3" defer></script>{% endblock %}
+{% block scripts %}{{ js('chat') }}{% endblock %}

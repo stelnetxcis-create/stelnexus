@@ -211,6 +211,7 @@
     </div>
     {% endif %}
 
+    {% call ui.region('live-games') %}
     <div class="card">
       <div class="card-head"><h2>Live games</h2><span class="sect sect-sabong">Sabong</span>{% if 'fights.view' in perms %}<a class="btn btn-sm btn-ghost" href="/change_name">Fight view →</a>{% endif %}</div>
       <div class="card-body tight">
@@ -231,6 +232,7 @@
         {% else %}{{ ui.empty('Open an event to start taking bets.', kind='rooster', title='No games are open', href='/events' if 'events.view' in perms else '', cta='See events', compact=true) }}{% endif %}
       </div>
     </div>
+    {% endcall %}
 
     <div class="card">
       <div class="card-head"><h2>Recent events</h2><span class="sect sect-sabong">Sabong</span><a class="btn btn-sm btn-ghost" href="/events">All events →</a></div>
@@ -294,4 +296,4 @@
 </div>
 {% endblock %}
 
-{% block scripts %}<script src="/static/js/dash.js?v=fix2" defer></script>{% endblock %}
+{% block scripts %}{{ js('dash') }}{% endblock %}

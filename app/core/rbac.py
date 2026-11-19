@@ -90,6 +90,11 @@ class Perm(str, Enum):
     SELL_DESK = "sell.desk"
     # Cancel Ticket and Bola Cancelled pages: dev-only (Admin account).
     CANCEL_LOG = "cancellog.view"
+    # Staff Panel (below the Admin Panel): one section per staff role. Each section opens only for
+    # its own role, the Admin, and a Pawn the Admin switched it on for. Master never.
+    STAFF_VIEW = "staff.view"
+    STAFF_TELLER = "staff.teller"
+    STAFF_DECLARATOR = "staff.declarator"
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +138,7 @@ _ADMIN_ONLY = {
     Perm.ONLINE_VIEW, Perm.PANEL_VIEW, Perm.PAWNS_MANAGE,
     Perm.ACCOUNTS_VIEW, Perm.ACCOUNTS_EDIT, Perm.ACCOUNTS_REMOVE, Perm.IPBANS_MANAGE,
     Perm.SELL_DESK, Perm.CANCEL_LOG,
+    Perm.STAFF_VIEW, Perm.STAFF_TELLER, Perm.STAFF_DECLARATOR,
     Perm.LOCATIONS_VIEW, Perm.LOCATIONS_MANAGE,
     # House money is dev-only: the cashflow page, house totals on the dashboard, event P&L and the
     # report archives. A Pawn can still be granted them one by one ("cashflow:view", "reports:view").
@@ -153,7 +159,8 @@ _DECLARATOR_PERMS = {Perm.EVENTS_VIEW, Perm.FIGHTS_VIEW, Perm.FIGHTS_LOCK, Perm.
                      Perm.BOLA_VIEW, Perm.BOLA_DECLARE, Perm.BOLA_REDECLARE}
 
 # Teller: the wallet desk and nothing else (approve / reject requests, see Users). No balance.
-_TELLER_PERMS = {Perm.WALLET_VIEW, Perm.REQUESTS_VIEW, Perm.REQUESTS_REVIEW, Perm.AGENTS_VIEW}
+_TELLER_PERMS = {Perm.WALLET_VIEW, Perm.REQUESTS_VIEW, Perm.REQUESTS_REVIEW, Perm.AGENTS_VIEW,
+                 Perm.STAFF_VIEW, Perm.STAFF_TELLER}
 
 ROLE_PERMS: dict[Role, set[Perm]] = {
     Role.ADMIN: set(Perm),
@@ -165,7 +172,7 @@ ROLE_PERMS: dict[Role, set[Perm]] = {
     Role.CAVO: set(),
     Role.KUBRADOR: set(),
     Role.TELLER: set(_TELLER_PERMS),
-    Role.DECLARATOR: set(_DECLARATOR_PERMS) | {Perm.EVENTS_OPEN},
+    Role.DECLARATOR: set(_DECLARATOR_PERMS) | {Perm.EVENTS_OPEN, Perm.STAFF_VIEW, Perm.STAFF_DECLARATOR},
     # Pawn: a declarator-style spectator. Everything beyond that is granted per account by the Admin.
     Role.PAWN: set(_DECLARATOR_PERMS),
 }
@@ -240,6 +247,11 @@ def _build_grants() -> tuple[Grant, ...]:
         Grant("bola:totals", "See number-game stakes and exposure",
               "Implies 'See stakes, pools and payouts', so the account stops being totals-blind.",
               "Bola", frozenset({Perm.BOLA_EXPOSURE}), implies=("bola:view", "totals:view")),
+        Grant("staff:teller", "See the Staff Panel \u2192 Teller section",
+              "Read-only view of every GCash number, its limits and today's usage. Cannot add or change numbers.",
+              "Staff Panel", frozenset({Perm.STAFF_VIEW, Perm.STAFF_TELLER})),
+        Grant("staff:declarator", "See the Staff Panel \u2192 Declarator section", "",
+              "Staff Panel", frozenset({Perm.STAFF_VIEW, Perm.STAFF_DECLARATOR})),
         Grant("chat", "Use the livestream chat (experimental)",
               "The live operations room: messages, who is in the room and what is on air.", "Livestream",
               frozenset({Perm.CHAT_USE})),

@@ -79,7 +79,7 @@
     {% if 'teller' in creatable | map(attribute='value') | list %}
     <label class="field" id="gcash-field"><span>GCash number <em>(Teller only)</em></span>
       <input name="gcash" maxlength="11" inputmode="numeric" pattern="09[0-9]{9}" placeholder="09XXXXXXXXX">
-      <small>Required for a Teller: it moves money through this GCash account. Tellers sit directly under the Admin, see only the Users list and approve load / cash-out requests.</small>
+      <small>Required for a Teller: it becomes their first number in the GCash pool. Tellers add more numbers themselves in Staff Panel → Teller; requests rotate between them by limit. Tellers sit directly under the Admin, see only the Users list and approve load / cash-out requests.</small>
     </label>
     {% endif %}
   </div>

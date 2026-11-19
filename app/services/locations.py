@@ -8,6 +8,7 @@ stay on the events that used them; a location with events can be archived, never
 from __future__ import annotations
 
 import re
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -79,6 +80,25 @@ def _image(value) -> str | None:
     return value or None
 
 
+def _cap(raw, label: str) -> int | None:
+    """Blank = follow the global Bola setting (None). Otherwise pesos -> cents; 0 = no cap here."""
+    if raw is None or str(raw).strip() == "":
+        return None
+    try:
+        cents = int((Decimal(str(raw).replace(",", "").strip()) * 100).to_integral_value())
+    except (InvalidOperation, ValueError) as exc:
+        raise ValidationError(f"{label} must be a number.") from exc
+    if cents < 0 or cents > 10**11:
+        raise ValidationError(f"{label} must be 0 or more.")
+    return cents
+
+
+def _caps(limit, outcome, draw) -> tuple[int | None, int | None, int | None]:
+    return (_cap(limit, "Limit per combination"),
+            _cap(outcome, "Liability cap per outcome"),
+            _cap(draw, "Liability cap per draw"))
+
+
 def _defaults(fight_count, payout_model, house_cut_bps) -> tuple[int | None, str | None, int | None]:
     def to_int(raw, label):
         if raw in (None, ""):
@@ -131,7 +151,8 @@ def create_location(
     db: Session, actor: User, *, name: str, address: str | None = None, city: str | None = None,
     notes: str | None = None, custom_fields: list[dict] | None = None,
     default_fight_count=None, default_payout_model: str | None = None, default_house_cut_bps=None,
-    image: str | None = None,
+    image: str | None = None, bola_limit_per_line=None, bola_max_liability_per_outcome=None,
+    bola_max_liability_per_draw=None,
 ) -> Location:
     _need(actor, Perm.LOCATIONS_CREATE)
     name = " ".join((name or "").split())
@@ -139,23 +160,28 @@ def create_location(
         raise ValidationError("Location name: 2-80 characters (letters, numbers, spaces and . , ' & / # ( ) -).")
     _name_free(db, name)
     count, model, cut = _defaults(default_fight_count, default_payout_model, default_house_cut_bps)
+    cap_line, cap_out, cap_draw = _caps(bola_limit_per_line, bola_max_liability_per_outcome,
+                                        bola_max_liability_per_draw)
     row = Location(
         name=name, address=_clean(address, 200), city=_clean(city, 80), notes=_clean(notes, 500),
         image=_image(image),
         custom_fields=custom_fields or None, default_fight_count=count,
         default_payout_model=model, default_house_cut_bps=cut, is_active=True, created_by_id=actor.id,
+        bola_limit_per_line_cents=cap_line, bola_max_liability_per_outcome_cents=cap_out,
+        bola_max_liability_per_draw_cents=cap_draw,
     )
     db.add(row)
     db.flush()
     audit.record(db, actor, "location.create", entity_type="location", entity_id=row.id,
-                 after={"name": row.name, "city": row.city})
+                 after={"name": row.name, "city": row.city, "bola_caps": [cap_line, cap_out, cap_draw]})
     return row
 
 
 def update_location(
     db: Session, actor: User, location_id: int, *, name: str, address: str | None, city: str | None,
     notes: str | None, custom_fields: list[dict] | None, default_fight_count, default_payout_model,
-    default_house_cut_bps, image=_UNSET,
+    default_house_cut_bps, image=_UNSET, bola_limit_per_line=_UNSET,
+    bola_max_liability_per_outcome=_UNSET, bola_max_liability_per_draw=_UNSET,
 ) -> Location:
     _need(actor, Perm.LOCATIONS_MANAGE)
     row = get_location(db, location_id)
@@ -166,17 +192,26 @@ def update_location(
     count, model, cut = _defaults(default_fight_count, default_payout_model, default_house_cut_bps)
     before = {"name": row.name, "address": row.address, "city": row.city, "notes": row.notes,
               "custom_fields": row.custom_fields, "fights": row.default_fight_count,
-              "model": row.default_payout_model, "cut": row.default_house_cut_bps}
+              "model": row.default_payout_model, "cut": row.default_house_cut_bps,
+              "bola_caps": [row.bola_limit_per_line_cents, row.bola_max_liability_per_outcome_cents,
+                            row.bola_max_liability_per_draw_cents]}
     row.name, row.address, row.city = name, _clean(address, 200), _clean(city, 80)
     row.notes = _clean(notes, 500)
     if image is not _UNSET:               # callers that do not know about pictures keep the current one
         row.image = _image(image)
     row.custom_fields = custom_fields or None
     row.default_fight_count, row.default_payout_model, row.default_house_cut_bps = count, model, cut
+    # Callers that do not know about the Bola caps leave them as they are.
+    if _UNSET not in (bola_limit_per_line, bola_max_liability_per_outcome, bola_max_liability_per_draw):
+        (row.bola_limit_per_line_cents, row.bola_max_liability_per_outcome_cents,
+         row.bola_max_liability_per_draw_cents) = _caps(
+            bola_limit_per_line, bola_max_liability_per_outcome, bola_max_liability_per_draw)
     db.flush()
     audit.record(db, actor, "location.update", entity_type="location", entity_id=row.id, before=before,
                  after={"name": row.name, "address": row.address, "city": row.city, "notes": row.notes,
-                        "custom_fields": row.custom_fields, "fights": count, "model": model, "cut": cut})
+                        "custom_fields": row.custom_fields, "fights": count, "model": model, "cut": cut,
+                        "bola_caps": [row.bola_limit_per_line_cents, row.bola_max_liability_per_outcome_cents,
+                                      row.bola_max_liability_per_draw_cents]})
     return row
 
 

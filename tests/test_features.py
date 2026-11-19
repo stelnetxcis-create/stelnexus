@@ -111,7 +111,9 @@ def test_cash_is_not_a_payment_method(world):
 def test_teller_is_a_gcash_wallet_desk_under_the_admin(world):
     from app.core.rbac import Perm, can_create_role, permissions_for
     assert permissions_for(Role.TELLER) == {Perm.WALLET_VIEW, Perm.REQUESTS_VIEW,
-                                            Perm.REQUESTS_REVIEW, Perm.AGENTS_VIEW}
+                                            Perm.REQUESTS_REVIEW, Perm.AGENTS_VIEW,
+                                            # the Staff Panel's Teller section (GCash pool)
+                                            Perm.STAFF_VIEW, Perm.STAFF_TELLER}
     assert can_create_role(world.admin, Role.TELLER)
     with pytest.raises(Exception):                              # a GCash number is mandatory
         agents.create_agent(world.db, world.admin, username=f"t{world.tag}", password=PASSWORD,

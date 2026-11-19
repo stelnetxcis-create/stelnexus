@@ -147,7 +147,7 @@
 
   /* ------------------------------------------------------------ polling engine */
   const dots = new Set();
-  const setLive = (ok) => dots.forEach((d) => d.classList.toggle("is-off", !ok));
+  const setLive = (ok) => dots.forEach((d) => { if (d.isConnected) d.classList.toggle("is-off", !ok); else dots.delete(d); });
   function mountDot(anchor, where) {
     if (!anchor) return;
     const d = document.createElement("span");
@@ -155,36 +155,58 @@
     d.style.marginLeft = "auto";
     (where || anchor).appendChild(d); dots.add(d);
   }
-  function poller(url, onData, every = 5000) {
-    let rev = "", failures = 0, timer = 0, stopped = false, first = true;
+  /* One poll loop per live widget. Quiet by design:
+     - the server sends an ETag; we send it back as If-None-Match and get "304 Not Modified" (no body) while nothing
+       changed, so an idle poll is a few header bytes and no DOM work. (Set by hand because the request is no-store.)
+     - no timer runs while the tab is hidden; coming back polls at once.
+     - `owner` (optional): when that element leaves the page (a region was swapped) this loop ends by itself.
+     - errors slow the loop down (up to 6x) instead of hammering a struggling server. */
+  function poller(url, onData, every = 5000, owner = null) {
+    let etag = "", failures = 0, timer = 0, stopped = false, first = true;
     async function tick() {
       clearTimeout(timer);
       if (stopped) return;
-      if (!document.hidden) {
-        try {
-          const r = await fetch(url + (rev ? (url.includes("?") ? "&" : "?") + "rev=" + rev : ""),
-            { headers: { Accept: "application/json" }, credentials: "same-origin", cache: "no-store" });
-          if (r.redirected || r.status === 401 || r.status === 403) { stopped = true; return; }
+      if (owner && !owner.isConnected) { stop(); return; }
+      if (document.hidden) return;                         // no timer while hidden; visibilitychange restarts the loop
+      try {
+        const headers = { Accept: "application/json" };
+        if (etag) headers["If-None-Match"] = etag;
+        const r = await fetch(url, { headers, credentials: "same-origin", cache: "no-store" });
+        if (r.redirected || r.status === 401 || r.status === 403) { stop(); return; }
+        if (r.status === 304) { failures = 0; setLive(true); }
+        else {
           if (!r.ok) throw new Error(String(r.status));
           const d = await r.json();
           failures = 0; setLive(true);
-          if (!d.same) { rev = d.rev; onData(d, first); first = false; }
-        } catch (err) { failures++; if (failures > 1) setLive(false); }
-      }
-      timer = setTimeout(tick, every * Math.min(1 + failures, 6));
+          etag = r.headers.get("ETag") || "";
+          if (!d.same) { onData(d, first); first = false; }
+        }
+      } catch (err) { failures++; if (failures > 1) setLive(false); }
+      if (!stopped && !document.hidden) timer = setTimeout(tick, every * Math.min(1 + failures, 6));
     }
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(); });
+    const onVisible = () => { if (!document.hidden) tick(); };
+    function stop() { stopped = true; clearTimeout(timer); document.removeEventListener("visibilitychange", onVisible); }
+    document.addEventListener("visibilitychange", onVisible);
     tick();
-    return { stop() { stopped = true; clearTimeout(timer); } };
+    return { stop };
   }
   const typing = () => { const a = document.activeElement; return a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName); };
-  function softReload(message, ms = 1600) {
-    if (typing() || $(".modal.is-open,[data-modal-open]")) {
-      toast(message, { level: "info", action: { label: "Refresh", run: () => location.reload() }, ttl: 12000 });
-      return;
-    }
+  /* Refresh the named page boxes (see StelNexus.refreshRegion in app.js) instead of reloading the whole page: the
+     scroll position, the video and the chat stay put. Falls back to a real reload when the page has none of those
+     boxes or the server could not hand one back (signed out, say). */
+  async function applyRegions(names, force, again) {
+    const list = names.filter((n) => $('[data-region="' + n + '"]'));
+    const api = window.StelNexus;
+    if (!list.length || !api || !api.refreshRegion) { location.reload(); return; }
+    const results = await Promise.all(list.map((n) => api.refreshRegion(n, { force })));
+    if (results.includes("failed")) { location.reload(); return; }
+    if (results.includes("skipped") && again) again();      // they started typing meanwhile: offer, do not force
+  }
+  function softReload(message, names, ms = 1600) {
+    const offer = () => toast(message, { level: "info", action: { label: "Refresh", run: () => applyRegions(names, true) }, ttl: 12000 });
+    if (typing() || $(".modal.is-open,[data-modal-open],dialog[open]")) { offer(); return; }
     toast(message, { level: "info", ttl: ms + 400 });
-    setTimeout(() => location.reload(), ms);
+    setTimeout(() => applyRegions(names, false, offer), ms);
   }
 
   /* ------------------------------------------------------------ result reveal (flash, banner, confetti) */
@@ -221,8 +243,9 @@
     if (banner) banner.classList.add("is-reveal");
     burst(side); Sound.play("win");
   }
-  // winner banner on the fight view: celebrate once, only if the result is fresh
-  document.addEventListener("DOMContentLoaded", () => {
+  // winner banner on the fight view: celebrate once, only if the result is fresh.
+  // Runs on page load and again whenever the fight panel is refreshed in place (the winner just appeared).
+  function initWinner() {
     const b = $(".winner[data-fight]");
     if (!b || b.classList.contains("canceled")) return;
     const at = parseUTC(b.dataset.declared);
@@ -232,7 +255,8 @@
       try { sessionStorage.setItem(key, "1"); } catch (e) { /* ignore */ }
       setTimeout(() => reveal(b.dataset.side, b), 250);
     }
-  });
+  }
+  document.addEventListener("DOMContentLoaded", initWinner);
 
   /* ------------------------------------------------------------ live game tiles (event page + fight view) */
   const STATE_TEXT = { open: "OPEN", locked: "LOCKED", settled: "SETTLED", void: "VOID", draft: "DRAFT" };
@@ -311,7 +335,7 @@
       if (sound) Sound.play(sound);
       if (active) {
         const what = active.res ? "was declared " + active.res.toUpperCase() : active.st === "locked" ? "betting is now closed" : active.st === "open" ? "betting is open again" : "changed";
-        softReload("Game " + active.n + " " + what + ". Updating this view\u2026");
+        softReload("Game " + active.n + " " + what + ". Updating this view\u2026", ["event-head", "event-body", "fight-panel"]);
       }
     });
   }
@@ -342,16 +366,17 @@
         if (changed && !first && !reduce) { c.classList.remove("is-updated"); void c.offsetWidth; c.classList.add("is-updated"); }
         if (changed && !first && prevSt !== e.st) Sound.play(e.st === "open" ? "open" : "lock");
       });
-      if (unknown && !first) softReload("A new event was added.");
-    });
+      if (unknown && !first) softReload("A new event was added.", ["lobby"]);
+    }, 5000, grid);
   }
 
   /* ------------------------------------------------------------ live dashboard KPIs */
   function initDashboard() {
     const kpis = $$("[data-live-kpi]");
-    const list = $("[data-live-list]");
-    if (!kpis.length && !list) return;
-    const known = list ? $$("[data-fight]", list).map((n) => n.dataset.fight + ":" + (n.dataset.st || "")) : null;
+    const hasList = () => !!$('[data-region="live-games"]');
+    if (!kpis.length && !hasList()) return;
+    // read from the page each time: the live-games box is replaced in place when it changes
+    const shown = () => $$("[data-live-list] [data-fight]").map((n) => n.dataset.fight + ":" + (n.dataset.st || "")).sort().join();
     poller("/_live/dashboard", (d, first) => {
       kpis.forEach((el) => {
         const key = el.dataset.liveKpi;
@@ -362,9 +387,9 @@
           if (!first && !reduce) { el.classList.remove("is-ticking"); void el.offsetWidth; el.classList.add("is-ticking"); }
         }
       });
-      if (list && !first) {
+      if (hasList() && !first) {
         const now = d.live.map((r) => r.id + ":" + r.st).sort().join();
-        if (now !== known.slice().sort().join()) softReload("Games changed. Updating\u2026");
+        if (now !== shown()) softReload("Games changed. Updating\u2026", ["live-games"]);
       }
     }, 8000);
   }
@@ -373,6 +398,13 @@
     const ev = $("[data-live-event]"); if (ev) initEvent(ev);
     const lb = $("[data-live-lobby]"); if (lb) initLobby(lb);
     initDashboard();
+  });
+
+  // a box was refreshed in place: re-attach what was bound to the old HTML
+  document.addEventListener("snx:region", (e) => {
+    const { name, el } = e.detail || {};
+    if (name === "lobby") { const g = $("[data-live-lobby]", el); if (g) initLobby(g); }
+    if (name === "fight-panel") initWinner();
   });
 
   window.snx = { toast, Sound, poller, money, csrf, postForm, burst, reveal, parseUTC, store, reduce };

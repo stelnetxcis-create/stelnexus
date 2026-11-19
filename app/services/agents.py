@@ -135,6 +135,9 @@ def create_agent(
     if user.has_wallet:                     # declarators and pawns never get a balance
         accounts.wallet_for_user(db, user)
         accounts.commission_for_user(db, user)
+    if role == Role.TELLER:                 # their first number joins the GCash pool
+        from app.services import gcash
+        gcash.seed_from_teller(db, user, gcash_number or "")
     audit.record(db, actor, "agent.create", entity_type="user", entity_id=user.id,
                  after={"username": user.username, "role": role.value, "parent_id": user.parent_id,
                         "full_name": full_name, "contact": contact})

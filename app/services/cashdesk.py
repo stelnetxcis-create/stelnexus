@@ -27,7 +27,7 @@ from app.db.models import (
     Status,
     User,
 )
-from app.services import accounts, commissions, ledger, players
+from app.services import accounts, commissions, gcash, ledger, players
 
 METHODS = ("gcash", "bank")
 
@@ -91,10 +91,12 @@ def create_request(
     )
     db.add(request)
     db.flush()
+    routed = gcash.route_request(db, request, settings)   # pooled GCash: pick the number with room
     audit.record(db, actor, "cash.request", entity_type="cash_request", entity_id=request.id,
                  after={"direction": direction, "amount_cents": amount_cents, "method": method,
                         "player_id": player_id, "agent_id": agent_id, "reference": reference,
-                        "target": request.target})
+                        "target": request.target,
+                        "gcash_account_id": routed.id if routed else None})
     for admin_id in db.scalars(select(User.id).where(User.role.in_([Role.ADMIN, Role.MASTER, Role.TELLER]),
                                                       User.id != actor.id)).all():
         db.add(Notification(user_id=admin_id, level="info",
@@ -113,8 +115,10 @@ def review(db: Session, actor: User, *, request_id: int, approve: bool, settings
         raise Conflict(f"That request was already {request.status}.")
     if request.requested_by_id == actor.id and not is_top(actor):
         raise Forbidden("You cannot approve your own request.")
-    if actor.role == Role.TELLER and not actor.gcash_enc:
-        raise Forbidden("A Teller needs a GCash number on file before approving requests.")
+    if actor.role == Role.TELLER:
+        if not gcash.has_active_number(db, actor):
+            raise Forbidden("A Teller needs an active GCash number before approving requests.")
+        gcash.assert_can_review(db, actor, request)
     if (request.requested_by_id == actor.id and request.agent_id is not None
             and request.target == "wallet" and actor.role != Role.ADMIN):
         # Nobody tops up or cashes out their own credit by themselves; the Admin is the checker.
@@ -208,6 +212,7 @@ def pending_count(db: Session, actor: User) -> int:
     stmt = select(func.count(CashRequest.id)).where(CashRequest.status == RequestStatus.PENDING)
     if actor.role != Role.ADMIN:
         stmt = stmt.where(CashRequest.requested_by_id != actor.id)
+    stmt = gcash.visible_to(stmt, actor)
     return int(db.scalar(stmt) or 0)
 
 
@@ -229,4 +234,5 @@ def list_requests(db: Session, actor: User, *, view: str = "in", limit: int = 20
     elif view == "out":
         stmt = stmt.where(CashRequest.direction == RequestDirection.OUT,
                           CashRequest.status == RequestStatus.PENDING)
+    stmt = gcash.visible_to(stmt, actor)
     return list(db.scalars(stmt.order_by(CashRequest.id.desc()).limit(min(limit, 1000))).all())

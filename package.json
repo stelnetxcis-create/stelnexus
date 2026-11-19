@@ -1,0 +1,14 @@
+{
+  "name": "stelnexus-static",
+  "private": true,
+  "description": "Build step for StelNexus CSS/JS: bundle, minify, content-hash. Not needed to run the app.",
+  "scripts": {
+    "build": "node tools/build_static.mjs",
+    "build:check": "node tools/build_static.mjs --check",
+    "build:report": "node tools/build_static.mjs --report"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.5",
+    "postcss": "8.5.6"
+  }
+}

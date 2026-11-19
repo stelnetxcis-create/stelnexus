@@ -41,6 +41,20 @@ def _schema():
 
 
 @pytest.fixture(autouse=True)
+def _empty_gcash_pool():
+    """The pool is shared state: a teller made by one test would otherwise route (and limit) the
+    GCash loads of every later test. Each test starts with no pooled numbers (= legacy routing)."""
+    from sqlalchemy import update
+    from app.db.models import CashRequest, GcashAccount, GcashAdjustment
+    with session_scope() as db:
+        db.execute(update(CashRequest).where(CashRequest.gcash_account_id.is_not(None))
+                   .values(gcash_account_id=None))
+        db.query(GcashAdjustment).delete()
+        db.query(GcashAccount).delete()
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _fresh_rate_limits():
     """The whole suite shares one client IP; without this, enough logins across files trip the
     30-per-5-minutes login limit and a later, unrelated test fails to sign in."""

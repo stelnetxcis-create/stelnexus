@@ -1,0 +1,3 @@
+<div class="subtabs" role="tablist" aria-label="Staff Panel">
+  {% for key, url, label in staff_tabs %}<a class="subtab {{ 'is-active' if staff_active == key }}" href="{{ url }}">{{ label }}</a>{% endfor %}
+</div>

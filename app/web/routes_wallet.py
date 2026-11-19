@@ -9,12 +9,13 @@ being scattered over the side menu. Money only moves in three ways:
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
+from sqlalchemy import select
 
 from app.core.errors import ValidationError
-from app.core.money import to_cents
+from app.core.money import fmt, to_cents
 from app.core.rbac import Perm
-from app.db.models import RequestDirection
-from app.services import agents, cashdesk, players, wallet
+from app.db.models import GcashAccount, RequestDirection
+from app.services import agents, cashdesk, gcash, players, wallet
 from app.web.deps import Ctx, audit_action, flash_redirect, form_data, render, require_ctx
 
 router = APIRouter()
@@ -39,6 +40,15 @@ def _int(raw: str | None, default: int = 0) -> int:
         return int(raw) if raw not in (None, "") else default
     except (TypeError, ValueError):
         return default
+
+
+def _gc_numbers(db, rows, *, only_pending_loads: bool) -> dict:
+    """account id -> full number, for the requests on screen. A requester only needs the number of a
+    pending load (that is where they send the money); reviewers see it on every row."""
+    ids = {r.gcash_account_id for r in rows if r.gcash_account_id and (
+        not only_pending_loads or (r.direction.value == "in" and r.status.value == "pending"))}
+    return {a.id: gcash.number_of(a) for a in db.scalars(
+        select(GcashAccount).where(GcashAccount.id.in_(ids))).all()} if ids else {}
 
 
 @router.get("/wallet")
@@ -73,16 +83,23 @@ async def wallet_page(request: Request, ctx: Ctx = Depends(require_ctx)):
         data["summary"] = wallet.summary(db, user, period=period)
         data["recent"] = wallet.history(db, user, limit=6)
         data["my_requests"] = cashdesk.my_requests(db, user, limit=6)
+        data["gc_nums"] = _gc_numbers(db, data["my_requests"], only_pending_loads=True)
     elif tab in ("load", "cashout"):
         data["my_players"] = players.list_players(db, user, limit=300)
-        from sqlalchemy import select as _sel
-        from app.core.security import pii as _pii
-        from app.db.models import Role as _Role, Status as _Status, User as _User
-        data["tellers"] = [(t.full_name, _pii.decrypt(t.gcash_enc)) for t in db.scalars(
-            _sel(_User).where(_User.role == _Role.TELLER, _User.status == _Status.ACTIVE,
-                              _User.gcash_enc.is_not(None)).order_by(_User.full_name)).all()]
+        send_to = gcash.peek(db, ctx.store)                  # pooled GCash: the number a load would go to
+        data["send_to"] = ({"label": send_to.account.label, "number": gcash.number_of(send_to.account)}
+                           if send_to else None)
+        data["pool_on"] = gcash.pool_exists(db)
+        data["tellers"] = []
+        if not data["pool_on"]:                              # no pool yet: the old per-teller list
+            from app.core.security import pii as _pii
+            from app.db.models import Role as _Role, Status as _Status, User as _User
+            data["tellers"] = [(t.full_name, _pii.decrypt(t.gcash_enc)) for t in db.scalars(
+                select(_User).where(_User.role == _Role.TELLER, _User.status == _Status.ACTIVE,
+                                    _User.gcash_enc.is_not(None)).order_by(_User.full_name)).all()]
         data["my_requests"] = [r for r in cashdesk.my_requests(db, user, limit=30)
                                if r.direction.value == ("in" if tab == "load" else "out")][:8]
+        data["gc_nums"] = _gc_numbers(db, data["my_requests"], only_pending_loads=True)
     elif tab == "transfer":
         data["recipients"] = wallet.recipients(db, user, ctx.store)
         data["recent_transfers"] = [r for r in wallet.history(db, user, limit=60)
@@ -96,6 +113,7 @@ async def wallet_page(request: Request, ctx: Ctx = Depends(require_ctx)):
         view = view if view in ("in", "out", "hist") else "in"
         data["view"] = view
         data["queue"] = cashdesk.list_requests(db, user, view=view)
+        data["gc_nums"] = _gc_numbers(db, data["queue"], only_pending_loads=False)
     return render(ctx, "wallet.html", active="wallet", **data)
 
 
@@ -112,11 +130,15 @@ async def wallet_request(request: Request, ctx: Ctx = Depends(require_ctx)):
                   settings=ctx.store, method=data.get("method", "gcash"),
                   reference=data.get("reference"), idempotency_key=data.get("idempotency_key") or None)
     if subject.startswith("player:"):
-        cashdesk.create_request(ctx.db, ctx.user, player_id=_int(subject.split(":", 1)[1]), **common)
+        req = cashdesk.create_request(ctx.db, ctx.user, player_id=_int(subject.split(":", 1)[1]), **common)
     else:
-        cashdesk.create_request(ctx.db, ctx.user, agent_id=ctx.user.id, target="wallet", **common)
+        req = cashdesk.create_request(ctx.db, ctx.user, agent_id=ctx.user.id, target="wallet", **common)
     tab = "load" if direction == RequestDirection.IN else "cashout"
-    return flash_redirect(f"/wallet?t={tab}", "Request sent. Your balance changes when it is approved.")
+    message = "Request sent. Your balance changes when it is approved."
+    if direction == RequestDirection.IN and req.gcash_account is not None:
+        message = (f"Request sent. Send {fmt(req.amount_cents)} to GCash {gcash.number_of(req.gcash_account)} "
+                   f"({req.gcash_account.label}). Your balance changes when it is approved.")
+    return flash_redirect(f"/wallet?t={tab}", message)
 
 
 @router.post("/wallet/transfer")
