@@ -1,7 +1,7 @@
 {
   "css": {
-    "auth": ["css/app.css", "css/luxe.css"],
-    "site": ["css/app.css", "css/luxe.css", "css/arena.css", "css/royale.css"],
+    "auth": ["css/base.css"],
+    "site": ["css/base.css", "css/theme.css"],
     "store": ["css/store.css"],
     "bola-ui": ["css/bola-ui.css"],
     "livestream": ["css/livestream.css"]
@@ -13,9 +13,10 @@
     "bola": ["js/bola.js"],
     "chat": ["js/chat.js"],
     "dash": ["js/dash.js"],
-    "fightchat": ["js/fightchat.js"],
+    "fightchat": ["js/floatpanel.js", "js/fightchat.js", "js/sellcore.js", "js/betpanel.js"],
+    "fightview": ["js/fightview.js"],
     "referrals": ["js/referrals.js"],
-    "sell": ["js/sell.js"],
+    "sell": ["js/sellcore.js", "js/sell.js"],
     "stream": ["js/stream.js"]
   },
   "preload": ["fonts/manrope-latin-wght-normal.woff2", "fonts/cormorant-garamond-latin-600-normal.woff2"],

@@ -199,11 +199,12 @@ def verify_integrity(db: Session) -> dict:
     accounts = list(db.scalars(select(Account)).all())
     mismatches = []
     trial = {"asset": 0, "liability": 0, "revenue": 0, "expense": 0}
+    # One grouped query for every account's ledger net (was one SUM per account: an N+1).
+    nets = {aid: int(total or 0) for aid, total in db.execute(
+        select(LedgerEntry.account_id, func.sum(LedgerEntry.amount_cents))
+        .group_by(LedgerEntry.account_id))}
     for account in accounts:
-        net = db.scalar(
-            select(func.coalesce(func.sum(LedgerEntry.amount_cents), 0))
-            .where(LedgerEntry.account_id == account.id)
-        ) or 0
+        net = nets.get(account.id, 0)
         expected = net if account.is_debit_normal else -net
         if expected != account.balance_cents:
             mismatches.append({"account": account.code, "cached": account.balance_cents, "ledger": expected})

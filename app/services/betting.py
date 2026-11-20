@@ -17,6 +17,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core import audit
+from app.core import ttlcache
 from app.core.errors import Conflict, Forbidden, LockedState, NotFound, ValidationError
 from app.core.money import bps_of, fmt, odds_of
 from app.core.rbac import is_top, scope_ids
@@ -57,6 +58,25 @@ def pool_snapshot(db: Session, fight: Fight) -> dict:
     main = totals["meron"] + totals["wala"]
     return {"meron": totals["meron"], "wala": totals["wala"], "draw": totals["draw"],
             "main": main, "total": main + totals["draw"], "counts": counts}
+
+
+def pool_snapshots(db: Session, fight_ids: list[int]) -> dict[int, dict]:
+    """``pool_snapshot`` for many fights in ONE grouped query (history lists used one per row)."""
+    out = {fid: {"meron": 0, "wala": 0, "draw": 0, "main": 0, "total": 0,
+                 "counts": {s.value: 0 for s in Side}} for fid in fight_ids}
+    if not fight_ids:
+        return out
+    rows = db.execute(
+        select(Ticket.fight_id, Ticket.side, func.coalesce(func.sum(Ticket.stake_cents), 0), func.count(Ticket.id))
+        .where(Ticket.fight_id.in_(fight_ids), Ticket.status == TicketStatus.ACTIVE)
+        .group_by(Ticket.fight_id, Ticket.side)).all()
+    for fid, side, amount, count in rows:
+        out[fid][str(side)] = int(amount)
+        out[fid]["counts"][str(side)] = int(count)
+    for snap in out.values():
+        snap["main"] = snap["meron"] + snap["wala"]
+        snap["total"] = snap["main"] + snap["draw"]
+    return out
 
 
 def side_multipliers(snapshot: dict, cut_bps: int, settings: SettingsStore) -> dict:
@@ -136,7 +156,7 @@ def place_bet(
     settings: SettingsStore, player_id: int | None = None,
     funded_by: str = "wallet", is_diy: bool = False, idempotency_key: str | None = None,
     numbers: str | None = None, kubrador: str | None = None, cavo: str | None = None,
-    ip: str | None = None,
+    ip: str | None = None, source: str | None = None,
 ) -> Ticket:
     if idempotency_key:
         existing = db.scalar(select(Ticket).where(Ticket.idempotency_key == idempotency_key))
@@ -157,6 +177,8 @@ def place_bet(
     event = events.get_event(db, fight.event_id)
     if event.status != EventStatus.OPEN:
         raise LockedState("This event is not open for betting.")
+    if source == "live" and event.live_started_at is not None:
+        raise LockedState("Early betting is closed: the stream has started.")
     if fight.status != FightStatus.OPEN:
         raise LockedState(f"Game #{fight.number} is {fight.status} -- betting is closed.")
 
@@ -239,6 +261,7 @@ def assert_ticket_visible(db: Session, actor: User, ticket: Ticket) -> Ticket:
 
 def cancel_ticket(db: Session, actor: User, *, ticket_id: int, reason: str,
                   settings: SettingsStore) -> Ticket:
+    ttlcache.invalidate_after_commit(db)   # dashboard KPIs changed
     reason = (reason or "").strip()
     if len(reason) < 3:
         raise ValidationError("A cancellation reason is required (min 3 characters).")

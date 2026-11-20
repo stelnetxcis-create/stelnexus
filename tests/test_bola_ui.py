@@ -35,7 +35,7 @@ def test_draw_page_has_every_control_the_routes_expect():
             assert needle in html, needle
         js = c.get("/static/js/bola.js")
         assert js.status_code == 200 and "bola-ball" in js.text
-        assert ".bola-ball" in c.get("/static/css/app.css").text
+        assert ".bola-ball" in c.get("/static/css/base.css").text
     finally:
         _web_teardown(ids)
 

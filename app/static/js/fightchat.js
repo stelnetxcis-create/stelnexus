@@ -10,9 +10,9 @@
   const log = $('[data-fc-log]'), form = $('[data-fc-form]'), input = form.elements.body;
   const conn = $('[data-fc-conn]'), air = $('[data-fc-air]'), jump = $('[data-fc-jump]');
   const count = $('[data-fc-count]'), winner = $('[data-fc-winner]'), resultBox = $('[data-fc-result]');
-  const url = root.dataset.url;
+  let url = root.dataset.url;
   const csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
-  const snx = window.snx || {};
+  const snx = (window.snx = window.snx || {});
   let settled = false, last = 0, pinned = true, wasClosed = root.classList.contains('is-closed'), busy = false, failures = 0;
   let loaded = false, etag = '', es = null, sseFails = 0, pollT = 0, hiddenT = 0, retryT = 0;
   const seen = new Set();
@@ -57,7 +57,7 @@
     if (d.locked && d.result) {
       resultBox.className = 'fc-result ' + d.result.side;
       winner.textContent = d.result.side === 'meron' || d.result.side === 'wala' ? d.result.label + ' wins' : d.result.label;
-      if (!wasClosed) {                       // the declarator just announced it while we were watching
+      if (wasClosed === false) {              // the declarator just announced it while we were watching
         if (snx.toast) snx.toast('Result announced: ' + winner.textContent + '. Chat is now closed.', { level: 'success' });
         if (snx.Sound) snx.Sound.play('win');
       }
@@ -242,7 +242,9 @@
     catch (e) { say(e.message); unlock.disabled = false; }
   });
 
-  // ------------------------------------------------------------------ overlay: collapse / opacity / drag
+  // ------------------------------------------------------------------ overlay: collapse / opacity / size / drag
+  // All of that lives in the shared floating-panel module (floatpanel.js); the chat only supplies its elements,
+  // its storage prefix (kept as "snx.fc." so people's saved settings carry over) and what to do when they change.
   const overlay = root.querySelector('[data-fc-overlay]'), tgl = root.querySelector('[data-fc-toggle]');
   const stage = root.querySelector('[data-stage]') || overlay.parentElement;
   const unreadEl = root.querySelector('[data-fc-unread]');
@@ -250,124 +252,59 @@
   // control bar), so on a small window it never covers the controls or grows taller than the picture.
   const screenEl = stage.querySelector('[data-vp-screen]') || stage;
   function measure() {
-    const s = stage.getBoundingClientRect(), v = screenEl.getBoundingClientRect();
-    if (!v.width || !v.height) return;
-    stage.style.setProperty('--fc-sw', Math.round(v.width) + 'px');
-    stage.style.setProperty('--fc-sh', Math.round(v.height) + 'px');
-    stage.style.setProperty('--fc-st', Math.round(v.top - s.top) + 'px');
+    const w = screenEl.offsetWidth, h = screenEl.offsetHeight;
+    if (!w || !h) return;
+    stage.style.setProperty('--fc-sw', w + 'px');
+    stage.style.setProperty('--fc-sh', h + 'px');
   }
   measure();
   new MutationObserver(() => { conn.title = conn.textContent; }).observe(conn, { childList: true });   // the dot form needs a tooltip
-  const store = { get: (k) => { try { return localStorage.getItem('snx.fc.' + k); } catch (e) { return null; } },
-                  set: (k, v) => { try { localStorage.setItem('snx.fc.' + k, v); } catch (e) { /* blocked */ } } };
   const collapsed = () => !!overlay && overlay.classList.contains('is-collapsed');
   function bumpUnread() { if (!collapsed()) return; unread++; unreadEl.textContent = unread > 99 ? '99+' : String(unread); unreadEl.hidden = false; }
   function clearUnread() { unread = 0; unreadEl.hidden = true; }
 
-  function setCollapsed(c, persist) {
-    overlay.classList.toggle('is-collapsed', c);
-    tgl.setAttribute('aria-expanded', String(!c));
-    tgl.setAttribute('aria-label', c ? 'Expand chat' : 'Collapse chat');
-    if (!c) { clearUnread(); toBottom(false); }
-    clamp();
-    if (persist) store.set('collapsed', c ? '1' : '0');
-  }
-
-  // transparency (remembered)
-  const alpha = root.querySelector('[data-fc-alpha]'), alphaOut = root.querySelector('[data-fc-alpha-out]');
-  function setAlpha(pct, persist) {
-    pct = Math.min(100, Math.max(20, Math.round(+pct || 82)));
-    overlay.style.setProperty('--fc-a', (pct / 100).toFixed(2));
-    alpha.value = String(pct); alphaOut.textContent = pct + '%';
-    if (persist) store.set('alpha', String(pct));
-  }
-  setAlpha(store.get('alpha') || 82);
-  alpha.addEventListener('input', () => setAlpha(alpha.value, true));
-
-  // size presets (S / M / L): width, text size and height are CSS; this only remembers the choice
-  const sizeBtns = root.querySelectorAll('[data-fc-size]');
-  function setSize(sz, persist) {
-    if (!['s', 'm', 'l'].includes(sz)) sz = 'm';
-    overlay.dataset.size = sz;
-    sizeBtns.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.fcSize === sz)));
-    if (persist) store.set('size', sz);
-    clamp(); if (pinned) toBottom(false);
-  }
-  sizeBtns.forEach((b) => b.addEventListener('click', () => setSize(b.dataset.fcSize, true)));
-  setSize(store.get('size') || (window.matchMedia('(min-width:641px)').matches ? 'm' : 'l'), false);
-
-  const setBox = root.querySelector('[data-fc-set]'), cog = root.querySelector('[data-fc-cog]');
-  cog.addEventListener('click', () => { const open = setBox.hidden; setBox.hidden = !open; cog.setAttribute('aria-expanded', String(open)); });
-
-  // drag: stored as a fraction of the stage so it survives resize + full screen
-  let pos = null;                                          // {fx, fy} of free space (0..1) or null = default corner
-  try { pos = JSON.parse(store.get('pos') || 'null'); } catch (e) { pos = null; }
-  const free = () => {                                     // room the panel can travel inside the video screen
-    const v = screenEl.getBoundingClientRect();
-    const pad = parseFloat(getComputedStyle(overlay).left) || 12;
-    return { w: Math.max(0, v.width - 2 * pad - overlay.offsetWidth), h: Math.max(0, v.height - 2 * pad - overlay.offsetHeight) };
-  };
-  const draggable = () => getComputedStyle(overlay).position === 'absolute';
-  function place() {
-    if (!draggable() || !pos) { overlay.style.setProperty('--fc-x', '0px'); overlay.style.setProperty('--fc-y', '0px'); return; }
-    const f = free();
-    overlay.style.setProperty('--fc-x', Math.round(pos.fx * f.w) + 'px');
-    overlay.style.setProperty('--fc-y', Math.round(pos.fy * f.h) + 'px');
-  }
-  function clamp() { requestAnimationFrame(place); }
-
-  const grip = root.querySelector('[data-fc-grip]'), head = root.querySelector('.fc-overlay .fc-head');
-  let drag = null;
-  head.addEventListener('pointerdown', (ev) => {
-    if (ev.button > 0 || !draggable() || ev.target.closest('button,input,a')) return;
-    const f = free(), curX = pos ? pos.fx * f.w : 0, curY = pos ? pos.fy * f.h : 0;
-    drag = { id: ev.pointerId, sx: ev.clientX, sy: ev.clientY, curX, curY, f };
-    overlay.classList.add('is-dragging');
-    try { head.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
+  const panel = snx.floatPanel(overlay, {
+    store: 'snx.fc.', label: 'chat', stage, screen: screenEl,
+    head: root.querySelector('.fc-overlay .fc-head'), grip: root.querySelector('[data-fc-grip]'), toggle: tgl,
+    cog: root.querySelector('[data-fc-cog]'), settings: root.querySelector('[data-fc-set]'),
+    sizeBtns: root.querySelectorAll('[data-fc-size]'), alpha: root.querySelector('[data-fc-alpha]'),
+    alphaOut: root.querySelector('[data-fc-alpha-out]'), resetBtn: root.querySelector('[data-fc-reset]'),
+    corner: { fx: 0, fy: 0 },
+    defaultSize: () => (window.matchMedia('(min-width:641px)').matches ? 'm' : 'l'),
+    defaultCollapsed: () => window.matchMedia('(max-width:640px)').matches || screenEl.offsetHeight < 170,   // too small to float a chat over
+    onCollapse: (c) => { if (!c) { clearUnread(); toBottom(false); } },
+    onSize: () => { if (pinned) toBottom(false); },
+    onLayout: measure,
   });
-  head.addEventListener('pointermove', (ev) => {
-    if (!drag || ev.pointerId !== drag.id) return;
-    const x = Math.min(drag.f.w, Math.max(0, drag.curX + ev.clientX - drag.sx));
-    const y = Math.min(drag.f.h, Math.max(0, drag.curY + ev.clientY - drag.sy));
-    pos = { fx: drag.f.w ? x / drag.f.w : 0, fy: drag.f.h ? y / drag.f.h : 0 };
-    overlay.style.setProperty('--fc-x', Math.round(x) + 'px');
-    overlay.style.setProperty('--fc-y', Math.round(y) + 'px');
-  });
-  const endDrag = (ev) => {
-    if (!drag || (ev && ev.pointerId !== drag.id)) return;
-    drag = null; overlay.classList.remove('is-dragging');
-    if (pos) store.set('pos', JSON.stringify(pos));
-  };
-  head.addEventListener('pointerup', endDrag);
-  head.addEventListener('pointercancel', endDrag);
-  const reset = () => { pos = null; store.set('pos', 'null'); place(); };
-  grip.addEventListener('dblclick', reset);
-  root.querySelector('[data-fc-reset]').addEventListener('click', reset);
-  // keyboard: arrow keys nudge when the title is focused
-  grip.tabIndex = 0;
-  grip.addEventListener('keydown', (ev) => {
-    const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[ev.key];
-    if (!d || !draggable()) return;
-    ev.preventDefault();
-    const f = free(), x = (pos ? pos.fx * f.w : 0) + d[0] * 24, y = (pos ? pos.fy * f.h : 0) + d[1] * 24;
-    pos = { fx: f.w ? Math.min(1, Math.max(0, x / f.w)) : 0, fy: f.h ? Math.min(1, Math.max(0, y / f.h)) : 0 };
-    place(); store.set('pos', JSON.stringify(pos));
-  });
-
-  // re-fit whenever the stage changes size (window resize, full screen on/off, rotate)
   if ('ResizeObserver' in window) {
-    const ro = new ResizeObserver(() => { measure(); if (!drag) place(); });
-    ro.observe(stage); ro.observe(screenEl);
     // when the panel itself changes size (window resize, size preset, tier change) keep the newest line in view
     new ResizeObserver(() => { if (pinned) log.scrollTop = log.scrollHeight; }).observe(log);
   }
-  stage.addEventListener('snx:fs', () => { measure(); clamp(); toBottom(false); });
+  stage.addEventListener('snx:fs', () => toBottom(false));
 
-  tgl.addEventListener('click', () => setCollapsed(!collapsed(), true));
-  const saved = store.get('collapsed');
-  const tinyStage = screenEl.getBoundingClientRect().height < 170;      // too small to float a chat over
-  setCollapsed(saved === null ? (window.matchMedia('(max-width:640px)').matches || tinyStage) : saved === '1', false);
-  place();
+  // ------------------------------------------------------------------ switching game without reloading the page
+  // The game strip calls this: the video and the panel stay, the chat just re-points at another game's room.
+  const emptyHtml = log.innerHTML;
+  const headSub = root.querySelector('.fc-title small');
+  const unlockNote = root.querySelector('[data-fc-unlock] span:last-child');
+  function switchFight(g) {
+    if (!g || !g.id || String(g.id) === root.dataset.fight) return;
+    window.clearTimeout(pollT); window.clearTimeout(hiddenT); window.clearTimeout(retryT);
+    closeStream();
+    settled = false; last = 0; etag = ''; loaded = false; failures = 0; sseFails = 0; wasClosed = null; busy = false;
+    seen.clear(); clearUnread();
+    log.innerHTML = emptyHtml; pinned = true; jump.hidden = true;
+    root.dataset.fight = String(g.id);
+    root.dataset.url = '/fights/' + g.id + '/chat';
+    url = root.dataset.url;
+    root.setAttribute('aria-label', 'Livestream chat for game ' + g.n);
+    if (headSub) headSub.textContent = 'Game #' + g.n + ' \u00B7 ' + g.nm + ' vs ' + g.nw;
+    if (unlockNote) unlockNote.textContent = 'Unlocks Game #' + g.n + ' only';
+    resultBox.className = 'fc-result'; winner.textContent = '';
+    conn.dataset.state = 'wait'; conn.textContent = 'connecting';
+    if (!openStream()) { poll(); schedulePoll(pace.delay()); }
+  }
+  snx.fightChat = { switchFight, panel };
 
   if (!openStream()) { poll(); schedulePoll(pace.delay()); }
 })();

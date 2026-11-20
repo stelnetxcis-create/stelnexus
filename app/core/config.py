@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     DB_POOL_SIZE: int = 10
     DB_MAX_OVERFLOW: int = 20
     DB_ECHO: bool = False
+    # Seconds the dashboard KPIs (open fights, events, downline, cashflow card) may be served from
+    # memory. 0 = always live. Staff actions that change them clear the cache immediately.
+    DASHBOARD_CACHE_SECONDS: int = Field(default=10, ge=0, le=300)
 
     # --- crypto / sessions -------------------------------------------------
     SECRET_KEY: str = INSECURE_DEFAULT

@@ -277,9 +277,10 @@ def commission_balance(db: Session, user: User) -> int:
 def tree(db: Session, actor: User) -> list[dict]:
     """Nested downline for the dashboard tree widget."""
     ids = scope_ids(db, actor)
-    if actor.role != Role.ADMIN:
-        ids = {i for i in ids if i == actor.id or db.get(User, i).role != Role.ADMIN}
     users = list(db.scalars(select(User).where(User.id.in_(ids)).order_by(User.id)))
+    if actor.role != Role.ADMIN:              # filter in memory: no db.get() per id
+        users = [u for u in users if u.id == actor.id or u.role != Role.ADMIN]
+    balances = accounts.user_balances(db, users)
     by_parent: dict[int | None, list[User]] = {}
     for user in users:
         by_parent.setdefault(user.parent_id, []).append(user)
@@ -288,7 +289,7 @@ def tree(db: Session, actor: User) -> list[dict]:
         if depth > 6:
             return []
         return [
-            {"user": u, "wallet": wallet_balance(db, u), "children": build(u.id, depth + 1)}
+            {"user": u, "wallet": balances[u.id][0] or 0, "children": build(u.id, depth + 1)}
             for u in by_parent.get(parent_id, [])
         ]
 

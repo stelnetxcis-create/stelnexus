@@ -22,6 +22,7 @@
           <td>{{ ui.status_badge(t.status) }}</td><td class="small nowrap">{{ t.placed_at | datetime }}</td></tr>
     {% endfor %}
     </tbody></table></div>
+    {{ ui.pager(pager) }}
     {% else %}{{ ui.empty('No tickets match.') }}{% endif %}
   </div>
 </div>

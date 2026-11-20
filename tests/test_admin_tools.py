@@ -115,7 +115,7 @@ def test_a_banned_address_is_blocked_everywhere_and_unban_restores_it():
     try:
         blocked = TestClient(app, client=(ip, 50000), follow_redirects=False)
         assert blocked.get("/login").status_code == 403
-        assert blocked.get("/static/css/app.css").status_code == 403
+        assert blocked.get("/static/css/base.css").status_code == 403
         assert blocked.get("/healthz").status_code == 200                       # never block health checks
         other = TestClient(app, client=("203.0.113.10", 50000), follow_redirects=False)
         assert other.get("/login").status_code == 200

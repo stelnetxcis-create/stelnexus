@@ -376,7 +376,7 @@ def test_games_lobby_boxes_are_clickable(chain):
         f"/change_name?event_id={w.event.id}&fight_id={w.games[0].id}" in detail
     picker = a.get("/change_name").text                                  # no event chosen: the same boxes
     assert "lobby-card" in picker and f'href="/change_name?event_id={w.event.id}"' in picker
-    assert 'game-tile' in a.get(f"/change_name?event_id={w.event.id}").text
+    assert 'fv-chip' in a.get(f"/change_name?event_id={w.event.id}").text   # the game strip (was the games grid)
 
 
 def test_lobby_stats_count_games(chain):

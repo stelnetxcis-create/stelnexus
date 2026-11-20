@@ -80,3 +80,13 @@
   {% endfor %}
 </div>
 {% endmacro %}
+
+
+{# Newer / Older links under a list that is served a page at a time (see app/web/paging.py). #}
+{% macro pager(p) %}{% if p and p.visible %}
+<nav class="pager" aria-label="Pages" style="display:flex;gap:.6rem;align-items:center;justify-content:flex-end;margin:.75rem 0">
+  <span class="muted">Rows {{ p.first }}–{{ p.last }}</span>
+  {% if p.prev_url %}<a class="btn btn-sm" href="{{ p.prev_url }}" rel="prev">← Newer</a>{% endif %}
+  {% if p.next_url %}<a class="btn btn-sm" href="{{ p.next_url }}" rel="next">Older →</a>{% endif %}
+</nav>
+{% endif %}{% endmacro %}

@@ -40,7 +40,9 @@ def init_db(_args) -> None:
     install_audit_guards(engine)
     with session_scope() as db:
         accounts.ensure_system_accounts(db)
-    print("Database tables and system accounts are ready.")
+        from app.services import teams
+        teams.ensure_teams(db)
+    print("Database tables, system accounts and the NBA team catalog are ready.")
 
 
 def create_admin(args) -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -44,30 +44,45 @@ def _sum_kind(db: Session, kinds: list[str], cash_kinds: list[AccountKind], posi
     return abs(int(value))
 
 
+def _kind_balances(db: Session) -> dict[AccountKind, dict[str, int]]:
+    """Every account kind's balance (and its player-/user-owned portions) in ONE query. The
+    cashflow card used to run a separate SUM for each figure."""
+    rows = db.execute(
+        select(
+            Account.kind,
+            func.coalesce(func.sum(Account.balance_cents), 0),
+            func.coalesce(func.sum(case((Account.owner_player_id.is_not(None), Account.balance_cents), else_=0)), 0),
+            func.coalesce(func.sum(case((Account.owner_user_id.is_not(None), Account.balance_cents), else_=0)), 0),
+        ).group_by(Account.kind)).all()
+    return {AccountKind(k): {"all": int(a), "players": int(p), "users": int(u)} for k, a, p, u in rows}
+
+
 def _kind_balance(db: Session, kind: AccountKind, *, players_only: bool = False,
-                  users_only: bool = False) -> int:
-    stmt = select(func.coalesce(func.sum(Account.balance_cents), 0)).where(Account.kind == kind)
-    if players_only:
-        stmt = stmt.where(Account.owner_player_id.is_not(None))
-    if users_only:
-        stmt = stmt.where(Account.owner_user_id.is_not(None))
-    return int(db.scalar(stmt) or 0)
+                  users_only: bool = False, _cache: dict | None = None) -> int:
+    table = _cache if _cache is not None else _kind_balances(db)
+    row = table.get(kind, {"all": 0, "players": 0, "users": 0})
+    return row["players"] if players_only else row["users"] if users_only else row["all"]
 
 
 def cashflow(db: Session) -> dict:
     """Online money only: loads and cash-outs approved through the request flow."""
     online = [AccountKind.GCASH_CLEARING]
+    bal = _kind_balances(db)
+
+    def kb(kind, **kw):
+        return _kind_balance(db, kind, _cache=bal, **kw)
+
     return {
         "cash_in": _sum_kind(db, ["request.in"], online, True),
         "cash_out": _sum_kind(db, ["request.out"], online, False),
-        "gcash_float": _kind_balance(db, AccountKind.GCASH_CLEARING),
-        "player_balances": _kind_balance(db, AccountKind.WALLET, players_only=True),
-        "agent_wallets": _kind_balance(db, AccountKind.WALLET, users_only=True),
-        "commission_payable": _kind_balance(db, AccountKind.COMMISSION_PAYABLE),
-        "house_revenue": _kind_balance(db, AccountKind.HOUSE_REVENUE) + _kind_balance(db, AccountKind.ROUNDING),
-        "commission_expense": _kind_balance(db, AccountKind.COMMISSION_EXPENSE),
-        "pool_escrow": _kind_balance(db, AccountKind.FIGHT_POOL),
-        "bola_pool_escrow": _kind_balance(db, AccountKind.BOLA_POOL),
+        "gcash_float": kb(AccountKind.GCASH_CLEARING),
+        "player_balances": kb(AccountKind.WALLET, players_only=True),
+        "agent_wallets": kb(AccountKind.WALLET, users_only=True),
+        "commission_payable": kb(AccountKind.COMMISSION_PAYABLE),
+        "house_revenue": kb(AccountKind.HOUSE_REVENUE) + kb(AccountKind.ROUNDING),
+        "commission_expense": kb(AccountKind.COMMISSION_EXPENSE),
+        "pool_escrow": kb(AccountKind.FIGHT_POOL),
+        "bola_pool_escrow": kb(AccountKind.BOLA_POOL),
         "bola": bola_totals(db),
     }
 
@@ -608,10 +623,11 @@ def event_summary(db: Session, event_id: int) -> dict:
             "expenses": int(expenses), "net": house - int(commission) - int(expenses)}
 
 
-def history(db: Session, *, limit: int = 100) -> list[Fight]:
+def history(db: Session, *, limit: int = 100, offset: int = 0) -> list[Fight]:
     return list(db.scalars(
         select(Fight).where(Fight.status.in_([FightStatus.SETTLED, FightStatus.VOID]))
-        .order_by(Fight.declared_at.desc().nulls_last(), Fight.id.desc()).limit(min(limit, 500))).all())
+        .order_by(Fight.declared_at.desc().nulls_last(), Fight.id.desc())
+        .limit(min(limit, 500)).offset(max(offset, 0))).all())
 
 
 def archived_events(db: Session, *, limit: int = 200) -> list[Event]:

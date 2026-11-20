@@ -40,6 +40,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core import audit
+from app.core import ttlcache
 from app.core.errors import Conflict, Forbidden, LockedState, NotFound, ValidationError
 from app.core.money import bps_of, odds_of
 from app.core.settings_registry import SettingsStore
@@ -264,6 +265,7 @@ def _rollback_previous(db: Session, fight: Fight, actor: User, reason: str) -> S
 
 
 def _apply(db: Session, run: SettlementRun, actor: User, settings: SettingsStore) -> SettlementRun:
+    ttlcache.invalidate_after_commit(db)   # dashboard KPIs changed
     fight = db.scalar(select(Fight).where(Fight.id == run.fight_id).with_for_update())
     if fight is None:
         raise NotFound("Game not found.")
@@ -379,6 +381,7 @@ def request_correction(
     settings: SettingsStore, action: str = "redeclare",
 ) -> SettlementRun:
     """Redeclare (change result) or recompute (same result, re-run the maths)."""
+    ttlcache.invalidate_after_commit(db)   # dashboard KPIs changed
     reason = (reason or "").strip()
     if len(reason) < 5:
         raise ValidationError("A written reason of at least 5 characters is required.")
@@ -437,6 +440,7 @@ def approve(db: Session, actor: User, *, run_id: int, settings: SettingsStore) -
 
 
 def reject(db: Session, actor: User, *, run_id: int, note: str) -> SettlementRun:
+    ttlcache.invalidate_after_commit(db)   # dashboard KPIs changed
     run = db.scalar(select(SettlementRun).where(SettlementRun.id == run_id).with_for_update())
     if run is None:
         raise NotFound("Settlement run not found.")

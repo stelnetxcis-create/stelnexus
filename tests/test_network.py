@@ -183,7 +183,7 @@ def test_permissions_master_is_admin_minus_admin_panel(monkeypatch):
     admin_only = {Perm.SETTINGS_VIEW, Perm.SETTINGS_MANAGE, Perm.AUDIT_VIEW, Perm.HIDDEN_VIEW,
                   Perm.CUTS_VIEW, Perm.CUTS_MANAGE, Perm.PLAYERS_VIEW, Perm.PLAYERS_CREATE,
                   Perm.PLAYERS_EDIT, Perm.ONLINE_VIEW, Perm.PANEL_VIEW, Perm.PAWNS_MANAGE,
-                  Perm.LOCATIONS_VIEW, Perm.LOCATIONS_MANAGE,
+                  Perm.LOCATIONS_VIEW, Perm.LOCATIONS_MANAGE, Perm.TEAMS_VIEW, Perm.TEAMS_MANAGE,
                   # house money is dev-only
                   Perm.CASHFLOW_VIEW, Perm.REPORTS_VIEW,
                   # livestream chat: Admin, and Pawns it was granted to

@@ -494,7 +494,11 @@ class LedgerEntry(Base):
     txn: Mapped[LedgerTxn] = relationship(back_populates="entries")
     account: Mapped[Account] = relationship()
 
-    __table_args__ = (CheckConstraint("amount_cents <> 0", name="nonzero"),)
+    __table_args__ = (
+        CheckConstraint("amount_cents <> 0", name="nonzero"),
+        # wallet history: WHERE account_id = ? ORDER BY id DESC LIMIT n reads the index in order, no sort
+        Index("ix_ledger_entries_account_id_id", "account_id", "id"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -537,6 +541,34 @@ class Location(TimestampMixin, Base):
         return f"/static/img/venues/{self.image}" if self.image else None
 
 
+class Team(TimestampMixin, Base):
+    """A team in a sports catalog (the NBA first). Registry only: no game, odds or bet points at a team yet,
+    so registering or switching one off changes nothing that already exists. Rows are seeded by
+    services/teams.py and never overwritten afterwards, so an Admin's on/off choice survives a restart."""
+    __tablename__ = "teams"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sport: Mapped[str] = mapped_column(String(16), index=True)          # "nba"
+    code: Mapped[str] = mapped_column(String(8))                        # abbreviation, e.g. LAL
+    ext_id: Mapped[int | None] = mapped_column(BigInteger)              # the league's own team id (NBA: 1610612747)
+    city: Mapped[str] = mapped_column(String(40))                       # "Los Angeles"
+    name: Mapped[str] = mapped_column(String(40))                       # "Lakers"
+    conference: Mapped[str | None] = mapped_column(String(16))          # "West"
+    division: Mapped[str | None] = mapped_column(String(24))            # "Pacific"
+    logo: Mapped[str | None] = mapped_column(String(40))                # file in app/static/img/teams/<sport>/
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true(), nullable=False, index=True)
+
+    __table_args__ = (UniqueConstraint("sport", "code", name="uq_team_sport_code"),)
+
+    @property
+    def full_name(self) -> str:
+        return f"{self.city} {self.name}"
+
+    @property
+    def logo_url(self) -> str | None:
+        return f"/static/img/teams/{self.sport}/{self.logo}" if self.logo else None
+
+
 class Event(UUIDMixin, TimestampMixin, Base):
     __tablename__ = "events"
 
@@ -549,6 +581,8 @@ class Event(UUIDMixin, TimestampMixin, Base):
     house_cut_bps: Mapped[int | None] = mapped_column(Integer)  # null -> use global setting
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     location_id: Mapped[int | None] = mapped_column(ForeignKey("locations.id", ondelete="SET NULL"), index=True)
+    # When the livestream went live. Empty = pre-show: early bets may be placed from the livestream page.
+    live_started_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
 
     location: Mapped["Location | None"] = relationship(foreign_keys=[location_id])
     fights: Mapped[list["Fight"]] = relationship(back_populates="event", cascade="all, delete-orphan")

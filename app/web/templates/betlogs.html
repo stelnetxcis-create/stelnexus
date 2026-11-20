@@ -42,6 +42,7 @@
       {% endfor %}
       </tbody>
     </table></div>
+    {{ ui.pager(pager) }}
     {% else %}{{ ui.empty('Try a wider date range or clear the filter.', kind='ticket', title='No tickets match', compact=true) }}{% endif %}
   </div>
 </div>

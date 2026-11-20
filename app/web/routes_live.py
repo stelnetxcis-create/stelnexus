@@ -96,7 +96,7 @@ async def live_event(event_id: int, request: Request, ctx: Ctx = Depends(require
             row.update({"pm": pool["meron"], "pw": pool["wala"], "cm": pool["cm"], "cw": pool["cw"],
                         "hot": _hot(pool) or ""})
         rows.append(row)
-    return _reply(request, {"event": {"id": event.id, "st": event.status.value}, "hide": hide, "fights": rows})
+    return _reply(request, {"event": {"id": event.id, "st": event.status.value, "live": event.live_started_at is not None}, "hide": hide, "fights": rows})
 
 
 @router.get("/_live/lobby")

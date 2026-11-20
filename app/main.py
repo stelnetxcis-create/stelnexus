@@ -55,6 +55,13 @@ def create_app() -> FastAPI:
         upgrade(engine)
     except Exception:  # an older database must still boot; the helper logs loudly
         log.exception("schema upgrade failed")
+    try:                                           # the NBA team catalog (registry only); inserts missing teams, never edits
+        from app.db.session import session_scope
+        from app.services import teams as _teams
+        with session_scope() as _db:
+            _teams.ensure_teams(_db)
+    except Exception:
+        log.exception("team catalog not seeded")
     try:
         from app.db.hardening import install_audit_guards
         install_audit_guards(engine)

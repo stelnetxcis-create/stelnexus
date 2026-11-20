@@ -14,11 +14,12 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import NotFound, ValidationError
 from app.core.rbac import Perm, bola_visible_to, hides_totals, permissions_of
-from app.db.models import ChatMessage, DrawStatus, Fight, FightStatus, Ticket, TicketStatus, User
+from app.db.models import ChatMessage, DrawStatus, Event, Fight, FightStatus, Ticket, TicketStatus, User
 from app.db.models import Session as SessionRow
 from app.db.session import get_db, session_scope
 from app.services import betting, events, realtime, reports
 from app.web.conditional import json_reply
+from app.web.paging import paginate
 from app.web.deps import Ctx, base_ctx, flash_redirect, form_data, render, require_ctx
 
 router = APIRouter()
@@ -246,16 +247,14 @@ async def chat_send(request: Request, ctx: Ctx = Depends(require_ctx)):
 # ---------------------------------------------------------------------------
 
 @router.get("/history")
-async def history_page(ctx: Ctx = Depends(require_ctx)):
+async def history_page(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.FIGHTS_VIEW)
-    fights = reports.history(ctx.db, limit=150)
+    pager, fights = paginate(request, 150, lambda limit, offset: reports.history(ctx.db, limit=limit, offset=offset))
     hide = hides_totals(ctx.user)
-    totals = {}
-    if not hide:
-        for fight in fights:
-            totals[fight.id] = betting.pool_snapshot(ctx.db, fight)
-    event_by_id = {e.id: e for e in (events.get_event(ctx.db, i) for i in {f.event_id for f in fights})}
-    return render(ctx, "history.html", active="history", fights=fights, events=event_by_id,
+    totals = {} if hide else betting.pool_snapshots(ctx.db, [f.id for f in fights])     # one query
+    ev_ids = {f.event_id for f in fights}
+    event_by_id = {e.id: e for e in ctx.db.scalars(select(Event).where(Event.id.in_(ev_ids))).all()} if ev_ids else {}
+    return render(ctx, "history.html", active="history", fights=fights, events=event_by_id, pager=pager,
                   hide_totals=hide, totals=totals, role_of=events.role_of)
 
 

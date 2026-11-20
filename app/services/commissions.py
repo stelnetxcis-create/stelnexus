@@ -34,7 +34,7 @@ import datetime as dt
 from dataclasses import dataclass, field
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core import audit
 from app.core.errors import ValidationError
@@ -44,6 +44,7 @@ from app.db.models import (
     BolaCommission,
     BolaDraw,
     BolaRun,
+    BolaTicket,
     Commission,
     CommissionStatus,
     Fight,
@@ -433,9 +434,14 @@ def cut_rows(db: Session, actor: User, store: SettingsStore) -> list[dict]:
     agents = list(db.scalars(select(User).where(User.role == Role.AGENT, User.id.in_(ids))
                              .order_by(User.username)).all())
     rows = []
+    subs_by_parent: dict[int, list[User]] = {}          # one query for every agent's subs
+    if agents:
+        for k in db.scalars(select(User).where(User.role == Role.SUB_AGENT,
+                                               User.parent_id.in_([a.id for a in agents]))
+                            .order_by(User.username)).all():
+            subs_by_parent.setdefault(k.parent_id, []).append(k)
     for agent in agents:
-        subs = list(db.scalars(select(User).where(User.role == Role.SUB_AGENT, User.parent_id == agent.id)
-                               .order_by(User.username)).all())
+        subs = subs_by_parent.get(agent.id, [])
         rows.append({
             "agent": agent,
             "volume_bps": effective_agent_bps(agent, store, "sabong"),
@@ -538,7 +544,7 @@ def _earner_ids(db: Session, actor: User, agent_id: int | None) -> set[int] | No
 
 def list_scope(db: Session, actor: User, *, game: str = "all", status: CommissionStatus | None = None,
                agent_id: int | None = None, start: dt.date | None = None, end: dt.date | None = None,
-               limit: int = 300) -> list[dict]:
+               limit: int = 300, offset: int = 0) -> list[dict]:
     """Commission lines for the actor AND the accounts below it, both games, newest first.
 
     Every row is a plain dict (``game``, ``game_label``, ``earner``, ``tier``, ``player``,
@@ -547,6 +553,10 @@ def list_scope(db: Session, actor: User, *, game: str = "all", status: Commissio
     for anyone else, and reversed lines are only shown when asked for."""
     ids = _earner_ids(db, actor, agent_id)
     out: list[dict] = []
+    offset = max(offset, 0)
+    # Two tables merge into one newest-first list, so each is read down to offset + limit and the
+    # merged list is sliced. Bounded at 2000 per table; narrow the date range to go further back.
+    take = min(offset + limit, 2000)
 
     lo, hi = manila_bounds(start, end)
 
@@ -572,7 +582,16 @@ def list_scope(db: Session, actor: User, *, game: str = "all", status: Commissio
             stmt = stmt.where(model.status == status)
         else:
             stmt = stmt.where(model.status != CommissionStatus.REVERSED)
-        return stmt.order_by(model.id.desc()).limit(min(limit, 1000))
+        # Eager-load everything _line_view touches so the page costs a fixed handful of queries
+        # instead of ~3 lazy loads per row.
+        if model is Commission:
+            stmt = stmt.options(joinedload(Commission.agent),
+                                joinedload(Commission.ticket).joinedload(Ticket.fight),
+                                joinedload(Commission.ticket).joinedload(Ticket.player))
+        else:
+            stmt = stmt.options(joinedload(BolaCommission.agent),
+                                joinedload(BolaCommission.ticket).joinedload(BolaTicket.player))
+        return stmt.order_by(model.id.desc()).limit(take)
 
     if game in ("all", "sabong"):
         for row in db.scalars(keep(Commission)).all():
@@ -581,7 +600,7 @@ def list_scope(db: Session, actor: User, *, game: str = "all", status: Commissio
         for row in db.scalars(keep(BolaCommission)).all():
             out.append(_line_view(row, "bola", f"Bola #{row.draw_id}"))
     out.sort(key=lambda r: r["created_at"], reverse=True)
-    return out[:limit]
+    return out[offset:offset + limit]
 
 
 def _line_view(row, game: str, label: str) -> dict:

@@ -12,6 +12,7 @@ from app.core.money import to_cents
 from app.core.rbac import Perm, assert_user_in_scope, hides_totals
 from app.db.models import CommissionStatus, RequestDirection
 from app.services import bola, cashdesk, commissions, reports
+from app.web.paging import paginate
 from app.web.deps import Ctx, form_data, flash_redirect, render, require_ctx
 
 router = APIRouter()
@@ -66,10 +67,11 @@ async def commissions_page(request: Request, ctx: Ctx = Depends(require_ctx)):
         game = "all"
     stmt = reports.agent_statement(ctx.db, ctx.user, start=start, end=end,
                                    game="sabong" if (not bola_on and game == "all") else game)
-    lines = commissions.list_scope(ctx.db, ctx.user, game="sabong" if (not bola_on and game == "all") else game,
-                                   status=wanted, start=start, end=end)
+    pager, lines = paginate(request, 300, lambda limit, offset: commissions.list_scope(
+        ctx.db, ctx.user, game="sabong" if (not bola_on and game == "all") else game,
+        status=wanted, start=start, end=end, limit=limit, offset=offset))
     store = ctx.store
-    return render(ctx, "commissions.html", active="commissions", stmt=stmt, lines=lines,
+    return render(ctx, "commissions.html", active="commissions", stmt=stmt, lines=lines, pager=pager,
                   game=game, status=params.get("status") or "", bola_on=bola_on,
                   totals=commissions.totals_for(ctx.db, ctx.user), tier_label=TIER_LABEL,
                   defaults={g: {"volume": int(store.get(k[0])), "sop": int(store.get(k[1])),
@@ -120,10 +122,12 @@ async def commissions_account_page(agent_id: int, request: Request, ctx: Ctx = D
     start, end = _range(params)
     game = _game(params)
     stmt = reports.agent_statement(ctx.db, ctx.user, start=start, end=end, game=game, agent_id=agent_id)
+    pager, lines = paginate(request, 300, lambda limit, offset: commissions.list_scope(
+        ctx.db, ctx.user, game=game, agent_id=agent_id, status=_status(params), start=start, end=end,
+        limit=limit, offset=offset))
     return render(ctx, "commission_account.html", active="commissions", agent=agent, stmt=stmt, game=game,
                   games=reports.agent_games(ctx.db, ctx.user, agent_id, start=start, end=end, game=game),
-                  lines=commissions.list_scope(ctx.db, ctx.user, game=game, agent_id=agent_id,
-                                               status=_status(params), start=start, end=end),
+                  lines=lines, pager=pager,
                   tier_label=TIER_LABEL, status=params.get("status") or "")
 
 

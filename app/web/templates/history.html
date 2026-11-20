@@ -26,6 +26,7 @@
       {% endfor %}
       </tbody>
     </table></div>
+    {{ ui.pager(pager) }}
     {% else %}{{ ui.empty('Declared games and their results will be listed here.', kind='rooster', title='No results yet', compact=true) }}{% endif %}
   </div>
 </div>

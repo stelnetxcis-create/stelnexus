@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Teams · {{ brand }}{% endblock %}
+{% block heading %}Admin Panel{% endblock %}
+{% block content %}
+{% include "_panel_nav.html" %}
+<p class="notice">NBA teams, registered and ready. No game uses them yet, so nothing here changes betting. {{ on_count }} of {{ total }} teams are on; a team that is off will not be offered when games are added later.</p>
+{% for conference, division, rows in team_groups %}
+<div class="card team-card"><div class="card-head"><h3>{{ conference }} · {{ division }}</h3></div>
+<div class="card-body tight"><ul class="team-grid">
+{% for t in rows %}
+  <li class="team-tile{{ '' if t.is_active else ' is-off' }}">
+    <img class="team-logo" src="{{ t.logo_url }}" alt="{{ t.full_name }} logo" width="56" height="56" loading="lazy">
+    <div class="team-meta"><strong>{{ t.city }} {{ t.name }}</strong><span class="small muted">{{ t.code }}</span></div>
+    {% if can_manage %}
+    <form method="post" action="/admin/teams/{{ t.id }}/{{ 'deactivate' if t.is_active else 'activate' }}">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm btn-ghost" type="submit">{{ 'Turn off' if t.is_active else 'Turn on' }}</button></form>
+    {% else %}{{ ui.badge('on' if t.is_active else 'off', 'green' if t.is_active else 'slate') }}{% endif %}
+  </li>
+{% endfor %}
+</ul></div></div>
+{% endfor %}
+{% endblock %}

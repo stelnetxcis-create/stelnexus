@@ -81,6 +81,40 @@ def commission_for_user(db: Session, user: User) -> Account:
     )
 
 
+def user_balances(db: Session, users: list[User]) -> dict[int, tuple[int | None, int | None]]:
+    """``{user_id: (wallet_cents, commission_cents)}`` for many users in ONE query.
+
+    Replaces calling ``wallet_for_user`` / ``commission_for_user`` once per row on list pages
+    (an N+1). A user whose account does not exist yet falls back to the per-user helper, which
+    provisions it, so behaviour matches the single-row functions. Users that hold no money get
+    ``(None, None)``."""
+    wanted = [u for u in users if u.has_wallet]
+    out: dict[int, tuple[int | None, int | None]] = {u.id: (None, None) for u in users}
+    if not wanted:
+        return out
+    codes = [f"wallet:user:{u.id}" for u in wanted] + [f"commission:user:{u.id}" for u in wanted]
+    found = {code: bal for code, bal in db.execute(
+        select(Account.code, Account.balance_cents).where(Account.code.in_(codes)))}
+    for u in wanted:
+        w = found.get(f"wallet:user:{u.id}")
+        c = found.get(f"commission:user:{u.id}")
+        if w is None:
+            w = wallet_for_user(db, u).balance_cents
+        if c is None:
+            c = commission_for_user(db, u).balance_cents
+        out[u.id] = (int(w), int(c))
+    return out
+
+
+def player_wallets(db: Session, player_ids: list[int]) -> dict[int, int]:
+    """``{player_id: balance_cents}`` in one query (players with no wallet yet are omitted)."""
+    if not player_ids:
+        return {}
+    return {pid: int(bal) for pid, bal in db.execute(
+        select(Account.owner_player_id, Account.balance_cents)
+        .where(Account.kind == AccountKind.WALLET, Account.owner_player_id.in_(player_ids)))}
+
+
 def wallet_for_player(db: Session, player: Player) -> Account:
     code = f"wallet:player:{player.id}"
     return get_by_code(db, code) or _create(

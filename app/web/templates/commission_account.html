@@ -70,6 +70,7 @@
       {% endfor %}
       </tbody>
     </table></div>
+    {{ ui.pager(pager) }}
     {% else %}{{ ui.empty('No commission lines for this account in the range.') }}{% endif %}
   </div>
 </div>

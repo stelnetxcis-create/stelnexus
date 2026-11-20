@@ -12,7 +12,7 @@ const SHELL = /*@shell*/[];
 const CACHE = 'stelnexus-shell-' + BUILD;
 /* Not content-hashed, so fetched past the HTTP cache on install. */
 const LOOSE = [
-  '/static/css/app.css',            // the offline page links to it
+  '/static/css/base.css',            // the offline page links to it
   '/static/icons/icon.svg',
   '/static/icons/icon-192.png',
   '/static/offline.html'

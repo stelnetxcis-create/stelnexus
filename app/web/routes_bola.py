@@ -18,6 +18,7 @@ from app.core.money import to_cents
 from app.core.rbac import Perm, hides_totals
 from app.db.models import BolaKind, TicketStatus
 from app.services import bola, bola_settlement, locations, players, proofs, reports
+from app.web.paging import paginate
 from app.web.deps import Ctx, flash_redirect, form_data, render, require_ctx
 
 router = APIRouter()
@@ -211,11 +212,11 @@ async def bola_betlogs(request: Request, ctx: Ctx = Depends(require_ctx)):
         raise Forbidden("Your role cannot see tickets.")
     p = request.query_params
     status = p.get("status") or None
-    rows = bola.list_tickets(
+    pager, rows = paginate(request, 300, lambda limit, offset: bola.list_tickets(
         ctx.db, ctx.user, draw_id=_int(p.get("draw_id")) or None, search=p.get("q", "")[:40] or None,
         status=TicketStatus(status) if status in ("active", "canceled", "settled", "refunded") else None,
-        limit=300)
-    return render(ctx, "bola_betlogs.html", active="bola_logs", rows=rows,
+        limit=limit, offset=offset))
+    return render(ctx, "bola_betlogs.html", active="bola_logs", rows=rows, pager=pager,
                   filters={"q": p.get("q", ""), "status": status or "", "draw_id": p.get("draw_id", "")})
 
 
@@ -227,12 +228,13 @@ async def bola_cancelled(request: Request, ctx: Ctx = Depends(require_ctx)):
         raise Forbidden("Your role cannot see tickets.")
     from sqlalchemy import select
     from app.db.models import User
-    rows = bola.list_tickets(ctx.db, ctx.user, canceled_only=True,
-                             search=request.query_params.get("q", "")[:40] or None, limit=300)
+    pager, rows = paginate(request, 300, lambda limit, offset: bola.list_tickets(
+        ctx.db, ctx.user, canceled_only=True,
+        search=request.query_params.get("q", "")[:40] or None, limit=limit, offset=offset))
     ids = {t.canceled_by_id for t in rows if t.canceled_by_id}
     users = {u.id: u for u in ctx.db.scalars(select(User).where(User.id.in_(ids))).all()} if ids else {}
     names = {i: ("System" if u.is_hidden else u.username) for i, u in users.items()}
-    return render(ctx, "bola_cancelled.html", active="bola_cancelled", rows=rows, names=names,
+    return render(ctx, "bola_cancelled.html", active="bola_cancelled", rows=rows, names=names, pager=pager,
                   q=request.query_params.get("q", ""), local=bola.local)
 
 

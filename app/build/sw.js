@@ -7,12 +7,12 @@
    which is what /sw.js serves). BUILD changes whenever any bundle changes, so the cache name — and
    therefore the update — is automatic; there is no version string to bump by hand. Unbuilt, this
    file still works: empty shell, cache name "dev", and CSS/JS are fetched network-first. */
-const BUILD = /*@build*/'9f04d1c1';
-const SHELL = /*@shell*/["/static/dist/site.74a2a048.css","/static/dist/site.d841745c.js","/static/dist/nav-init.adaac247.js"];
+const BUILD = /*@build*/'0806e09f';
+const SHELL = /*@shell*/["/static/dist/site.e2c656df.css","/static/dist/site.d841745c.js","/static/dist/nav-init.adaac247.js"];
 const CACHE = 'stelnexus-shell-' + BUILD;
 /* Not content-hashed, so fetched past the HTTP cache on install. */
 const LOOSE = [
-  '/static/css/app.css',            // the offline page links to it
+  '/static/css/base.css',            // the offline page links to it
   '/static/icons/icon.svg',
   '/static/icons/icon-192.png',
   '/static/offline.html'

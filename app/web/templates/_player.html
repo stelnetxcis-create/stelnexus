@@ -2,7 +2,7 @@
    Play/pause is for everyone. Previous / Forward are Battle Pass features: without one they show a lock
    and point to the Store. When a real stream is wired, swap the .vp-scene for the <video> element; the
    controls and the pass rule stay as they are. #}
-{% macro stream_player(kind, title, left, right, pass_ok, ended=false) %}
+{% macro stream_player(kind, title, left, right, pass_ok, ended=false, strip='') %}
 <div class="vp{{ ' is-ended' if ended }}" data-player data-kind="{{ kind }}" data-pass="{{ 1 if pass_ok else 0 }}" data-ended="{{ 1 if ended else 0 }}" data-store="/store">
   <div class="vp-screen" data-vp-screen tabindex="-1">
     <div class="vp-scene" aria-hidden="true">
@@ -10,6 +10,7 @@
       <span class="vp-side vp-l">{{ left }}</span><span class="vp-vs">VS</span><span class="vp-side vp-r">{{ right }}</span>
       <span class="vp-mark">SAMPLE FEED</span>
     </div>
+    {{ strip }}
     <span class="vp-badge" data-vp-badge><i></i><span data-vp-badge-text>{{ 'ENDED' if ended else 'LIVE' }}</span></span>
     <span class="vp-title">{{ title }}</span>
     <button type="button" class="vp-big" data-vp-big aria-label="Play">
@@ -31,6 +32,8 @@
       <span class="vp-time" data-vp-time>LIVE</span>
       <button type="button" class="vp-btn vp-golive" data-vp-live hidden>Go live</button>
       <span class="vp-spacer"></span>
+      <button type="button" class="vp-btn vp-orient" data-vp-orient aria-label="Full screen, landscape" aria-pressed="false" title="Full screen, landscape (phones)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="7" width="13" height="10" rx="1.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19 8.5v7M19 8.5l-1.6 1.6M19 8.5l1.6 1.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <button type="button" class="vp-btn" data-vp-full aria-label="Full screen" title="Full screen">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
     </div>

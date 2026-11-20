@@ -24,6 +24,7 @@
       {% endfor %}
       </tbody>
     </table></div>
+    {{ ui.pager(pager) }}
     {% else %}{{ ui.empty('No cancelled tickets.') }}{% endif %}
   </div>
 </div>

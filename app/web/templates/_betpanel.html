@@ -1,0 +1,54 @@
+{# Early-bet panel floating over the fight-view video, for accounts that can place bets, only before the stream starts.
+   Logic is sellcore.js (shared with the Seller Desk page), floating behaviour is floatpanel.js. Bets go to
+   /bets/early/place, which runs betting.place_bet (every betting rule) and refuses once the stream has started. #}
+{% macro bet_panel(event_id, players, draw_enabled, can_undo, undo_window) %}
+<div class="fc-overlay bp" data-bp data-size="m" role="region" aria-label="Early bets">
+  <div class="fc-head">
+    <span class="bp-ico" aria-hidden="true"><svg class="ico"><use href="#i-coins"/></svg></span>
+    <div class="fc-title" data-bp-grip title="Drag to move · double-click to reset"><b>Early bets</b><small>Before the stream starts</small></div>
+    <button type="button" class="fc-toggle fc-cog" data-bp-cog aria-expanded="false" aria-label="Bet panel display settings" title="Size, transparency &amp; position"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg></button>
+    <button type="button" class="fc-toggle" data-bp-toggle aria-expanded="true" aria-label="Collapse bet panel" title="Collapse / expand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+  </div>
+  <div class="fc-body bp-body" data-sl-root data-verb="Bet" data-place-url="/bets/early/place" data-undo-url="/bets/early/undo/" data-event="{{ event_id }}" data-draw="{{ 1 if draw_enabled else 0 }}" data-undo="{{ undo_window if can_undo else -1 }}">
+    <div class="fc-set" data-bp-set hidden>
+      <div class="fc-size" role="group" aria-label="Bet panel size">
+        <span>Size</span>
+        <button type="button" data-fp-size="s" aria-pressed="false" title="Compact: no keypad">S</button>
+        <button type="button" data-fp-size="m" aria-pressed="true">M</button>
+        <button type="button" data-fp-size="l" aria-pressed="false">L</button>
+      </div>
+      <label class="fc-only-overlay">Transparency <input type="range" min="20" max="100" step="5" value="82" data-bp-alpha aria-label="Bet panel background opacity"><output data-bp-alpha-out>82%</output></label>
+      <button type="button" class="btn btn-sm fc-only-overlay" data-bp-reset>Reset position</button>
+    </div>
+    <div class="sell-closed bp-ended" data-bp-ended hidden><span>The stream has started, so early betting is closed.</span></div>
+    <div class="bp-scroll">
+      <div class="bp-col">
+      <input class="bp-player" data-sl="player" list="bp-players" placeholder="Player (type a name or card)" autocomplete="off" aria-label="Player">
+      <datalist id="bp-players" data-sl="players">
+        {% for p in players %}<option value="{{ p.name }}{{ ' · ' ~ p.ref if p.ref }}" data-id="{{ p.id }}"></option>{% endfor %}
+      </datalist>
+      <div class="bp-game"><b data-sl="name">Game</b><span class="sell-state" data-sl="state"></span></div>
+      <div class="sell-sides bp-sides">
+        <button class="side-btn m" type="button" data-sl="side-meron" data-side="meron"><span class="sb-lab">MERON</span><span class="sb-name" data-sl="nm-meron">Meron</span><span class="sb-pool"><span data-sl="sh-meron"></span><b data-sl="pl-meron"></b></span></button>
+        <button class="side-btn w" type="button" data-sl="side-wala" data-side="wala"><span class="sb-lab">WALA</span><span class="sb-name" data-sl="nm-wala">Wala</span><span class="sb-pool"><span data-sl="sh-wala"></span><b data-sl="pl-wala"></b></span></button>
+      </div>
+      {% if draw_enabled %}<div class="sell-draw"><button class="side-btn d" type="button" data-sl="side-draw" data-side="draw"><span class="sb-lab">DRAW</span><span class="sb-name">Draw</span></button></div>{% endif %}
+      <div class="sell-split" data-sl="split" hidden><div class="bar"><i class="m"></i><i class="w"></i></div><small><span data-sl="bar-m"></span><span data-sl="bar-w"></span></small></div>
+      <div class="sell-closed" data-sl="closed" hidden><span data-sl="closed-text"></span><button class="btn btn-sm btn-brand" type="button" data-sl="next">Next open game</button></div>
+      </div>
+      <div class="bp-col">
+      <div class="sell-amt-wrap"><span class="muted small">Amount</span><div class="sell-amt" data-sl="amt"><i>&#8369;</i><span>0</span></div></div>
+      <div class="sell-chips">
+        {% for v in [50, 100, 200, 500, 1000] %}<button class="chip-key" type="button" data-amt="{{ v }}">{{ v }}</button>{% endfor %}
+      </div>
+      <div class="pad bp-pad">
+        {% for k in ['1','2','3','4','5','6','7','8','9'] %}<button class="pad-key" type="button" data-key="{{ k }}">{{ k }}</button>{% endfor %}
+        <button class="pad-key fn" type="button" data-key="C" aria-label="Clear">C</button><button class="pad-key" type="button" data-key="0">0</button><button class="pad-key fn" type="button" data-key="back" aria-label="Backspace">&#9003;</button>
+      </div>
+      <button class="sell-go" type="button" data-sl="go" disabled><span data-sl="go-main">Choose a side</span><small data-sl="go-sub"></small></button>
+      </div>
+      <ul class="sell-recent bp-recent" data-sl="recent"><li style="grid-template-columns:1fr"><span class="meta">Bets you place here show up with a short Undo.</span></li></ul>
+    </div>
+  </div>
+</div>
+{% endmacro %}

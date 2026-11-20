@@ -21,7 +21,8 @@ from app.core.rbac import (GRANTS, Perm, normalize_grants, offered_grants, varia
                            variable_groups_visible)
 from app.core.settings_registry import BY_KEY, DEFS, GROUPS
 from app.db.models import AuditLog, Event, EventStatus, Location, Role, Status, User
-from app.services import account_admin, agents, bola, ipbans, locations, presence, reports
+from app.services import account_admin, agents, bola, ipbans, locations, presence, reports, teams
+from app.web.paging import paginate
 from app.web.deps import Ctx, flash_redirect, form_data, render, require_ctx
 
 router = APIRouter()
@@ -31,6 +32,7 @@ SECTIONS = (
     ("overview", "/admin", "Overview", Perm.PANEL_VIEW),
     ("variables", "/admin/variables", "Variables", Perm.SETTINGS_VIEW),
     ("locations", "/admin/locations", "Locations", Perm.LOCATIONS_VIEW),
+    ("teams", "/admin/teams", "Teams", Perm.TEAMS_VIEW),
     ("bola", "/admin/bola/schedules", "Bola draw times", Perm.BOLA_MANAGE),
     ("cuts", "/admin/cuts", "Cuts", Perm.CUTS_VIEW),
     ("accounts", "/admin/accounts", "Accounts", Perm.ACCOUNTS_VIEW),
@@ -177,6 +179,26 @@ async def locations_delete(location_id: int, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.LOCATIONS_MANAGE)
     locations.delete_location(ctx.db, ctx.user, location_id)
     return flash_redirect("/admin/locations", "Location deleted.")
+
+
+# --------------------------------------------------------------------------- teams
+# The sports team catalog (NBA first). Registry only: no game or bet uses a team yet.
+
+@router.get("/admin/teams")
+async def teams_page(ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.TEAMS_VIEW)
+    rows = teams.list_teams(ctx.db, "nba")
+    return panel(ctx, "teams", "admin_teams.html", team_groups=teams.grouped(rows), total=len(rows),
+                 on_count=sum(1 for t in rows if t.is_active), can_manage=ctx.can(Perm.TEAMS_MANAGE))
+
+
+@router.post("/admin/teams/{team_id}/{action}")
+async def teams_toggle(team_id: int, action: str, ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.TEAMS_MANAGE)
+    if action not in ("activate", "deactivate"):
+        raise NotFound("Unknown action.")
+    row = teams.set_active(ctx.db, ctx.user, team_id, action == "activate")
+    return flash_redirect("/admin/teams", f"{row.full_name} is {'on' if row.is_active else 'off'}.")
 
 
 # --------------------------------------------------------------------------- bola draw times
@@ -372,8 +394,10 @@ async def audit_page(request: Request, ctx: Ctx = Depends(require_ctx)):
         stmt = stmt.where(AuditLog.action.ilike(f"%{action}%"))
     if entity:
         stmt = stmt.where(AuditLog.entity_type == entity)
-    rows = list(ctx.db.scalars(stmt.order_by(AuditLog.id.desc()).limit(300)).all())
-    return panel(ctx, "audit", "audit.html", rows=rows, filters={"action": action, "entity": entity})
+    pager, rows = paginate(request, 300, lambda limit, offset: ctx.db.scalars(
+        stmt.order_by(AuditLog.id.desc()).limit(limit).offset(offset)).all())
+    return panel(ctx, "audit", "audit.html", rows=rows, pager=pager,
+                 filters={"action": action, "entity": entity})
 
 
 @router.get("/admin/integrity")

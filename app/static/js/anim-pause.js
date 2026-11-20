@@ -1,8 +1,8 @@
 /* Battery: pause infinite CSS animations while their element is scrolled out of view.
    Finds every running infinite animation (art-float, bob, wobble, pulse, shine, ...), watches its
-   element with one IntersectionObserver and toggles .is-offscreen (see royale.css), which sets
+   element with one IntersectionObserver and toggles .is-offscreen (see theme.css), which sets
    animation-play-state:paused. Nothing is removed, so the animation resumes where it stopped.
-   prefers-reduced-motion users never get these animations at all (app.css / luxe.css switch them off),
+   prefers-reduced-motion users never get these animations at all (base.css switches them off),
    so this exits early for them. Without IntersectionObserver or getAnimations() it does nothing. */
 (function () {
   'use strict';

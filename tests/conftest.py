@@ -9,6 +9,7 @@ os.environ.update({
     "COOKIE_SECURE": "false",
     "COOKIE_SAMESITE": "lax",
     "SECRET_KEY": "test-secret-key-test-secret-key-0123456789",
+    "DASHBOARD_CACHE_SECONDS": "0",     # tests see live numbers; test_query_counts turns it on explicitly
 })
 
 import datetime as dt  # noqa: E402

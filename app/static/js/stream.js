@@ -11,7 +11,8 @@
 
   document.querySelectorAll('[data-player]').forEach((root) => {
     const $ = (s) => root.querySelector(s);
-    const pass = root.dataset.pass === '1', ended = root.dataset.ended === '1';
+    const pass = root.dataset.pass === '1';
+    let ended = root.dataset.ended === '1';
     const btnPlay = $('[data-vp-play]'), big = $('[data-vp-big]'), prev = $('[data-vp-prev]'), next = $('[data-vp-next]');
     const live = $('[data-vp-live]'), time = $('[data-vp-time]'), badge = $('[data-vp-badge-text]');
     const fill = $('[data-vp-fill]'), knob = $('[data-vp-knob]'), track = $('[data-vp-track]');
@@ -27,7 +28,7 @@
     function paint() {
       root.classList.toggle('is-playing', playing);
       root.classList.toggle('is-behind', behind > 0);
-      icoPlay.hidden = playing; icoPause.hidden = !playing;
+      icoPlay.toggleAttribute('hidden', playing); icoPause.toggleAttribute('hidden', !playing);   // SVG elements have no .hidden property
       const label = playing ? 'Pause' : 'Play';
       btnPlay.setAttribute('aria-label', label); big.setAttribute('aria-label', label);
       const atLive = behind === 0;
@@ -74,24 +75,108 @@
       if (ev.key === 'ArrowRight') { ev.preventDefault(); next.click(); }
     });
 
-    // Full screen the whole stage (video + floating chat) so the chat stays pinned on top.
+    // Full screen the whole stage (video + floating panels) so the panels stay pinned on top.
     // Browsers without element fullscreen (iPhone Safari) get a fixed full-viewport fallback.
-    const full = $('[data-vp-full]');
+    //
+    // Orientation button (phones): one tap goes full screen and locks LANDSCAPE; another tap while full screen
+    // flips between landscape and portrait. Android Chrome can lock the screen, but only while full screen.
+    // iPhone Safari cannot lock at all, so there the stage is turned 90 degrees with CSS (.is-rot) and the page
+    // behind it is left alone. Leaving full screen always undoes both.
+    const full = $('[data-vp-full]'), orient = $('[data-vp-orient]');
     const stage = root.closest('[data-stage]') || root;
     const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement || null;
-    const sync = () => { const on = fsEl() === stage || stage.classList.contains('is-pseudo'); stage.classList.toggle('is-fs', on);
-      full.setAttribute('aria-label', on ? 'Exit full screen' : 'Full screen'); stage.dispatchEvent(new CustomEvent('snx:fs', { detail: on })); };
-    full.addEventListener('click', () => {
+    const scr = window.screen || {};
+    const canLock = !!(scr.orientation && typeof scr.orientation.lock === 'function');
+    const isFs = () => fsEl() === stage || stage.classList.contains('is-pseudo');
+    let fsWhy = '';
+    let want = '';                                   // '' (device decides) | 'landscape' | 'portrait'
+    const portraitNow = () => window.innerHeight > window.innerWidth;
+
+    async function lockTo(mode) {
+      want = mode;
+      stage.classList.remove('is-native-lock');
+      let why = canLock ? '' : 'no screen.orientation.lock in this browser';
+      if (canLock) {
+        try { await scr.orientation.lock(mode); stage.classList.add('is-native-lock'); stage.classList.remove('is-rot'); }
+        catch (e) { why = (e && e.name) || 'refused'; }
+      }
+      if (!stage.classList.contains('is-native-lock')) {
+        // rotate the stage's content (.fc-rotbox) with CSS to reach landscape while the phone is held upright; this works
+        // inside real full screen too, so the browser's own bars stay hidden
+        stage.classList.toggle('is-rot', mode === 'landscape' && portraitNow());
+      }
+      // (why / fsWhy hold the browser's refusal reason, e.g. NotSupportedError; handy in the console when debugging)
+      if (why && window.console) console.info('[stream] rotation lock refused:', why, fsWhy);
+      stage.dispatchEvent(new CustomEvent('snx:fs', { detail: true }));
+      syncOrient();
+    }
+    function unlock() {
+      want = '';
+      if (canLock) { try { scr.orientation.unlock(); } catch (e) { /* ignore */ } }
+      stage.classList.remove('is-native-lock', 'is-rot');
+    }
+    function syncOrient() {
+      if (!orient) return;
+      const landscape = want === 'landscape';
+      orient.setAttribute('aria-pressed', String(isFs() && landscape));
+      orient.setAttribute('aria-label', !isFs() ? 'Full screen, landscape' : landscape ? 'Switch to portrait' : 'Switch to landscape');
+      orient.title = orient.getAttribute('aria-label');
+    }
+    const sync = () => {
+      const on = isFs();
+      if (!on) unlock();
+      stage.classList.toggle('is-fs', on);
+      full.setAttribute('aria-label', on ? 'Exit full screen' : 'Full screen');
+      syncOrient();
+      stage.dispatchEvent(new CustomEvent('snx:fs', { detail: on }));
+    };
+    function enter() {
+      const req = stage.requestFullscreen || stage.webkitRequestFullscreen;
+      if (req) return Promise.resolve(req.call(stage)).catch((e) => { fsWhy = (e && e.name) || 'refused'; stage.classList.add('is-pseudo'); document.documentElement.style.overflow = 'hidden'; });
+      stage.classList.add('is-pseudo'); document.documentElement.style.overflow = 'hidden';
+      return Promise.resolve();
+    }
+    function leave() {
       if (fsEl()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
-      if (stage.classList.contains('is-pseudo')) { stage.classList.remove('is-pseudo'); document.documentElement.style.overflow = ''; sync(); return; }
+      if (stage.classList.contains('is-pseudo')) { stage.classList.remove('is-pseudo'); document.documentElement.style.overflow = ''; sync(); }
+    }
+    full.addEventListener('click', () => {
+      if (isFs()) { leave(); return; }
       const req = stage.requestFullscreen || stage.webkitRequestFullscreen;
       if (req) { Promise.resolve(req.call(stage)).catch(() => {}); }
       else { stage.classList.add('is-pseudo'); document.documentElement.style.overflow = 'hidden'; sync(); }
     });
+    // (note: when native full screen is refused the orientation button falls back to the pseudo mode via enter())
+    if (orient) orient.addEventListener('click', async () => {
+      if (isFs()) { await lockTo(want === 'landscape' ? 'portrait' : 'landscape'); return; }
+      await enter();
+      sync();                                        // the stage is full screen now (native or pseudo): lock needs that
+      await lockTo('landscape');
+    });
+    // The feed plays by itself: on load, when maximized, when you switch game and when the stream goes live.
+    // (It is a sample feed, so there is no browser autoplay block to work around.) Pause still works: it is only
+    // started for you at those moments, never forced back on while you watch.
+    const autoStart = (snapLive) => { if (ended) return; if (snapLive) behind = 0; if (!playing) start(); else if (snapLive) paint(); };
+    stage.addEventListener('snx:fs', (ev) => { if (ev.detail) autoStart(false); });
+    document.addEventListener('snx:live', (ev) => { if (ev.detail && ev.detail.on) autoStart(true); });
     document.addEventListener('fullscreenchange', sync);
     document.addEventListener('webkitfullscreenchange', sync);
+    window.addEventListener('orientationchange', () => { setTimeout(() => { if (isFs() && want === 'landscape' && !stage.classList.contains('is-native-lock')) stage.classList.toggle('is-rot', portraitNow()); stage.dispatchEvent(new CustomEvent('snx:fs', { detail: true })); }, 250); });
     document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && stage.classList.contains('is-pseudo')) full.click(); });
 
+    // The game strip switches game without reloading the page: new names, new ENDED / LIVE state.
+    root.addEventListener('snx:game', (ev) => {
+      const d = ev.detail || {};
+      const l = $('.vp-l'), r = $('.vp-r'), t = $('.vp-title');
+      if (l && d.left != null) l.textContent = d.left;
+      if (r && d.right != null) r.textContent = d.right;
+      if (t && d.n != null) t.textContent = 'Game #' + d.n + ' \u00B7 Live match video';
+      if (d.ended != null) { ended = !!d.ended; root.dataset.ended = ended ? '1' : '0'; root.classList.toggle('is-ended', ended); }
+      behind = 0; paint();
+      autoStart(false);
+    });
+
     paint();
+    autoStart(false);
   });
 })();

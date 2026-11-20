@@ -11,6 +11,7 @@ from app.core.money import to_cents
 from app.core.rbac import Perm, hides_totals
 from app.db.models import EventStatus, PayoutModel, Result
 from app.services import betting, events, locations, proofs, reports, settlement
+from app.services import players as player_service
 from app.services import store as store_svc
 from app.web.deps import Ctx, form_data, flash_redirect, render, require_ctx
 
@@ -77,6 +78,18 @@ async def location_quick(request: Request, ctx: Ctx = Depends(require_ctx)):
     row = locations.create_location(ctx.db, ctx.user, name=data.get("name", ""),
                                     address=data.get("address"), city=data.get("city"))
     return flash_redirect("/events?create=1", f"Location '{row.name}' registered. Pick it for the new event.")
+
+
+@router.post("/events/{event_id}/stream")
+async def event_stream(event_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
+    """Start the stream (early betting from the livestream page closes) or put the event back to pre-show."""
+    ctx.need(Perm.FIGHTS_LOCK)
+    data = await form_data(request)
+    live = data.get("action") == "start"
+    events.set_stream_live(ctx.db, ctx.user, event_id, live)
+    fid = data.get("fight_id", "")
+    back = f"/change_name?event_id={event_id}" + (f"&fight_id={int(fid)}" if str(fid).isdigit() else "")
+    return flash_redirect(back, "Stream started: early betting is closed." if live else "Back to pre-show: early betting is open.")
 
 
 @router.post("/events/{event_id}/status")
@@ -154,7 +167,19 @@ async def change_name(request: Request, ctx: Ctx = Depends(require_ctx)):
                 snapshot, events.house_cut_for(ctx.db, event, ctx.store), ctx.store)
         if fight.status.value in ("open", "locked") and ctx.user.is_top:
             plan = settlement.build_plan(ctx.db, fight, Result.MERON, ctx.store).as_dict()
-    return render(ctx, "change_name.html", active="change_name", event=event, fight=fight,
+    # Early-bet panel inside the video: accounts that can place bets, only while the event is open and the stream
+    # has not started. (The staff Seller Desk panel is no longer shown here; /sell is unchanged.)
+    bet_panel = None
+    if (fight is not None and ctx.can(Perm.BETS_PLACE) and not hide
+            and event.status == EventStatus.OPEN and event.live_started_at is None):
+        bet_panel = {
+            "players": [{"id": p.id, "name": p.full_name, "ref": p.username or p.card_number or ""}
+                        for p in player_service.list_players(ctx.db, ctx.user, limit=300)],
+            "draw_enabled": bool(ctx.store.get("fight.draw_bets_enabled")),
+            "can_undo": ctx.can(Perm.BETS_CANCEL),
+            "undo_window": int(ctx.store.get("fight.cancel_window_seconds") or 0),
+        }
+    return render(ctx, "change_name.html", active="change_name", event=event, fight=fight, bet_panel=bet_panel,
                   fights=fights, events=[], snapshot=snapshot, runs=runs, tickets=tickets,
                   preview=plan, figures=figures, multipliers=multipliers, hide_totals=hide,
                   role_of=events.role_of, proof_required=proofs.required_for(ctx.user, ctx.store),

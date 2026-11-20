@@ -150,5 +150,5 @@ def test_cannot_preview_the_admin_or_missing_accounts(ids, admin_c):
 
 
 def test_topbar_does_not_wrap_rules_exist():
-    css = open("app/static/css/luxe.css").read()
+    css = open("app/static/css/base.css").read()
     assert ".topbar{flex-wrap:nowrap" in css

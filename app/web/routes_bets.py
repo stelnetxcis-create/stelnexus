@@ -3,13 +3,14 @@ from __future__ import annotations
 import io
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.core.errors import ValidationError
 from app.core.money import to_cents
-from app.core.rbac import Perm
+from app.core.rbac import Perm, hides_totals
 from app.db.models import Side, TicketStatus
 from app.services import betting, events
+from app.web.paging import paginate
 from app.web.deps import Ctx, form_data, flash_redirect, render, require_ctx
 
 router = APIRouter()
@@ -27,13 +28,12 @@ async def betlogs(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.BETS_VIEW)
     params = request.query_params
     status = params.get("status") or None
-    rows = betting.list_tickets(
+    pager, rows = paginate(request, 300, lambda limit, offset: betting.list_tickets(
         ctx.db, ctx.user, event_id=_int(params.get("event_id")) or None,
         fight_id=_int(params.get("fight_id")) or None,
         status=TicketStatus(status) if status in ("active", "canceled", "settled", "refunded") else None,
-        search=params.get("q", "")[:40] or None, limit=300,
-    )
-    return render(ctx, "betlogs.html", active="betlogs", rows=rows,
+        search=params.get("q", "")[:40] or None, limit=limit, offset=offset))
+    return render(ctx, "betlogs.html", active="betlogs", rows=rows, pager=pager,
                   events=events.list_events(ctx.db, limit=50),
                   filters={"event_id": params.get("event_id", ""), "q": params.get("q", ""),
                            "status": status or ""})
@@ -42,8 +42,9 @@ async def betlogs(request: Request, ctx: Ctx = Depends(require_ctx)):
 @router.get("/cancelT")
 async def cancel_t(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.CANCEL_LOG)        # dev-only
-    rows = betting.list_tickets(ctx.db, ctx.user, canceled_only=True, limit=300)
-    return render(ctx, "cancelT.html", active="cancelT", rows=rows)
+    pager, rows = paginate(request, 300, lambda limit, offset: betting.list_tickets(
+        ctx.db, ctx.user, canceled_only=True, limit=limit, offset=offset))
+    return render(ctx, "cancelT.html", active="cancelT", rows=rows, pager=pager)
 
 
 @router.post("/bets/place")
@@ -107,3 +108,33 @@ def _qr_svg(payload: str) -> str:
     buffer = io.BytesIO()
     segno.make(payload, error="m").save(buffer, kind="svg", scale=3, border=1, xmldecl=False)
     return buffer.getvalue().decode()
+
+
+# ---- early bets from the livestream page (JSON, used by the floating Bet panel) ----------------------------------
+@router.post("/bets/early/place")
+async def early_place(request: Request, ctx: Ctx = Depends(require_ctx)):
+    """Same rules as /bets/place (all of betting.place_bet), plus: refused once the event's stream has started."""
+    ctx.need(Perm.BETS_PLACE)
+    if hides_totals(ctx.user):
+        raise ValidationError("Betting from the livestream is not available for your account.")
+    data = await form_data(request)
+    try:
+        side = Side(data.get("side", ""))
+    except ValueError as exc:
+        raise ValidationError("Choose Meron, Wala or Draw.") from exc
+    fight = events.get_fight(ctx.db, _int(data.get("fight_id")))
+    ticket = betting.place_bet(
+        ctx.db, ctx.user, fight_id=fight.id, side=side, stake_cents=to_cents(data.get("amount", "0")),
+        settings=ctx.store, player_id=_int(data.get("player_id")) or None, is_diy=False,
+        idempotency_key=data.get("idempotency_key") or None, ip=ctx.ip, source="live")
+    return JSONResponse({"ok": True, "ticket": {
+        "id": ticket.id, "code": ticket.code, "side": side.value, "stake": int(ticket.stake_cents),
+        "fight": fight.number, "fight_id": fight.id}})
+
+
+@router.post("/bets/early/undo/{ticket_id}")
+async def early_undo(ticket_id: int, ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.BETS_CANCEL)
+    ticket = betting.cancel_ticket(ctx.db, ctx.user, ticket_id=ticket_id,
+                                   reason="Undone from the livestream page", settings=ctx.store)
+    return JSONResponse({"ok": True, "code": ticket.code})

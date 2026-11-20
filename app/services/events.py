@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core import audit
+from app.core import ttlcache
 from app.core.errors import Conflict, Forbidden, LockedState, NotFound, ValidationError
 from app.core.rbac import Perm, has_perm
 from app.core.settings_registry import SettingsStore
@@ -42,6 +43,7 @@ def create_event(
 ) -> Event:
     """Only Master and Admin create events. The location (if any) supplies defaults for
     whatever the form left blank: games, payout model, tong."""
+    ttlcache.invalidate_after_commit(db)   # dashboard KPIs changed
     if not has_perm(actor, Perm.EVENTS_CREATE):
         raise Forbidden("Only a Master or the Admin can create an event.")
     title = title.strip()
@@ -154,6 +156,7 @@ def fights_of(db: Session, event_id: int) -> list[Fight]:
 
 
 def set_event_status(db: Session, actor: User, event_id: int, status: EventStatus) -> Event:
+    ttlcache.invalidate_after_commit(db)   # dashboard KPIs changed
     event = get_event(db, event_id)
     before = {"status": event.status}
     if status == EventStatus.CANCELED:
@@ -170,6 +173,23 @@ def set_event_status(db: Session, actor: User, event_id: int, status: EventStatu
     db.flush()
     audit.record(db, actor, "event.status", entity_type="event", entity_id=event.id,
                  before=before, after={"status": status})
+    return event
+
+
+def set_stream_live(db: Session, actor: User, event_id: int, live: bool) -> Event:
+    """Start the livestream (closes early betting from the livestream page) or put the event back to pre-show."""
+    from app.db.base import utcnow
+    event = get_event(db, event_id)
+    if event.status != EventStatus.OPEN:
+        raise LockedState("Only an open event can go live.")
+    before = {"live_started_at": event.live_started_at}
+    if live and event.live_started_at is None:
+        event.live_started_at = utcnow()
+    elif not live:
+        event.live_started_at = None
+    db.flush()
+    audit.record(db, actor, "event.stream", entity_type="event", entity_id=event.id,
+                 before=before, after={"live_started_at": event.live_started_at})
     return event
 
 

@@ -34,6 +34,7 @@
       {% endfor %}
       </tbody>
     </table></div>
+    {{ ui.pager(pager) }}
     {% else %}{{ ui.empty('No audit entries match.') }}{% endif %}
   </div>
 </div>

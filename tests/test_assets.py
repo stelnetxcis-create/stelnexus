@@ -31,7 +31,7 @@ def test_unbuilt_fallback_emits_source_files_with_a_cache_buster(monkeypatch):
     assets._state.update(mtime=None, manifest=None, fresh=False, checked=0.0)
     try:
         tags = str(assets.css("site"))
-        assert tags.count("<link") == 4 and re.search(r"/static/css/royale\.css\?v=\d+", tags)
+        assert tags.count("<link") == 2 and re.search(r"/static/css/theme\.css\?v=\d+", tags)
         assert 'src="/static/js/nav-init.js?v=' in str(assets.js("nav-init", defer=False))
         assert " defer" not in str(assets.js("nav-init", defer=False)) and " defer" in str(assets.js("site"))
         assert assets.service_worker_file() == assets.SW_SOURCE_FILE
@@ -79,7 +79,7 @@ def test_served_service_worker_carries_the_build_id_and_hashed_shell():
     assert f"/*@build*/'{m['build']}'" in sw
     for url in m["shell"]:
         assert url in sw
-    assert "/static/css/royale.css" not in sw            # nothing hand-listed that could go stale
+    assert "/static/css/theme.css" not in sw            # nothing hand-listed that could go stale
 
 
 @pytest.mark.skipif(not (BUILT and shutil.which("node") and (assets.APP_DIR.parent / "node_modules").is_dir()),
@@ -97,7 +97,7 @@ def test_dev_ignores_a_stale_build_so_edits_are_never_hidden(monkeypatch):
     try:
         assert assets.get_settings().ENV == "dev"
         tags = str(assets.css("site"))
-        assert "/static/dist/" not in tags and "/static/css/royale.css?v=" in tags
+        assert "/static/dist/" not in tags and "/static/css/theme.css?v=" in tags
         assert assets.service_worker_file() == assets.SW_SOURCE_FILE
     finally:
         assets._state.update(checked=0.0, fresh=False, warned=False)
@@ -144,7 +144,7 @@ def test_login_page_has_no_font_preload_and_gets_the_login_extras():
 
 
 def test_offscreen_pause_rule_exists_and_reduced_motion_stays_covered():
-    css = (assets.STATIC_DIR / "css" / "royale.css").read_text("utf-8")
+    css = (assets.STATIC_DIR / "css" / "theme.css").read_text("utf-8")
     assert ".is-offscreen" in css and "animation-play-state:paused" in css
-    luxe = (assets.STATIC_DIR / "css" / "luxe.css").read_text("utf-8")
+    luxe = (assets.STATIC_DIR / "css" / "base.css").read_text("utf-8")
     assert "prefers-reduced-motion:reduce" in luxe and "*::before,*::after{animation:none!important" in luxe

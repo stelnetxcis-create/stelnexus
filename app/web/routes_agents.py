@@ -6,7 +6,8 @@ from sqlalchemy import select
 from app.core.errors import ValidationError
 from app.core.rbac import Perm, creatable_roles, hides_totals, scope_ids
 from app.db.models import UPLINE_ROLES, Role, Status, User
-from app.services import agents
+from app.services import accounts, agents
+from app.web.paging import paginate
 from app.web.deps import Ctx, form_data, flash_redirect, render, require_ctx
 
 router = APIRouter()
@@ -34,12 +35,14 @@ def _uplines(ctx: Ctx, creatable: list[Role]) -> list[User]:
 async def agents_page(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.AGENTS_VIEW)
     search = request.query_params.get("q", "")[:60]
-    rows = agents.list_agents(ctx.db, ctx.user, search=search or None)
+    pager, rows = paginate(request, 200, lambda limit, offset: agents.list_agents(
+        ctx.db, ctx.user, search=search or None, limit=limit, offset=offset))
     hide = hides_totals(ctx.user)           # a Pawn without 'see stakes, pools and payouts' sees no balances
-    wallets = {row.id: (agents.wallet_balance(ctx.db, row) if row.has_wallet and not hide else None) for row in rows}
-    commissions = {row.id: (agents.commission_balance(ctx.db, row) if row.has_wallet and not hide else None) for row in rows}
+    bal = accounts.user_balances(ctx.db, [] if hide else rows)       # one query, not two per row
+    wallets = {row.id: (bal[row.id][0] if not hide and row.id in bal else None) for row in rows}
+    commissions = {row.id: (bal[row.id][1] if not hide and row.id in bal else None) for row in rows}
     creatable = creatable_roles(ctx.user)
-    return render(ctx, "agents.html", active="agents", rows=rows, wallets=wallets, hide_balances=hide,
+    return render(ctx, "agents.html", active="agents", rows=rows, pager=pager, wallets=wallets, hide_balances=hide,
                   commissions=commissions, search=search, creatable=creatable, uplines=_uplines(ctx, creatable),
                   downline=sorted(scope_ids(ctx.db, ctx.user) - {ctx.user.id}))
 

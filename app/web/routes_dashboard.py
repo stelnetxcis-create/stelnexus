@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from app.core import ttlcache
+from app.core.config import get_settings
 from app.core.rbac import Perm, bola_dev_only
 from sqlalchemy import func, select
 from app.core.rbac import downline_ids, scope_ids
@@ -40,19 +42,26 @@ def _number_game_tile(ctx: Ctx, bola_card: dict | None) -> dict | None:
 @router.get("/dashboard")
 async def dashboard(ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.DASHBOARD)
-    stats = reports.dashboard(ctx.db, ctx.user)
+    ttl = get_settings().DASHBOARD_CACHE_SECONDS
+    # House-wide KPIs are identical for every viewer (the figure set is decided by show_money below),
+    # so one cached copy serves everyone for a few seconds instead of ~30 queries per page view.
+    stats = ttlcache.cached(("dashboard", "stats"), ttl, lambda: reports.dashboard(ctx.db, ctx.user))
     pending = settlement.pending_runs(ctx.db) if ctx.user.is_top else []
     recent_events = events.list_events(ctx.db, limit=5)
-    top_agents = reports.agent_performance(ctx.db) if ctx.user.is_top else []
+    top_agents = (ttlcache.cached(("dashboard", "top_agents"), ttl, lambda: reports.agent_performance(ctx.db))
+                  if ctx.user.is_top else [])
     # House money (stakes, balances, revenue, load / cash out) is dev-only: it needs cashflow.view.
     # Master keeps the operational side of the dashboard without any house totals.
     show_money = ctx.can(Perm.CASHFLOW_VIEW)
     mine = None
     if not ctx.user.is_top:       # agent / sub agent: only their own numbers, never house-wide money
-        ids = scope_ids(ctx.db, ctx.user)
+        def _network() -> dict:
+            ids = scope_ids(ctx.db, ctx.user)
+            return {"downline": len(downline_ids(ctx.db, ctx.user)),
+                    "players": int(ctx.db.scalar(select(func.count(Player.id)).where(Player.agent_id.in_(ids))) or 0)}
+        # network size is cached per user; the credit balance stays live (one cheap indexed read)
         mine = {"credit": agents_svc.wallet_balance(ctx.db, ctx.user),
-                "downline": len(downline_ids(ctx.db, ctx.user)),
-                "players": int(ctx.db.scalar(select(func.count(Player.id)).where(Player.agent_id.in_(ids))) or 0)}
+                **ttlcache.cached(("dashboard", "network", ctx.user.id), ttl, _network)}
 
     # "Needs attention": the few things a person with this role can act on right now.
     attention = []

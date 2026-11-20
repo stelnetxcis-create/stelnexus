@@ -10,9 +10,10 @@ from __future__ import annotations
 import datetime as dt
 
 from sqlalchemy import or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core import audit
+from app.core import ttlcache
 from app.core.errors import Conflict, Forbidden, LockedState, NotFound, ValidationError
 from app.core.money import fmt
 from app.core.rbac import assert_player_in_scope, is_top, scope_ids
@@ -40,6 +41,7 @@ def create_request(
 ) -> CashRequest:
     """`target` only matters for an agent subject: "wallet" loads / cashes out the agent's own
     credit (the Wallet page); "commission" is the original commission withdrawal."""
+    ttlcache.invalidate_after_commit(db)   # dashboard KPIs changed
     if idempotency_key:
         existing = db.scalar(select(CashRequest).where(CashRequest.idempotency_key == idempotency_key))
         if existing is not None:
@@ -108,6 +110,7 @@ def create_request(
 
 def review(db: Session, actor: User, *, request_id: int, approve: bool, settings: SettingsStore,
            note: str | None = None) -> CashRequest:
+    ttlcache.invalidate_after_commit(db)   # dashboard KPIs changed
     request = db.scalar(select(CashRequest).where(CashRequest.id == request_id).with_for_update())
     if request is None:
         raise NotFound("Request not found.")
@@ -206,6 +209,12 @@ def _mark_agent_commissions_claimed(db: Session, agent_id: int, amount_cents: in
     db.flush()
 
 
+# Request rows are rendered with their player / agent / requester / GCash number: load them with
+# the list (joined many-to-one) rather than one lazy SELECT per relationship per row.
+_REQ_LOAD = (joinedload(CashRequest.player), joinedload(CashRequest.agent),
+             joinedload(CashRequest.requester), joinedload(CashRequest.gcash_account))
+
+
 def pending_count(db: Session, actor: User) -> int:
     """Requests waiting for review that `actor` could act on (shown as a dot on the wallet)."""
     from sqlalchemy import func
@@ -220,7 +229,8 @@ def my_requests(db: Session, user: User, *, limit: int = 50) -> list[CashRequest
     """The signed-in account's own requests: for itself, its commission, or one of its players."""
     stmt = select(CashRequest).where(or_(CashRequest.requested_by_id == user.id,
                                          CashRequest.agent_id == user.id))
-    return list(db.scalars(stmt.order_by(CashRequest.id.desc()).limit(min(limit, 200))).all())
+    return list(db.scalars(stmt.options(*_REQ_LOAD).order_by(CashRequest.id.desc())
+                           .limit(min(limit, 200))).all())
 
 
 def list_requests(db: Session, actor: User, *, view: str = "in", limit: int = 200) -> list[CashRequest]:
@@ -235,4 +245,5 @@ def list_requests(db: Session, actor: User, *, view: str = "in", limit: int = 20
         stmt = stmt.where(CashRequest.direction == RequestDirection.OUT,
                           CashRequest.status == RequestStatus.PENDING)
     stmt = gcash.visible_to(stmt, actor)
-    return list(db.scalars(stmt.order_by(CashRequest.id.desc()).limit(min(limit, 1000))).all())
+    return list(db.scalars(stmt.options(*_REQ_LOAD).order_by(CashRequest.id.desc())
+                           .limit(min(limit, 1000))).all())

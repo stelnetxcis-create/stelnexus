@@ -119,6 +119,7 @@
       {% endfor %}
       </tbody>
     </table></div>
+    {{ ui.pager(pager) }}
     {% else %}{{ ui.empty('No commissions in this range. They accrue when a game in your network settles.') }}{% endif %}
   </div>
 </div>

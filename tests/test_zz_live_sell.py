@@ -113,3 +113,46 @@ def test_locking_a_game_offers_an_undo_toast():
         assert '"locked":"0"' in page.text.replace(" ", "")
     finally:
         _cleanup(event_id)
+
+
+def test_fight_view_has_strip_early_bet_panel_and_no_seller_panel():
+    ev_id, fight_id, player_id = _setup()
+    c, r = login("admin")
+    assert r.status_code == 303
+    html = c.get(f"/change_name?event_id={ev_id}&fight_id={fight_id}").text
+    assert "data-fv-strip" in html and 'class="fv-chip' in html and "data-vp-orient" in html
+    assert "game-tile" not in html
+    # the panel is the EARLY BET panel (posts to /bets/early/*), the Seller Desk endpoints are not wired to this page
+    assert "data-bp" in html and 'data-place-url="/bets/early/place"' in html
+    assert "/sell/place" not in html and "Sell tickets" not in html
+    assert f'data-id="{player_id}"' in html
+    assert "Start stream" in html and "Pre-show" in html
+
+
+def test_early_bet_closes_when_stream_starts():
+    ev_id, fight_id, player_id = _setup()
+    c, r = login("admin")
+    tok = _csrf(c)
+    body = {"fight_id": fight_id, "side": "meron", "amount": "100", "player_id": player_id,
+            "idempotency_key": "early-1", "csrf_token": tok}
+    ok = c.post("/bets/early/place", data=body, headers={"Accept": "application/json", "X-CSRF-Token": tok})
+    assert ok.status_code == 200 and ok.json()["ok"], ok.text
+    # start the stream: the panel disappears, the endpoint refuses, the live poll says so
+    assert c.post(f"/events/{ev_id}/stream", data={"action": "start", "csrf_token": tok}).status_code in (302, 303)
+    page = c.get(f"/change_name?event_id={ev_id}&fight_id={fight_id}").text
+    assert "data-bp" not in page and "Stream is live" in page
+    tok = _csrf(c); body["csrf_token"] = tok
+    body["idempotency_key"] = "early-2"
+    late = c.post("/bets/early/place", data=body, headers={"Accept": "application/json", "X-CSRF-Token": tok})
+    assert late.status_code >= 400 and "stream has started" in late.text
+    assert c.get(f"/_live/event/{ev_id}").json()["event"]["live"] is True
+    # ordinary betting elsewhere is unchanged by the stream flag
+    tok = _csrf(c); body["csrf_token"] = tok
+    normal = c.post("/bets/place", data={**body, "idempotency_key": "norm-1"}, follow_redirects=False)
+    assert normal.status_code in (302, 303)
+    # back to pre-show reopens early bets
+    assert c.post(f"/events/{ev_id}/stream", data={"action": "reset", "csrf_token": _csrf(c)}).status_code in (302, 303)
+    tok = _csrf(c); body["csrf_token"] = tok
+    body["idempotency_key"] = "early-3"
+    again = c.post("/bets/early/place", data=body, headers={"Accept": "application/json", "X-CSRF-Token": tok})
+    assert again.status_code == 200

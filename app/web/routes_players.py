@@ -8,7 +8,8 @@ from app.core.errors import ValidationError
 from app.core.money import to_cents
 from app.core.rbac import Perm
 from app.db.models import PlayerKind, Status
-from app.services import betting, players, presence
+from app.services import accounts, betting, players, presence
+from app.web.paging import paginate
 from app.web.deps import Ctx, form_data, flash_redirect, render, require_ctx
 
 router = APIRouter()
@@ -28,10 +29,13 @@ async def clp(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.PLAYERS_VIEW)
     search = request.query_params.get("q", "")[:60]
     kind = request.query_params.get("kind") or "online"
-    rows = players.list_players(ctx.db, ctx.user, kind=PlayerKind(kind) if kind in ("card", "online") else None,
-                                search=search or None)
-    balances = {row.id: players.wallet(ctx.db, row).balance_cents for row in rows}
-    return render(ctx, "clp.html", active="clp", rows=rows, balances=balances, search=search,
+    pager, rows = paginate(request, 200, lambda limit, offset: players.list_players(
+        ctx.db, ctx.user, kind=PlayerKind(kind) if kind in ("card", "online") else None,
+        search=search or None, limit=limit, offset=offset))
+    found = accounts.player_wallets(ctx.db, [r.id for r in rows])           # one query for all rows
+    balances = {row.id: (found[row.id] if row.id in found else players.wallet(ctx.db, row).balance_cents)
+                for row in rows}
+    return render(ctx, "clp.html", active="clp", rows=rows, balances=balances, search=search, pager=pager,
                   kind=kind,
                   min_age=int(ctx.store.get("player.min_age")))
 

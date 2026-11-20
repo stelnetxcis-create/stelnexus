@@ -57,3 +57,17 @@
   {% endfor %}
 </div>
 {% endmacro %}
+
+{# Compact game strip for the fight view: one numbered chip per game, coloured by state. It sits at the top of the video,
+   so it is there in full screen too. fightview.js recolours it live and switches game without reloading the page. #}
+{% macro game_strip(fights, event_id, active_id=0) %}
+<nav class="fv-strip" data-fv-strip data-event="{{ event_id }}" data-active="{{ active_id }}" aria-label="Games">
+  <div class="fv-list" data-fv-list>
+  {% for f in fights %}{% set res = f.result.value if f.result else '' %}
+    <a class="fv-chip st-{{ f.status.value }}{{ ' res-' ~ res if res }}{{ ' is-active' if f.id == active_id }}" data-fight="{{ f.id }}" data-n="{{ f.number }}"
+       data-m="{{ f.entry_name_meron }}" data-w="{{ f.entry_name_wala }}" href="/change_name?event_id={{ event_id }}&fight_id={{ f.id }}"{% if f.id == active_id %} aria-current="true"{% endif %}
+       title="Game {{ f.number }} · {{ f.entry_name_meron }} vs {{ f.entry_name_wala }} · {{ res | upper if res else f.status.value | upper }}"><b>{{ f.number }}</b></a>
+  {% endfor %}
+  </div>
+</nav>
+{% endmacro %}

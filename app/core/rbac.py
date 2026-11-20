@@ -39,6 +39,9 @@ class Perm(str, Enum):
     LOCATIONS_CREATE = "locations.create"
     LOCATIONS_VIEW = "locations.view"
     LOCATIONS_MANAGE = "locations.manage"
+    # Sports team catalog (NBA first): registry only, Admin Panel.
+    TEAMS_VIEW = "teams.view"
+    TEAMS_MANAGE = "teams.manage"
     FIGHTS_VIEW = "fights.view"
     FIGHTS_RENAME = "fights.rename"
     FIGHTS_LOCK = "fights.lock"
@@ -139,7 +142,7 @@ _ADMIN_ONLY = {
     Perm.ACCOUNTS_VIEW, Perm.ACCOUNTS_EDIT, Perm.ACCOUNTS_REMOVE, Perm.IPBANS_MANAGE,
     Perm.SELL_DESK, Perm.CANCEL_LOG,
     Perm.STAFF_VIEW, Perm.STAFF_TELLER, Perm.STAFF_DECLARATOR,
-    Perm.LOCATIONS_VIEW, Perm.LOCATIONS_MANAGE,
+    Perm.LOCATIONS_VIEW, Perm.LOCATIONS_MANAGE, Perm.TEAMS_VIEW, Perm.TEAMS_MANAGE,
     # House money is dev-only: the cashflow page, house totals on the dashboard, event P&L and the
     # report archives. A Pawn can still be granted them one by one ("cashflow:view", "reports:view").
     Perm.CASHFLOW_VIEW, Perm.REPORTS_VIEW,
@@ -206,6 +209,10 @@ def _build_grants() -> tuple[Grant, ...]:
         Grant("locations:edit", "Edit, archive and delete locations", "", "Locations",
               frozenset({Perm.PANEL_VIEW, Perm.LOCATIONS_VIEW, Perm.LOCATIONS_MANAGE, Perm.LOCATIONS_CREATE}),
               implies=("locations:view",)),
+        Grant("teams:view", "See the sports teams", "NBA team registry.", "Teams",
+              frozenset({Perm.PANEL_VIEW, Perm.TEAMS_VIEW})),
+        Grant("teams:edit", "Switch teams on or off", "", "Teams",
+              frozenset({Perm.PANEL_VIEW, Perm.TEAMS_VIEW, Perm.TEAMS_MANAGE}), implies=("teams:view",)),
         Grant("cuts:view", "See cuts", "Volume % and SOP % of every Agent and Sub Agent.", "Cuts",
               frozenset({Perm.PANEL_VIEW, Perm.CUTS_VIEW})),
         Grant("cuts:edit", "Change cuts", "Held to the same limits as Settings → Commissions.", "Cuts",
