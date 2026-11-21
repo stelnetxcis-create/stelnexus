@@ -10,7 +10,7 @@ from app.core.rbac import downline_ids, scope_ids
 from app.db.models import Player, RunStatus, SettlementRun
 from app.services import bola as _bola
 from app.services import agents as agents_svc
-from app.services import reports, settlement, events
+from app.services import reports, settlement, events, snapshots
 from app.web.deps import Ctx, render, require_ctx
 
 router = APIRouter()
@@ -45,10 +45,13 @@ async def dashboard(ctx: Ctx = Depends(require_ctx)):
     ttl = get_settings().DASHBOARD_CACHE_SECONDS
     # House-wide KPIs are identical for every viewer (the figure set is decided by show_money below),
     # so one cached copy serves everyone for a few seconds instead of ~30 queries per page view.
-    stats = ttlcache.cached(("dashboard", "stats"), ttl, lambda: reports.dashboard(ctx.db, ctx.user))
+    # The all-time load / cash-out and Bola totals come from the precomputed snapshot (refresh-reports
+    # timer); everything else in the KPIs is cheap and stays live behind the short TTL cache.
+    stats = ttlcache.cached(("dashboard", "stats"), ttl, lambda: reports.dashboard(
+        ctx.db, ctx.user, flows=snapshots.flows(ctx.db).payload))
     pending = settlement.pending_runs(ctx.db) if ctx.user.is_top else []
     recent_events = events.list_events(ctx.db, limit=5)
-    top_agents = (ttlcache.cached(("dashboard", "top_agents"), ttl, lambda: reports.agent_performance(ctx.db))
+    top_agents = (ttlcache.cached(("dashboard", "top_agents"), ttl, lambda: snapshots.top_agents(ctx.db).payload)
                   if ctx.user.is_top else [])
     # House money (stakes, balances, revenue, load / cash out) is dev-only: it needs cashflow.view.
     # Master keeps the operational side of the dashboard without any house totals.

@@ -1,6 +1,6 @@
-/* Seller component. Uses the same server rules as the old "Sell ticket" form (/sell/place, /sell/undo); this is only a
+/* Bet component. Uses the same server rules as /bets/place; this is only a
    faster front. It is mounted twice:
-     - page mode:  the full Seller Desk (/sell). It polls the event itself and has an event picker and a games row.
+     - page mode:  a standalone page with its own event picker and games row (no page uses it now).
      - panel mode: the bet panel floating over the fight-view video. The host (fightview.js) feeds it the event's
                    games (setFights) and tells it which game is on screen (select); keys only count while the panel has focus.
    Every element is found by data-sl="name" inside the mount point, so the same markup can live anywhere. */
@@ -15,8 +15,9 @@
   opts = opts || {};
   const panelMode = !!opts.panel;
   const sl = (name) => root.querySelector('[data-sl="' + name + '"]');
-  // endpoints: the Seller Desk uses /sell/*, the livestream early-bet panel sets data-place-url / data-undo-url on its root
-  const PLACE_URL = root.dataset.placeUrl || "/sell/place", UNDO_URL = root.dataset.undoUrl || "/sell/undo/";
+  // endpoints: the livestream bet panel sets data-place-url / data-undo-url on its root
+  const PLACE_URL = root.dataset.placeUrl || "/bets/early/place", UNDO_URL = root.dataset.undoUrl || "/bets/early/undo/";
+  const SELF = root.dataset.self === "1";          // the logged-in account bets for itself: no player to choose
   const drawOn = root.dataset.draw === "1";
   const undoWindow = Number(root.dataset.undo);          // -1 = this account cannot undo
   const canUndo = undoWindow >= 0;
@@ -33,7 +34,7 @@
   const stateText = (f) => (f.res ? f.res.toUpperCase() : f.st.toUpperCase());
 
   /* ---- player: remember the last one, resolve "name · ref" back to an id through the datalist */
-  const options = $$("option", sl("players"));
+  const options = sl("players") ? $$("option", sl("players")) : [];
   function resolvePlayer() {
     const hit = options.find((o) => o.value === el.player.value);
     S.playerId = hit ? Number(hit.dataset.id) : 0;
@@ -122,7 +123,7 @@
     } else { ["pl-meron", "pl-wala", "sh-meron", "sh-wala"].forEach((q) => { sl(q).textContent = ""; }); }
     el.closed.hidden = sellable;
     if (!sellable) {
-      el.closedText.textContent = S.live ? "Early betting is closed: the stream has started." : f.res ? "Game " + f.n + " is finished: " + f.res.toUpperCase() + "." : "Betting is closed on game " + f.n + ".";
+      el.closedText.textContent = S.live ? "Betting is closed: this game has started." : f.res ? "Game " + f.n + " is finished: " + f.res.toUpperCase() + "." : "Betting is closed on game " + f.n + ".";
       if (el.next) el.next.hidden = !S.fights.some((x) => x.st === "open");
     }
     el.amt.textContent = Number(S.amount || 0).toLocaleString("en-PH");
@@ -130,7 +131,7 @@
     const amount = Number(S.amount || 0);
     let lack = "";
     if (!sellable) lack = S.live ? "Stream started" : "Betting closed";
-    else if (!S.playerId) lack = "Choose a player";
+    else if (!S.playerId && !SELF) lack = "Choose a player";
     else if (!S.side) lack = "Tap Meron or Wala";
     else if (!amount) lack = "Enter an amount";
     el.go.className = "sell-go" + (S.side && !lack ? " " + S.side[0] : "") + (S.busy ? " is-busy" : "");
@@ -183,17 +184,24 @@
     if (!r.ok) { const err = new Error(data.detail || "Something went wrong. Please try again."); err.status = r.status; throw err; }
     return data;
   }
+  // the panel shows the bettor's own credit; the server sends the new balance (cents) with every bet / undo
+  function showBalance(cents) {
+    const b = sl("balance");
+    if (b && typeof cents === "number") b.textContent = money(cents);
+  }
   async function sell() {
     const f = fight();
-    if (S.busy || !f || !S.side || !S.playerId || !Number(S.amount)) return;
+    if (S.busy || !f || !S.side || (!S.playerId && !SELF) || !Number(S.amount)) return;
     S.busy = true; render();
     S.key = S.key || newKey();                       // same key on a retry, so a double-tap can never sell twice
     const body = new FormData();
     body.set("fight_id", f.id); body.set("side", S.side); body.set("amount", S.amount);
-    body.set("player_id", S.playerId); body.set("idempotency_key", S.key); body.set("csrf_token", csrf);
+    if (S.playerId) body.set("player_id", S.playerId);
+    body.set("idempotency_key", S.key); body.set("csrf_token", csrf);
     try {
       const d = await api(PLACE_URL, body);
       S.key = ""; S.amount = "";
+      showBalance(d.balance);
       addRecent(d.ticket);
       toast("Ticket " + d.ticket.code + (root.dataset.verb ? " placed" : " sold"), { level: "success", sub: money(d.ticket.stake) + " on " + d.ticket.side.toUpperCase() + " \u00B7 Game " + d.ticket.fight });
     } catch (err) {
@@ -230,9 +238,10 @@
       b.addEventListener("click", async () => {
         b.disabled = true;
         try {
-          await api(UNDO_URL + t.id, new FormData());
+          const u = await api(UNDO_URL + t.id, new FormData());
+          showBalance(u.balance);
           li.classList.add("is-undone"); b.textContent = "Undone"; clearInterval(iv);
-          toast("Ticket " + t.code + " cancelled", { level: "info", sub: "Stake refunded to the player" });
+          toast("Ticket " + t.code + " cancelled", { level: "info", sub: "Stake refunded to your credit" });
         } catch (err) { b.disabled = false; toast(err.message, { level: "danger" }); }
       });
       act.appendChild(b);

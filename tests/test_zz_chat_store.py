@@ -135,6 +135,10 @@ def test_99_buys_thirty_chat_uses_one_game_each():
         assert c.post(f"/fights/{g1}/chat/unlock", headers=h).json()["tokens"] == 29
         assert c.post(f"/fights/{g1}/chat/send", headers=h, json={"body": "first game"}).status_code == 200
         assert c.post(f"/fights/{g1}/chat/unlock", headers=h).json()["tokens"] == 29    # same game: not charged again
+        # game 2 is not open yet (game 1 is still the current one): no unlock, nothing charged
+        assert c.post(f"/fights/{g2}/chat/unlock", headers=h).status_code == 409
+        with session_scope() as db:                       # game 1 is done: game 2 becomes the current game
+            db.get(Fight, g1).status = FightStatus.SETTLED
         assert c.post(f"/fights/{g2}/chat/unlock", headers=h).json()["tokens"] == 28    # second game uses the next one
     finally:
         _cleanup(event_id)
@@ -357,3 +361,27 @@ def test_header_menus_close_each_other():
     c, _ = login("admin")
     js = c.get("/static/js/menus.js").text
     assert "closeAll" in js and asset_urls("js", "site")[-1] in c.get("/dashboard").text
+
+
+def test_chat_follows_the_game_order_and_on_air_lock():
+    """Chat opens on the current game only while it has not started; on air or waiting = closed for everyone."""
+    name, event_id, (g1, g2) = _setup()
+    try:
+        c, _ = login(name)
+        h = {"X-CSRF-Token": _csrf(c), **JSON}
+        with session_scope() as db:
+            user = db.scalar(select(User).where(User.username == name))
+            assert store_svc.access(db, user, db.get(Fight, g1))["reason"] in ("ok", "locked")      # current, pre-show
+            assert store_svc.access(db, user, db.get(Fight, g2))["reason"] == "waiting"             # later game
+            db.get(Fight, g1).started_at = dt.datetime.now(dt.timezone.utc)                         # game 1 on air
+            assert store_svc.access(db, user, db.get(Fight, g1))["reason"] == "paused"
+            assert store_svc.access(db, user, db.get(Fight, g2))["reason"] == "waiting"
+        r = c.post(f"/fights/{g1}/chat/send", headers=h, json={"body": "hello"})
+        assert r.status_code == 422 and "on air" in r.text
+        with session_scope() as db:                                                                  # game 1 declared
+            db.get(Fight, g1).status = FightStatus.SETTLED
+            db.flush()
+            user = db.scalar(select(User).where(User.username == name))
+            assert store_svc.access(db, user, db.get(Fight, g2))["reason"] in ("ok", "locked")      # game 2 now open
+    finally:
+        _cleanup(event_id)

@@ -1,7 +1,7 @@
 /* StelNexus LUXE behaviour: count-up on stat values + pointer spotlight. No deps, ~1KB. */
 (function () {
   'use strict';
-  var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches || document.documentElement.classList.contains('fx-min');
   if (reduce) return;
 
   // Count-up: only for values shaped like  <prefix><number><suffix>  with no digits in prefix/suffix.
@@ -46,7 +46,7 @@
 /* ===== LUXE 3D: coin, gold dust, tilt ===== */
 (function () {
   'use strict';
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches || document.documentElement.classList.contains('fx-min')) return;
 
   // 1) login hero coin: JS-driven angle so there is no loop seam and speed changes are smooth
   var brand = document.querySelector('.auth-card .auth-brand');

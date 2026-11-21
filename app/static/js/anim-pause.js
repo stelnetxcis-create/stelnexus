@@ -9,6 +9,7 @@
   if (!('IntersectionObserver' in window) || typeof document.getAnimations !== 'function') return;
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
+  var MIN = document.documentElement.classList.contains('fx-min');
   var seen = new WeakSet();
   var io = new IntersectionObserver(function (entries) {
     entries.forEach(function (e) { e.target.classList.toggle('is-offscreen', !e.isIntersecting); });
@@ -20,6 +21,7 @@
       var fx = a.effect, el = fx && fx.target;
       if (!el || seen.has(el) || el === document.body || el === document.documentElement) return;
       if (fx.getComputedTiming().iterations !== Infinity) return;
+      if (MIN) { a.cancel(); return; }                       // minimal level: nothing loops, anywhere
       seen.add(el); io.observe(el);
     });
   }

@@ -21,6 +21,7 @@ from collections.abc import Iterable, Sequence
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.pagination import clamp_limit, clamp_offset
 from app.core import audit
 from app.core.errors import Conflict, InsufficientFunds, ValidationError
 from app.db.models import Account, LedgerEntry, LedgerTxn, User
@@ -184,7 +185,7 @@ def balance_of(db: Session, account: Account) -> int:
 def history(db: Session, account_id: int, limit: int = 50, offset: int = 0) -> list[LedgerEntry]:
     return list(db.scalars(
         select(LedgerEntry).where(LedgerEntry.account_id == account_id)
-        .order_by(LedgerEntry.id.desc()).limit(limit).offset(offset)
+        .order_by(LedgerEntry.id.desc()).limit(clamp_limit(limit, 500)).offset(clamp_offset(offset))
     ).all())
 
 

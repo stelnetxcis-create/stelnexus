@@ -20,7 +20,7 @@
     <td>{{ ui.badge('Load' if r.direction.value == 'in' else 'Cash out', 'green' if r.direction.value == 'in' else 'red') }}</td>
     <td>{{ ui.badge(r.method) }}</td>
     <td class="right num">{{ r.amount_cents | money }}</td>
-    <td class="small nowrap">{% if gc_nums and r.gcash_account_id in gc_nums %}<span class="gnum">{{ gc_nums[r.gcash_account_id] }}</span> <span class="muted">{{ r.gcash_account.label }}</span>{% else %}—{% endif %}</td>
+    <td class="small nowrap">{% if gc_nums and r.gcash_account_id in gc_nums %}<span class="gnum">{{ gc_nums[r.gcash_account_id] }}</span>{% else %}—{% endif %}</td>
     <td class="small nowrap">{{ r.created_at | datetime }}</td>
     <td>{{ ui.status_badge(r.status) }}{% if r.review_note %} <span class="muted small">{{ r.review_note }}</span>{% endif %}</td>
   </tr>
@@ -110,10 +110,9 @@
         {{ ui.field('Amount (PHP)', 'amount', required=true, help='Between ' ~ (min_cash | money) ~ ' and ' ~ (max_cash | money), attrs='inputmode=decimal') }}
         {{ ui.field('Reference number', 'reference', attrs='maxlength=64 placeholder="' ~ ('GCash reference (required for GCash loads)' if is_load else 'Your GCash / bank number') ~ '"') }}
       </div>
-      {% if send_to %}<p class="notice">{% if is_load %}Send the money to <strong class="gnum">{{ send_to.number }}</strong> ({{ send_to.label }}). The number is confirmed when you send the request and shown on it, and can change when this one reaches its limit.{% else %}A Teller sends the money from one of the pool's GCash numbers once approved.{% endif %}</p>
+      {% if send_to %}<p class="notice">{% if is_load %}The GCash number to send to is assigned when you submit the request, and then shown on that request.{% else %}A Teller sends the money from one of the pool's GCash numbers once approved.{% endif %}</p>
       {% elif pool_on and is_load %}<p class="notice">No GCash number has room right now. Use bank transfer or try again later.</p>{% endif %}
-      {% if tellers %}<p class="notice">Send or receive through a Teller's GCash: {% for name, num in tellers %}<strong>{{ name }}</strong> {{ num }}{{ ', ' if not loop.last }}{% endfor %}.</p>{% endif %}
-      <p class="notice">Your balance changes only after the Admin approves. A request cannot be approved twice.</p>
+            <p class="notice">Your balance changes only after the Admin approves. A request cannot be approved twice.</p>
       <button class="btn btn-primary" type="submit">{{ 'Request load' if is_load else 'Request cash out' }}</button>
     </form>
     {% endif %}
@@ -213,6 +212,7 @@
       {% endfor %}
       </tbody></table></div>
     {% else %}{{ ui.empty('Nothing in this view.') }}{% endif %}
+    {{ ui.pager(pager) }}
   </div>
 </div>
 {% call ui.modal('review-modal', 'Review request') %}

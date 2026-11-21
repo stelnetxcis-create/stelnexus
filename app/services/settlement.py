@@ -23,6 +23,8 @@ Payout model (pool / pari-mutuel, the standard Meron-Wala model):
     cut     = floor(main * tong_bps / 10000)
     net     = main - cut
     payout  = floor(stake * net / winning_pool)     for each winning ticket
+    maximum odds: the winning side's multiple is capped (payout.max_llamado_bps for the Llamado side,
+        payout.max_dehado_bps for the other); the capped-off surplus stays with the house
     remainder (0-2 centavos) -> house (or spread to winners, admin choice)
     minimum odds: if net / winning_pool is below payout.min_odds_bps the fight is
         cancelled automatically and every stake is refunded.
@@ -84,6 +86,7 @@ class Plan:
     payout_total: int = 0
     refund_total: int = 0
     remainder: int = 0
+    capped_surplus: int = 0
     house_take: int = 0
     lines: list[PayoutLine] = field(default_factory=list)
 
@@ -92,7 +95,7 @@ class Plan:
             "result": str(self.result), "model": self.model, "meron": self.meron, "wala": self.wala,
             "draw": self.draw, "auto_cancel": self.auto_cancel, "total": self.total, "house_cut": self.house_cut, "net_pool": self.net_pool,
             "payout_total": self.payout_total, "refund_total": self.refund_total,
-            "remainder": self.remainder, "house_take": self.house_take,
+            "remainder": self.remainder, "capped_surplus": self.capped_surplus, "house_take": self.house_take,
             "tickets": len(self.lines),
             "winners": sum(1 for line in self.lines if line.outcome == "win"),
         }
@@ -193,9 +196,14 @@ def build_plan(db: Session, fight: Fight, result: Result, settings: SettingsStor
         plan.house_take = plan.total
         return plan
 
+    # Llamado / Dehado maximum: the winning side's multiple never exceeds its ceiling; the rest stays with the house.
+    ceiling = betting.max_odds_bps(settings, result.value, snap, fight.llamado_side)
+    paid_pool = min(plan.net_pool, winning_pool * ceiling // 10000) if ceiling else plan.net_pool
+    plan.capped_surplus = plan.net_pool - paid_pool
+
     for ticket in main_tickets:
         if ticket.side.value == result.value:
-            payout = (ticket.stake_cents * plan.net_pool) // winning_pool
+            payout = (ticket.stake_cents * paid_pool) // winning_pool
             if cap:
                 payout = min(payout, cap)
             plan.lines.append(PayoutLine(ticket, payout, "win"))
@@ -204,7 +212,7 @@ def build_plan(db: Session, fight: Fight, result: Result, settings: SettingsStor
             plan.lines.append(PayoutLine(ticket, 0, "lose"))
     plan.lines.extend(draw_lines)
 
-    plan.remainder = plan.net_pool - plan.payout_total
+    plan.remainder = paid_pool - plan.payout_total
     if plan.remainder > 0 and str(settings.get("payout.rounding_remainder")) == "winners":
         winners = sorted((line for line in plan.lines if line.outcome == "win"),
                          key=lambda l: (-l.ticket.stake_cents, l.ticket.id))

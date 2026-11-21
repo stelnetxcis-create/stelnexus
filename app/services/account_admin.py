@@ -20,6 +20,7 @@ import re
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.pagination import clamp_limit, clamp_offset
 from app.core import audit
 from app.core.errors import Conflict, Forbidden, NotFound, ValidationError
 from app.core.rbac import Perm, has_perm
@@ -235,7 +236,9 @@ def remove_player(db: Session, actor: User, player_id: int, *, reason: str) -> P
 # ----------------------------------------------------------------------------- listing
 
 def list_accounts(db: Session, *, search: str | None = None, kind: str = "all",
-                  include_removed: bool = False, limit: int = 100) -> dict:
+                  include_removed: bool = False, limit: int = 100,
+                  user_offset: int = 0, player_offset: int = 0) -> dict:
+    """One page of staff / agent accounts and one page of players (each has its own offset)."""
     users: list[User] = []
     plist: list[Player] = []
     term = f"%{search.strip()[:60]}%" if search and search.strip() else None
@@ -245,7 +248,8 @@ def list_accounts(db: Session, *, search: str | None = None, kind: str = "all",
             q = q.where(User.status != Status.CLOSED)
         if term:
             q = q.where(User.username.ilike(term) | User.full_name.ilike(term))
-        users = list(db.scalars(q.order_by(User.id.desc()).limit(limit)).all())
+        users = list(db.scalars(q.order_by(User.id.desc()).limit(clamp_limit(limit, 501))
+                                .offset(clamp_offset(user_offset))).all())
     if kind in ("all", "players"):
         q = select(Player)
         if not include_removed:
@@ -253,5 +257,6 @@ def list_accounts(db: Session, *, search: str | None = None, kind: str = "all",
         if term:
             q = q.where(Player.username.ilike(term) | Player.full_name.ilike(term)
                         | Player.card_number.ilike(term))
-        plist = list(db.scalars(q.order_by(Player.id.desc()).limit(limit)).all())
+        plist = list(db.scalars(q.order_by(Player.id.desc()).limit(clamp_limit(limit, 501))
+                                .offset(clamp_offset(player_offset))).all())
     return {"users": users, "players": plist}

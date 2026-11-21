@@ -80,8 +80,8 @@
     //
     // Orientation button (phones): one tap goes full screen and locks LANDSCAPE; another tap while full screen
     // flips between landscape and portrait. Android Chrome can lock the screen, but only while full screen.
-    // iPhone Safari cannot lock at all, so there the stage is turned 90 degrees with CSS (.is-rot) and the page
-    // behind it is left alone. Leaving full screen always undoes both.
+    // iPhone Safari cannot lock at all: there the player stays full screen and asks you to turn the phone, so the
+    // whole screen (status bar and notifications too) goes landscape. Leaving full screen always undoes the lock.
     const full = $('[data-vp-full]'), orient = $('[data-vp-orient]');
     const stage = root.closest('[data-stage]') || root;
     const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement || null;
@@ -101,9 +101,13 @@
         catch (e) { why = (e && e.name) || 'refused'; }
       }
       if (!stage.classList.contains('is-native-lock')) {
-        // rotate the stage's content (.fc-rotbox) with CSS to reach landscape while the phone is held upright; this works
-        // inside real full screen too, so the browser's own bars stay hidden
-        stage.classList.toggle('is-rot', mode === 'landscape' && portraitNow());
+        // No real lock here (iPhone Safari, or a browser that refuses). We no longer fake it by turning only the video
+        // with CSS: that leaves the status bar and notifications upright. Real landscape = the whole phone turned, so
+        // stay in full screen and ask for that; the stage fills the screen as soon as the phone is sideways.
+        stage.classList.remove('is-rot');
+        if (mode === 'landscape' && portraitNow() && snx.toast)
+          snx.toast('Turn your phone sideways for full landscape. If the screen stays upright, switch off Rotation Lock: '
+            + 'iPhone, Control Center \u2192 lock icon. Android, Auto-rotate in the quick settings.', { level: 'info', ttl: 9000 });
       }
       // (why / fsWhy hold the browser's refusal reason, e.g. NotSupportedError; handy in the console when debugging)
       if (why && window.console) console.info('[stream] rotation lock refused:', why, fsWhy);
@@ -161,7 +165,7 @@
     document.addEventListener('snx:live', (ev) => { if (ev.detail && ev.detail.on) autoStart(true); });
     document.addEventListener('fullscreenchange', sync);
     document.addEventListener('webkitfullscreenchange', sync);
-    window.addEventListener('orientationchange', () => { setTimeout(() => { if (isFs() && want === 'landscape' && !stage.classList.contains('is-native-lock')) stage.classList.toggle('is-rot', portraitNow()); stage.dispatchEvent(new CustomEvent('snx:fs', { detail: true })); }, 250); });
+    window.addEventListener('orientationchange', () => { setTimeout(() => { stage.dispatchEvent(new CustomEvent('snx:fs', { detail: true })); }, 250); });
     document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && stage.classList.contains('is-pseudo')) full.click(); });
 
     // The game strip switches game without reloading the page: new names, new ENDED / LIVE state.

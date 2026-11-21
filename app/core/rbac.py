@@ -31,7 +31,7 @@ class Perm(str, Enum):
     REQUESTS_CREATE = "requests.create"
     REQUESTS_REVIEW = "requests.review"
     EVENTS_VIEW = "events.view"
-    EVENTS_CREATE = "events.create"        # creating an event: Master and Admin only
+    EVENTS_CREATE = "events.create"        # creating an event: Master, Agent, Sub Agent and Admin (hosting)
     EVENTS_MANAGE = "events.manage"
     EVENTS_OPEN = "events.open"            # set an event to OPEN only (Declarators)
     # Locations (venues). Master/Admin may register one while creating an event; editing,
@@ -89,8 +89,6 @@ class Perm(str, Enum):
     ACCOUNTS_EDIT = "accounts.edit"        # change name / username / contact / GCash of an account
     ACCOUNTS_REMOVE = "accounts.remove"    # close an account (never a delete; see account_admin)
     IPBANS_MANAGE = "ipbans.manage"        # ban / unban IP addresses
-    # Seller Desk (/sell) is experimental: Admin (the developer account) only, no grant lifts it.
-    SELL_DESK = "sell.desk"
     # Cancel Ticket and Bola Cancelled pages: dev-only (Admin account).
     CANCEL_LOG = "cancellog.view"
     # Staff Panel (below the Admin Panel): one section per staff role. Each section opens only for
@@ -130,6 +128,9 @@ _AGENT_PERMS = {
     Perm.EVENTS_VIEW, Perm.FIGHTS_VIEW, Perm.BETS_VIEW, Perm.BETS_PLACE, Perm.BETS_CANCEL,
     Perm.BOLA_VIEW, Perm.BOLA_PLACE, Perm.BOLA_CANCEL,
     Perm.COMMISSIONS_VIEW, Perm.COMMISSIONS_CLAIM,
+    # Hosting: an Agent / Sub Agent may create an event (and register its venue). Running it (lock, odds,
+    # cancel, expenses) stays with Master / Admin: EVENTS_MANAGE is not scoped to the event's creator.
+    Perm.EVENTS_CREATE, Perm.LOCATIONS_CREATE,
 } | _WALLET_PERMS
 
 # Admin Panel territory: only the Admin has it by default, and a Pawn gets exactly the slices the
@@ -140,7 +141,7 @@ _ADMIN_ONLY = {
     Perm.PLAYERS_VIEW, Perm.PLAYERS_CREATE, Perm.PLAYERS_EDIT,
     Perm.ONLINE_VIEW, Perm.PANEL_VIEW, Perm.PAWNS_MANAGE,
     Perm.ACCOUNTS_VIEW, Perm.ACCOUNTS_EDIT, Perm.ACCOUNTS_REMOVE, Perm.IPBANS_MANAGE,
-    Perm.SELL_DESK, Perm.CANCEL_LOG,
+    Perm.CANCEL_LOG,
     Perm.STAFF_VIEW, Perm.STAFF_TELLER, Perm.STAFF_DECLARATOR,
     Perm.LOCATIONS_VIEW, Perm.LOCATIONS_MANAGE, Perm.TEAMS_VIEW, Perm.TEAMS_MANAGE,
     # House money is dev-only: the cashflow page, house totals on the dashboard, event P&L and the
@@ -153,7 +154,10 @@ _ADMIN_ONLY = {
 # Master runs operations but never enters or changes results: declaring is for the Admin, Pawns
 # and Declarators only (Master is a high-privilege operator, not a result source).
 _NO_DECLARE = {Perm.FIGHTS_DECLARE, Perm.FIGHTS_REDECLARE, Perm.BOLA_DECLARE, Perm.BOLA_REDECLARE}
-_OPERATOR = set(Perm) - _ADMIN_ONLY - _NO_DECLARE
+# Approving / rejecting is for designated staff, not for Master: load and cash-out requests belong to the
+# Teller desk (and the Admin), result corrections to the Admin. Master still sees its own requests.
+_NO_APPROVE = {Perm.REQUESTS_REVIEW, Perm.FIGHTS_APPROVE, Perm.BOLA_APPROVE}
+_OPERATOR = set(Perm) - _ADMIN_ONLY - _NO_DECLARE - _NO_APPROVE
 # Kept for callers that ask "what is hidden from Master".
 _HIDDEN_ONLY = _ADMIN_ONLY
 
@@ -179,6 +183,23 @@ ROLE_PERMS: dict[Role, set[Perm]] = {
     # Pawn: a declarator-style spectator. Everything beyond that is granted per account by the Admin.
     Role.PAWN: set(_DECLARATOR_PERMS),
 }
+
+# Player (a normal account recruited with a Sub Agent's referral code): plays and nothing else. Strictly below
+# a Sub Agent: no dashboard, no commission, no referral codes, no hosting, no transfers, no cancelling.
+# It can see the games, place its own bets, see its own bets and load / cash out its own credit.
+PLAYER_PERMS: frozenset[Perm] = frozenset({
+    Perm.EVENTS_VIEW, Perm.FIGHTS_VIEW, Perm.BETS_VIEW, Perm.BETS_PLACE,
+    Perm.BOLA_VIEW, Perm.BOLA_PLACE,
+    Perm.WALLET_VIEW, Perm.REQUESTS_VIEW, Perm.REQUESTS_CREATE,
+})
+
+
+def player_perms() -> set[Perm]:
+    """What a player may do right now (the number game stays hidden while it is dev-only)."""
+    perms = set(PLAYER_PERMS)
+    if bola_dev_only():
+        perms -= BOLA_PERMS
+    return perms
 
 
 # ---------------------------------------------------------------------------

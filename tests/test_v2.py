@@ -197,8 +197,13 @@ def test_locations_events_and_permissions(chain):
         locations.update_location(w.db, w.master, loc.id, name="x", address=None, city=None, notes=None,
                                   custom_fields=[], default_fight_count=None, default_payout_model=None,
                                   default_house_cut_bps=None)
+    # Agents and Sub Agents host: they may register a venue (editing it stays the Admin Panel's job)
+    own = locations.create_location(w.db, w.cavo, name=f"Agent Arena {w.tag}")
     with pytest.raises(Forbidden):
-        locations.create_location(w.db, w.cavo, name="Nope Arena")
+        locations.update_location(w.db, w.cavo, own.id, name="x", address=None, city=None, notes=None,
+                                  custom_fields=[], default_fight_count=None, default_payout_model=None,
+                                  default_house_cut_bps=None)
+    locations.delete_location(w.db, w.admin, own.id)
     fields = locations.parse_custom_fields(["Capacity", "Contact", ""], ["800", "09171112222", "ignored"])
     locations.update_location(w.db, w.admin, loc.id, name=loc.name, address="Main St", city="Cebu", notes=None,
                               custom_fields=fields, default_fight_count="8", default_payout_model="fixed",
@@ -208,8 +213,10 @@ def test_locations_events_and_permissions(chain):
     ev = events.create_event(w.db, w.master, title="At arena", event_date=dt.date.today(), settings=w.store,
                              location_id=loc.id)
     assert (ev.fight_count, ev.payout_model.value, ev.house_cut_bps, ev.location.name) == (8, "fixed", 300, loc.name)
-    with pytest.raises(Forbidden):
-        events.create_event(w.db, w.cavo, title="x", event_date=dt.date.today(), settings=w.store, location_id=loc.id)
+    hosted = events.create_event(w.db, w.cavo, title="Agent hosted", event_date=dt.date.today(), settings=w.store,
+                                 location_id=loc.id)            # an Agent may host (create) an event ...
+    assert hosted.created_by_id == w.cavo.id
+    assert Perm.EVENTS_MANAGE not in permissions_of(w.cavo)     # ... but not run it: lock/odds/cancel stay Master/Admin
     with pytest.raises(Conflict):
         locations.delete_location(w.db, w.admin, loc.id)               # has events: archive instead
     locations.set_active(w.db, w.admin, loc.id, False)
@@ -231,10 +238,10 @@ def test_events_page_create_button_and_quick_location(chain):
     r = m.post("/locations/quick", data={"csrf_token": _csrf(m), "name": f"Quick {w.tag}", "city": "Davao"})
     assert r.status_code == 303 and f"Quick {w.tag}" in m.get("/events").text
     cv = _login(w.cavo.username)
-    assert "event-modal" not in cv.get("/events").text
-    cv.post("/events/create", data={"csrf_token": _csrf(cv), "title": f"Sneaky{w.tag}", "event_date": "2030-01-01"})
+    assert "event-modal" in cv.get("/events").text              # Agents host: they get the Create event button
+    cv.post(f"/events/{w.event.id}/cancel", data={"csrf_token": _csrf(cv), "reason": "not allowed to run it"})
     w.db.expire_all()
-    assert w.db.scalar(select(events.Event.id).where(events.Event.title == f"Sneaky{w.tag}")) is None
+    assert w.db.get(events.Event, w.event.id).status.value != "canceled"   # but cannot run / cancel events
     a = _login("admin")
     page = a.get("/admin/locations").text
     assert f"Quick {w.tag}" in page

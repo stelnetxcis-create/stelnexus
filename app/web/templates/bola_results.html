@@ -19,6 +19,7 @@
     {% endfor %}
     </tbody></table></div>
     {% else %}{{ ui.empty('No results yet.') }}{% endif %}
+    {{ ui.pager(pager) }}
   </div>
 </div>
 {% endblock %}

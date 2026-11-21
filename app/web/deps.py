@@ -146,7 +146,7 @@ def _apply_view_as(ctx: Ctx) -> None:
         target = ctx.db.get(User, int(data.get("t", 0)))
     except (BadSignature, SignatureExpired, TypeError, ValueError, AttributeError):
         return
-    if target is None or target.role in (Role.ADMIN, Role.TELLER) or target.status != Status.ACTIVE:
+    if target is None or target.role == Role.ADMIN or target.status != Status.ACTIVE:
         return
     if ctx.request.method not in _SAFE_METHODS:
         raise Forbidden(f"Read-only while viewing as {target.username}. Exit the preview from the DEV menu to make changes.")
@@ -156,6 +156,8 @@ def _apply_view_as(ctx: Ctx) -> None:
 def require_ctx(request: Request, db: DbSession = Depends(get_db)) -> Ctx:
     ctx = optional_ctx(request, db)
     if ctx.user is None:
+        if auth.was_displaced(db, request.cookies.get(_cfg.SESSION_COOKIE)):
+            raise AuthError(auth.DISPLACED_MSG)
         raise AuthError("Please sign in to continue.")
     token, _ = make_csrf_cookie(request.cookies.get(_cfg.SESSION_COOKIE, ""))
     ctx.csrf_token = token
@@ -234,18 +236,26 @@ def make_csrf_cookie_from(token: str, request: Request) -> tuple[str, str]:
     return token, f"{token}.{sign_csrf(token, session_cookie)}"
 
 
-_DEV_ROLE_ORDER = (Role.MASTER, Role.AGENT, Role.SUB_AGENT, Role.DECLARATOR, Role.PAWN)
+_DEV_ROLE_ORDER = (Role.MASTER, Role.AGENT, Role.SUB_AGENT, Role.TELLER, Role.DECLARATOR, Role.PAWN)
 
 
 def _dev_context(ctx: Ctx) -> dict:
     """Everything the DEV menu shows: accounts to preview, what the previewed account may do, env."""
-    from sqlalchemy import select as _select
+    from sqlalchemy import func as _func, select as _select
+    from app.db.models import Player as _Player
     rows = ctx.db.scalars(_select(User).where(User.role.in_(_DEV_ROLE_ORDER), User.status == Status.ACTIVE)
                           .order_by(User.username)).all()
     groups = [{"role": role.value, "label": role.label,
                "users": [u for u in rows if u.role == role]} for role in _DEV_ROLE_ORDER]
+    # Players are real accounts but live in their own table (not User), so they cannot be swapped into
+    # the 'view as' session. The menu lists them and opens their history page instead.
+    players = ctx.db.scalars(_select(_Player).where(_Player.status == Status.ACTIVE)
+                             .order_by(_Player.username, _Player.full_name).limit(200)).all()
+    players_total = int(ctx.db.scalar(_select(_func.count(_Player.id)).where(_Player.status == Status.ACTIVE)) or 0)
     return {
         "groups": groups,
+        "players": players,
+        "players_total": players_total,
         "perms": sorted(ctx.perms),
         "env": _cfg.ENV,
         "db": ctx.db.get_bind().dialect.name,

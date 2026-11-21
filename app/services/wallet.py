@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
+from app.core.pagination import clamp_limit, clamp_offset
 from app.core import audit
 from app.core.errors import Forbidden, NotFound, ValidationError
 from app.core.money import fmt
@@ -192,7 +193,7 @@ def history(db: Session, user: User, *, flow: str = "all", period: str = "all",
         stmt = stmt.where(LedgerEntry.amount_cents < 0)       # wallet is a liability: credit = money in
     elif flow == "out":
         stmt = stmt.where(LedgerEntry.amount_cents > 0)
-    rows = db.execute(stmt.order_by(LedgerEntry.id.desc()).limit(min(limit, 200)).offset(max(offset, 0))).all()
+    rows = db.execute(stmt.order_by(LedgerEntry.id.desc()).limit(clamp_limit(limit, 200)).offset(clamp_offset(offset))).all()
     out = []
     for entry, txn in rows:
         out.append(MoneyRow(

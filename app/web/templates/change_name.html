@@ -56,15 +56,17 @@
     {% if fight %}
     {# ----------------------------------------------------------- livestream chat #}
     {% set pass_price = settings['store.pass_price_cents'] %}{% set pass_days = settings['store.pass_days'] %}{% set tok_price = settings['store.token_price_cents'] %}
-    {# pre-show / live strip: early betting is only open until the stream starts #}
-    <div class="fv-live" data-fv-live data-live="{{ 1 if event.live_started_at else 0 }}">
+    {# pre-show / on-air strip: per GAME. Betting + the bet and chat panels close only for the game that is on air; the next games stay open. #}
+    {% set on_air = fight.started_at is not none %}
+    {% set ph = fv_phase %}
+    <div class="fv-live" data-fv-live data-live="{{ 1 if ph == 'onair' else 0 }}" data-phase="{{ ph }}">
       <span class="fv-live-dot" aria-hidden="true"></span>
-      <span data-fv-live-text>{% if event.live_started_at %}Stream is live &middot; early betting closed{% else %}Pre-show &middot; early betting open{% endif %}</span>
+      <span data-fv-live-text>{% if ph == 'open' %}Game #{{ fight.number }} &middot; pre-show &middot; betting and chat are open{% elif ph == 'onair' %}{% if on_air %}Game #{{ fight.number }} is on air &middot; betting and chat are closed until it is done{% else %}Game #{{ fight.number }} &middot; betting is closed{% endif %}{% elif ph == 'waiting' %}Game #{{ fight.number }} opens after the games before it are done{% else %}Game #{{ fight.number }} &middot; ended{% endif %}</span>
       {% if 'fights.lock' in perms and event.status.value == 'open' %}
-      <form method="post" action="/events/{{ event.id }}/stream" data-fv-live-form="start" data-confirm="Start the stream? Early betting from this page closes."{% if event.live_started_at %} hidden{% endif %}>
+      <form method="post" action="/events/{{ event.id }}/stream" data-fv-live-form="start" data-confirm="Put this game on air? Betting and chat close until it is declared; the next game opens after that."{% if ph != 'open' %} hidden{% endif %}>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="start"><input type="hidden" name="fight_id" value="{{ fight.id }}">
-        <button class="btn btn-sm btn-primary">Start stream</button></form>
-      <form method="post" action="/events/{{ event.id }}/stream" data-fv-live-form="reset" data-confirm="Back to pre-show? Early betting will open again."{% if not event.live_started_at %} hidden{% endif %}>
+        <button class="btn btn-sm btn-primary">Start game</button></form>
+      <form method="post" action="/events/{{ event.id }}/stream" data-fv-live-form="reset" data-confirm="Back to pre-show for this game? Betting and chat open again."{% if not (ph == 'onair' and on_air) %} hidden{% endif %}>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="reset"><input type="hidden" name="fight_id" value="{{ fight.id }}">
         <button class="btn btn-sm">Back to pre-show</button></form>
       {% endif %}
@@ -74,8 +76,69 @@
       <div class="fc-stagewrap" data-stage>
       <div class="fc-rotbox">
         {% set strip_html %}{{ lobby.game_strip(fights, event.id, fight.id) }}{% endset %}
-        {{ pl.stream_player('fight', 'Game #' ~ fight.number ~ ' · Live match video', fight.entry_name_meron, fight.entry_name_wala, stream_pass, chat_access.reason == 'closed', strip_html) }}
-        <div class="fc-overlay" data-fc-overlay data-size="m" role="region" aria-label="Livestream chat">
+        {# Payout scene IN the video area: live multipliers/pools while betting is open, "up next" for later games,
+           the final result once ended. Hidden while the game is on air (the video shows). Driven by fightview.js. #}
+        {% set pbs_state = 'open' if (ph == 'open' or (ph == 'onair' and not on_air)) else ('waiting' if ph == 'waiting' else ('ended' if ph == 'ended' else 'hidden')) %}
+        {% set cutv = (snapshot.main * (house_cut_bps or 0) // 10000) if snapshot else 0 %}
+        {% set netv = (snapshot.main - cutv) if snapshot else 0 %}
+        {% set res = fight.result.value if fight.result else '' %}
+        {% set scene_html %}
+        <div class="pbs" data-pbs data-state="{{ pbs_state }}" data-money="{{ 0 if hide_totals else 1 }}" data-res="{{ res }}"{% if pbs_state == 'hidden' %} hidden{% endif %}>
+          <div class="pbs-bg" aria-hidden="true"><i class="a"></i><i class="b"></i></div>
+          <div class="pbs-stage">
+
+          <div class="pbs-pane pbs-open" data-pbs-pane="open"{% if ph == 'onair' %} data-closed{% endif %}>
+            <div class="pbs-kicker"><i></i><span data-pb="kick">{{ 'Betting closed' if ph == 'onair' else 'Betting open' }}</span><span class="pbs-dot">&middot;</span>Game #<span data-pb="gn">{{ fight.number }}</span></div>
+            <div class="pbs-duel">
+              <div class="pbs-side meron{% if multipliers and multipliers.meron.capped %} is-max{% endif %}" data-pb-side="meron">
+                <div class="pbs-tag"><span>MERON</span><em data-pb="tm">{{ role_of(fight, 'meron') or '' }}</em></div>
+                <div class="pbs-name" data-pb="nm">{{ fight.entry_name_meron }}</div>
+                <div class="pbs-x" data-m><b data-pbn="mm" data-fmt="x" data-v="{{ multipliers.meron.bps if multipliers else 0 }}">{{ '%.2f' | format((multipliers.meron.bps if multipliers else 0) / 10000) if multipliers and multipliers.meron.bps else '&mdash;' | safe }}</b><small>x</small><span class="pbs-dir" data-pb-dir="meron"></span></div>
+                <div class="pbs-pool" data-m><b data-pbn="pm" data-fmt="peso" data-v="{{ snapshot.meron if snapshot else 0 }}">{{ (snapshot.meron if snapshot else 0) | money }}</b><small data-pbn="cm" data-fmt="tk" data-v="{{ snapshot.counts.meron if snapshot else 0 }}">{{ snapshot.counts.meron if snapshot else 0 }} tickets</small></div>
+              </div>
+              <div class="pbs-mid" data-m>
+                <div class="pbs-vs">VS</div>
+                <div class="pbs-row"><span>Total bets</span><b data-pbn="tt" data-fmt="peso" data-v="{{ snapshot.main if snapshot else 0 }}">{{ (snapshot.main if snapshot else 0) | money }}</b></div>
+                <div class="pbs-row"><span>Payout pool</span><b data-pbn="np" data-fmt="peso" data-v="{{ netv }}">{{ netv | money }}</b></div>
+                <div class="pbs-row"><span>House cut</span><b data-pbn="cut" data-fmt="peso" data-v="{{ cutv }}">{{ cutv | money }}</b></div>
+                <div class="pbs-bar"><i class="m" data-pb-bar-m style="width: {{ ((snapshot.meron / (snapshot.main or 1)) * 100) | round(1) if snapshot and snapshot.main else 50 }}%"></i><i class="w" data-pb-bar-w style="width: {{ ((snapshot.wala / (snapshot.main or 1)) * 100) | round(1) if snapshot and snapshot.main else 50 }}%"></i></div>
+              </div>
+              <div class="pbs-side wala{% if multipliers and multipliers.wala.capped %} is-max{% endif %}" data-pb-side="wala">
+                <div class="pbs-tag"><span>WALA</span><em data-pb="tw">{{ role_of(fight, 'wala') or '' }}</em></div>
+                <div class="pbs-name" data-pb="nw">{{ fight.entry_name_wala }}</div>
+                <div class="pbs-x" data-m><b data-pbn="mw" data-fmt="x" data-v="{{ multipliers.wala.bps if multipliers else 0 }}">{{ '%.2f' | format((multipliers.wala.bps if multipliers else 0) / 10000) if multipliers and multipliers.wala.bps else '&mdash;' | safe }}</b><small>x</small><span class="pbs-dir" data-pb-dir="wala"></span></div>
+                <div class="pbs-pool" data-m><b data-pbn="pw" data-fmt="peso" data-v="{{ snapshot.wala if snapshot else 0 }}">{{ (snapshot.wala if snapshot else 0) | money }}</b><small data-pbn="cw" data-fmt="tk" data-v="{{ snapshot.counts.wala if snapshot else 0 }}">{{ snapshot.counts.wala if snapshot else 0 }} tickets</small></div>
+              </div>
+            </div>
+            <p class="pbs-note" data-m>The more bets on a side, the lower it pays, up to a set maximum.</p>
+          </div>
+
+          <div class="pbs-pane pbs-wait" data-pbs-pane="waiting">
+            <div class="pbs-ring" aria-hidden="true"></div>
+            <div class="pbs-kicker"><i></i>Up next</div>
+            <div class="pbs-big">Game #<span data-pb="gn2">{{ fight.number }}</span></div>
+            <div class="pbs-vsline"><span class="m" data-pb="nm2">{{ fight.entry_name_meron }}</span><em>vs</em><span class="w" data-pb="nw2">{{ fight.entry_name_wala }}</span></div>
+            <p data-pb="waitmsg">Betting opens after game #{{ cur_number or '?' }} is done</p>
+          </div>
+
+          <div class="pbs-pane pbs-end" data-pbs-pane="ended">
+            <div class="pbs-crown" aria-hidden="true"><svg class="ico"><use href="#i-crown"/></svg></div>
+            <div class="pbs-kicker"><i></i>Game #<span data-pb="gn3">{{ fight.number }}</span><span class="pbs-dot">&middot;</span>Final</div>
+            <div class="pbs-result" data-pb="rh">{% if res == 'meron' %}MERON WINS{% elif res == 'wala' %}WALA WINS{% elif res == 'draw' %}DRAW{% else %}CANCELLED{% endif %}</div>
+            <div class="pbs-winner" data-pb="rw">{% if res == 'meron' %}{{ fight.entry_name_meron }}{% elif res == 'wala' %}{{ fight.entry_name_wala }}{% elif res == 'draw' %}Stakes refunded{% else %}Stakes refunded{% endif %}{% if res in ('meron', 'wala') and role_of(fight, res) %} <em>{{ role_of(fight, res) }}</em>{% endif %}</div>
+            <div class="pbs-final" data-m>
+              <div class="pbs-fx"><b data-pbn="fx" data-fmt="x" data-v="0">&mdash;</b><small>x final payout</small></div>
+              <div class="pbs-row"><span>Total bets</span><b data-pbn="ftt" data-fmt="peso" data-v="0">&mdash;</b></div>
+              <div class="pbs-row"><span>Paid out</span><b data-pbn="fpaid" data-fmt="peso" data-v="0">&mdash;</b></div>
+              <div class="pbs-row"><span>Winning tickets</span><b data-pbn="fwin" data-fmt="int" data-v="0">&mdash;</b></div>
+              <div class="pbs-row"><span>House cut</span><b data-pbn="fcut" data-fmt="peso" data-v="0">&mdash;</b></div>
+            </div>
+          </div>
+          </div>
+        </div>
+        {% endset %}
+        {{ pl.stream_player('fight', 'Game #' ~ fight.number ~ ' · Live match video', fight.entry_name_meron, fight.entry_name_wala, stream_pass, chat_access.reason == 'closed', strip_html, scene_html) }}
+        <div class="fc-overlay" data-fc-overlay data-size="m" role="region" aria-label="Livestream chat"{% if ph in ('onair', 'waiting') %} style="display:none"{% endif %}>
       <div class="fc-head">
         <span class="fc-air"><i></i><span data-fc-air>{{ 'ENDED' if chat_access.reason == 'closed' else 'ON AIR' }}</span></span>
         <div class="fc-title" data-fc-grip title="Drag to move · double-click to reset"><b>Livestream chat <span class="fc-unread" data-fc-unread hidden>0</span></b><small>Game #{{ fight.number }} · {{ fight.entry_name_meron }} vs {{ fight.entry_name_wala }}</small></div>
@@ -124,7 +187,7 @@
       </div>
           </div>
         </div>
-        {% if bet_panel %}{{ bpl.bet_panel(event.id, bet_panel.players, bet_panel.draw_enabled, bet_panel.can_undo, bet_panel.undo_window) }}{% endif %}
+        {% if bet_panel %}{{ bpl.bet_panel(event.id, bet_panel.balance_cents, bet_panel.draw_enabled, bet_panel.can_undo, bet_panel.undo_window, ph != 'open') }}{% endif %}
       </div>
       </div>
     </section>
@@ -364,7 +427,7 @@
               <td>{{ ui.side_badge(ticket.side) }}</td>
               <td class="right num">{{ ticket.stake_cents | money }}</td>
               <td class="right num">{{ ticket.payout_cents | money }}</td>
-              <td class="small">{{ ticket.player.full_name if ticket.player else '—' }}</td>
+              <td class="small">{{ ticket.player.full_name if ticket.player else (ticket.bettor.full_name if ticket.bettor else '—') }}</td>
               <td>{{ ui.status_badge(ticket.status) }}</td>
               <td class="right">
                 {% if ticket.status.value == 'active' and fight.status.value == 'open' and 'bets.cancel' in perms %}
@@ -376,6 +439,7 @@
           </tbody>
         </table></div>
         {% else %}{{ ui.empty('The first ticket on this game will show up here.', kind='ticket', title='No tickets yet', compact=true) }}{% endif %}
+        {{ ui.pager(tickets_pager) }}
       </div>
     </div>
     {% endif %}

@@ -17,7 +17,7 @@ from app.core.errors import Forbidden, NotFound, StelError, ValidationError
 from app.core.money import to_cents
 from app.core.rbac import Perm, hides_totals
 from app.db.models import BolaKind, TicketStatus
-from app.services import bola, bola_settlement, locations, players, proofs, reports
+from app.services import accounts, bola, bola_settlement, locations, players, proofs, reports
 from app.web.paging import paginate
 from app.web.deps import Ctx, flash_redirect, form_data, render, require_ctx
 
@@ -95,33 +95,73 @@ async def bola_lobby(request: Request, ctx: Ctx = Depends(require_ctx)):
 async def bola_results(request: Request, ctx: Ctx = Depends(require_ctx)):
     _need_view(ctx)
     loc = _int(request.query_params.get("location_id")) or None
-    return render(ctx, "bola_results.html", active="bola", rows=bola.results(ctx.db, location_id=loc),
+    pager, rows = paginate(request, 100, lambda limit, offset: bola.results(
+        ctx.db, location_id=loc, limit=limit, offset=offset))
+    return render(ctx, "bola_results.html", active="bola", rows=rows, pager=pager,
                   areas=locations.list_locations(ctx.db, active_only=True), location_id=loc,
                   local=bola.local)
 
 
 # ------------------------------------------------------------------ draw page
+def _ticket_ctx(ctx: Ctx, ticket) -> dict:
+    """Everything the ticket partial needs: used by the ticket page and by the draw page's 'just sold' reveal."""
+    return dict(ticket=ticket, lines=bola.ticket_lines(ctx.db, ticket), draw=ticket.draw, qr=_qr_svg(ticket.code),
+                multiplier=bola.multiplier(ctx.store) / 100, footer=_footer(ctx),
+                header=str(ctx.store.get("ticket.header") or ""))
+
+
+def _ms(when: dt.datetime | None) -> int | None:
+    return int(when.timestamp() * 1000) if when else None
+
+
+@router.get("/bola/draws/{draw_id}/live")
+async def bola_live(draw_id: int, ctx: Ctx = Depends(require_ctx)):
+    """Polled by the live-draw screen. Balls are only shown once settled; 'won' is the viewer's OWN tickets."""
+    _need_view(ctx)
+    draw = bola.get_draw(ctx.db, draw_id)
+    settled = draw.status.value == "settled" and draw.ball_first is not None and draw.ball_second is not None
+    won = []
+    if settled and not hides_totals(ctx.user):
+        won = [t for t in bola.list_tickets(ctx.db, ctx.user, draw_id=draw.id, agent_id=ctx.user.id,
+                                           status=TicketStatus.SETTLED, limit=500) if t.payout_cents > 0]
+    return JSONResponse({
+        "status": draw.status.value, "version": draw.settlement_version,
+        "ball_first": draw.ball_first if settled else None, "ball_second": draw.ball_second if settled else None,
+        "scheduled_ms": _ms(draw.scheduled_at), "now_ms": _ms(dt.datetime.now(dt.timezone.utc)),
+        "won_cents": sum(t.payout_cents for t in won), "won_codes": [t.code for t in won][:12]})
+
+
 @router.get("/bola/draws/{draw_id}")
-async def bola_draw(draw_id: int, ctx: Ctx = Depends(require_ctx)):
+async def bola_draw(draw_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
     _need_view(ctx)
     draw = bola.get_draw(ctx.db, draw_id)
     hide = hides_totals(ctx.user)
-    exposure = heat = tickets = None
+    exposure = heat = tickets = pager = None
     if ctx.can(Perm.BOLA_EXPOSURE) and not hide:
         exposure = bola.exposure_summary(ctx.db, draw, ctx.store)
         cells = [c for row in bola.heatmap(ctx.db, draw, ctx.store)["cells"] for c in row if c["stake"]]
         heat = sorted(cells, key=lambda c: (-c["liability"], -c["stake"]))[:15]
     if not hide:
-        tickets = bola.list_tickets(ctx.db, ctx.user, draw_id=draw.id, limit=300)
+        pager, tickets = paginate(request, 200, lambda limit, offset: bola.list_tickets(
+            ctx.db, ctx.user, draw_id=draw.id, limit=limit, offset=offset))
     can_manage = ctx.can(Perm.BOLA_MANAGE)
     expenses = None
     if can_manage or (ctx.can(Perm.BOLA_EXPOSURE) and not hide):
         expenses = bola.list_expenses(ctx.db, draw.id)
-    my_players = [] if hide or not ctx.can(Perm.BOLA_PLACE) else players.list_players(
-        ctx.db, ctx.user, limit=300)
+    my_balance = (int(accounts.wallet_for_user(ctx.db, ctx.user).balance_cents)
+                  if ctx.user.has_wallet and not hide else None)
+    sold = {}
+    if request.query_params.get("sold") and not hide:
+        try:                                                   # a stale, junk or foreign id just shows no reveal
+            sold_id = _int(request.query_params.get("sold"))
+            t = bola.assert_ticket_visible(ctx.db, ctx.user, bola.get_ticket(ctx.db, sold_id))
+            if t.draw_id == draw.id:
+                sold = _ticket_ctx(ctx, t)
+        except StelError:
+            sold = {}
     return render(
-        ctx, "bola_draw.html", active="bola", draw=draw, tickets=tickets, exposure=exposure,
-        heat=heat, my_players=my_players, hide_totals=hide, local=bola.local,
+        ctx, "bola_draw.html", sold=sold, active="bola", draw=draw, tickets=tickets, pager=pager, exposure=exposure,
+        heat=heat, my_balance=my_balance, hide_totals=hide, local=bola.local,
         bettable=bola.bettable(draw), enabled=bool(ctx.store.get("bola.enabled")),
         kinds=[(k.value, KIND_LABELS[k]) for k in BolaKind],
         odds={"multiplier": bola.multiplier(ctx.store) / 100, "outcomes": bola.ordered_outcomes(ctx.store),
@@ -165,12 +205,12 @@ async def bola_place(request: Request, ctx: Ctx = Depends(require_ctx)):
         ctx.db, ctx.user, draw_id=draw_id, kind=kind, numbers=_numbers(data),
         tumbok_cents=to_cents(data.get("tumbok", "0") or "0"),
         sahod_cents=to_cents(data.get("sahod", "0") or "0"),
-        player_id=_int(data.get("player_id")), settings=ctx.store,
+        player_id=None, settings=ctx.store,       # always the logged-in account's own credit
         idempotency_key=data.get("idempotency_key") or None,
         note=(data.get("note") or None), ip=ctx.ip)
     if data.get("print") == "1":
         return flash_redirect(f"/bola/tickets/{ticket.id}", f"Ticket {ticket.code} sold.")
-    return flash_redirect(f"/bola/draws/{draw_id}", f"Ticket {ticket.code} sold.")
+    return flash_redirect(f"/bola/draws/{draw_id}?sold={ticket.id}", f"Ticket {ticket.code} sold.")
 
 
 @router.post("/bola/bets/{ticket_id}/cancel")
@@ -186,11 +226,8 @@ async def bola_cancel(ticket_id: int, request: Request, ctx: Ctx = Depends(requi
 async def bola_ticket(ticket_id: int, ctx: Ctx = Depends(require_ctx)):
     _need_view(ctx)
     ticket = bola.assert_ticket_visible(ctx.db, ctx.user, bola.get_ticket(ctx.db, ticket_id))
-    return render(ctx, "bola_ticket.html", active="bola", ticket=ticket,
-                  lines=bola.ticket_lines(ctx.db, ticket), draw=ticket.draw,
-                  qr=_qr_svg(ticket.code), local=bola.local,
-                  multiplier=bola.multiplier(ctx.store) / 100,
-                  can_cancel=ctx.can(Perm.BOLA_CANCEL), footer=_footer(ctx), header=str(ctx.store.get("ticket.header") or ""))
+    return render(ctx, "bola_ticket.html", active="bola", local=bola.local, can_cancel=ctx.can(Perm.BOLA_CANCEL),
+                  **_ticket_ctx(ctx, ticket))
 
 
 @router.get("/bola/tickets/{ticket_id}/qr.png")
@@ -314,45 +351,80 @@ async def bola_reports_page(request: Request, ctx: Ctx = Depends(require_ctx)):
                   local=bola.local)
 
 
+CSV_BATCH = 500
+
+
+def _csv_text(*rows) -> str:
+    out = io.StringIO()
+    writer = csv.writer(out)
+    for row in rows:
+        writer.writerow(row)
+    return out.getvalue()
+
+
 @router.get("/bola/draws/{draw_id}/report.csv")
 async def bola_draw_report_csv(draw_id: int, ctx: Ctx = Depends(require_ctx)):
+    """Every ticket of the draw, streamed in keyset batches (it used to stop silently at 1000).
+
+    Permission checks and the small header / summary blocks are built here, inside the request. The
+    ticket rows are produced by a generator that opens its OWN session: the request's session may be
+    closed before a streaming body finishes."""
+    from app.db.models import User
+    from app.db.session import session_scope
     from app.web.routes_extra import _safe
     _need_exposure(ctx)
     draw = bola.get_draw(ctx.db, draw_id)
     fig = reports.bola_draw_report(ctx.db, draw, ctx.store)
-    out = io.StringIO()
-    writer = csv.writer(out)
-    writer.writerow(["Draw", draw.id, "Area", _safe(draw.location.name), "Date", draw.draw_date.isoformat(),
-                     "Slot", draw.slot, "Status", draw.status.value])
-    writer.writerow(["Result", draw.result_label or "", "Scheduled (Manila)",
-                     bola.local(draw.scheduled_at).strftime("%Y-%m-%d %H:%M"),
-                     "Cut-off", bola.local(draw.cutoff_at).strftime("%H:%M"),
-                     "Declared", bola.local(draw.declared_at).strftime("%Y-%m-%d %H:%M") if draw.declared_at else ""])
-    writer.writerow([])
-    writer.writerow(["Code", "Type", "Numbers", "Lines", "Tumbok/line", "Sahod/line", "Stake",
-                     "Payout", "Status", "Kubrador", "Cavo", "Player", "Note"])
-    for t in bola.list_tickets(ctx.db, ctx.user, draw_id=draw.id, limit=1000):
-        writer.writerow([t.code, t.kind.value, " ".join(str(n) for n in (t.numbers or [])),
-                         t.line_count, f"{t.tumbok_cents / 100:.2f}", f"{t.sahod_cents / 100:.2f}",
-                         f"{t.stake_cents / 100:.2f}", f"{t.payout_cents / 100:.2f}", t.status.value,
-                         _safe(t.kubrador or ""), _safe(t.cavo or ""),
-                         _safe(t.player.full_name if t.player else ""), _safe(t.note or "")])
-    writer.writerow([])
+    actor_id, draw_pk = ctx.user.id, draw.id
+    head = _csv_text(
+        ["Draw", draw.id, "Area", _safe(draw.location.name), "Date", draw.draw_date.isoformat(),
+         "Slot", draw.slot, "Status", draw.status.value],
+        ["Result", draw.result_label or "", "Scheduled (Manila)",
+         bola.local(draw.scheduled_at).strftime("%Y-%m-%d %H:%M"),
+         "Cut-off", bola.local(draw.cutoff_at).strftime("%H:%M"),
+         "Declared", bola.local(draw.declared_at).strftime("%Y-%m-%d %H:%M") if draw.declared_at else ""],
+        [],
+        ["Code", "Type", "Numbers", "Lines", "Tumbok/line", "Sahod/line", "Stake",
+         "Payout", "Status", "Kubrador", "Cavo", "Player", "Note"])
+    tail_rows: list[list] = [[]]
     for label, key in (("Tickets", "tickets"), ("Winners", "winners"), ("Total staked", "staked"),
                        ("Settled stake", "settled_stake"), ("Paid out", "paid"), ("House take", "house"),
                        ("Commissions", "commission"), ("Expenses", "expenses"), ("Net income", "net")):
-        writer.writerow([label, fig[key] if key in ("tickets", "winners") else f"{fig[key] / 100:.2f}"])
+        tail_rows.append([label, fig[key] if key in ("tickets", "winners") else f"{fig[key] / 100:.2f}"])
     for tier, amount in sorted(fig["by_tier"].items()):
-        writer.writerow(["Commission tier", tier, f"{amount / 100:.2f}"])
+        tail_rows.append(["Commission tier", tier, f"{amount / 100:.2f}"])
     for expense in fig["expense_rows"]:
-        writer.writerow(["Expense", _safe(expense.label), f"{expense.amount_cents / 100:.2f}",
-                         _safe(expense.note or "")])
+        tail_rows.append(["Expense", _safe(expense.label), f"{expense.amount_cents / 100:.2f}",
+                          _safe(expense.note or "")])
     worst = fig["worst"]
     if worst["liability_cents"]:
-        writer.writerow(["Worst outcome at close", f"{worst['first']}-{worst['second']}",
-                         f"{worst['liability_cents'] / 100:.2f}"])
-    return Response(out.getvalue(), media_type="text/csv; charset=utf-8", headers={
-        "Content-Disposition": f'attachment; filename="bola-draw-{draw.id}-report.csv"',
+        tail_rows.append(["Worst outcome at close", f"{worst['first']}-{worst['second']}",
+                          f"{worst['liability_cents'] / 100:.2f}"])
+    tail = _csv_text(*tail_rows)
+
+    def body():
+        yield head
+        with session_scope() as db:
+            actor = db.get(User, actor_id)
+            before = None
+            while True:
+                batch = bola.list_tickets(db, actor, draw_id=draw_pk, limit=CSV_BATCH,
+                                          before_id=before, with_player=True)
+                if not batch:
+                    break
+                yield _csv_text(*[
+                    [t.code, t.kind.value, " ".join(str(n) for n in (t.numbers or [])),
+                     t.line_count, f"{t.tumbok_cents / 100:.2f}", f"{t.sahod_cents / 100:.2f}",
+                     f"{t.stake_cents / 100:.2f}", f"{t.payout_cents / 100:.2f}", t.status.value,
+                     _safe(t.kubrador or ""), _safe(t.cavo or ""),
+                     _safe(t.player.full_name if t.player else ""), _safe(t.note or "")]
+                    for t in batch])
+                before = batch[-1].id
+                db.expire_all()                      # keep memory flat on very large draws
+        yield tail
+
+    return StreamingResponse(body(), media_type="text/csv; charset=utf-8", headers={
+        "Content-Disposition": f'attachment; filename="bola-draw-{draw_pk}-report.csv"',
         "Cache-Control": "no-store"})
 
 

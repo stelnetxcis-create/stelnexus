@@ -1,11 +1,25 @@
-"""Test setup: an isolated SQLite file, set BEFORE the app is imported."""
+"""Test setup: an isolated SQLite file, set BEFORE the app is imported.
+
+Set TEST_DATABASE_URL to a DISPOSABLE PostgreSQL database to run the whole suite on PostgreSQL
+instead (the production engine):
+
+    TEST_DATABASE_URL=postgresql+psycopg://user:pass@127.0.0.1:5432/scratch python -m pytest
+"""
 import os
 import tempfile
+import time
+
+# The app's game day is the Manila calendar day (UTC+8). Several tests build "today" with
+# dt.date.today(), which is the MACHINE's local date, so on a UTC box between 16:00 and 24:00 the two
+# disagree and those tests fail. Running the suite in the production timezone removes the mismatch.
+os.environ["TZ"] = "Asia/Manila"
+if hasattr(time, "tzset"):
+    time.tzset()
 
 _dir = tempfile.mkdtemp(prefix="stelnexus-test-")
 os.environ.update({
     "ENV": "dev",
-    "DATABASE_URL": f"sqlite:///{_dir}/test.db",
+    "DATABASE_URL": os.environ.get("TEST_DATABASE_URL") or f"sqlite:///{_dir}/test.db",
     "COOKIE_SECURE": "false",
     "COOKIE_SAMESITE": "lax",
     "SECRET_KEY": "test-secret-key-test-secret-key-0123456789",
@@ -91,6 +105,10 @@ def world(db):
         db, admin, username=f"wp{tag}", password=PASSWORD, full_name="Player",
         birth_date=dt.date(1990, 1, 1), gcash_number="09171234567", settings=store)
     player.kyc_verified = True
+    # The older settlement tests check the plain pari-mutuel maths, so the Llamado/Dehado maximums start off here;
+    # tests of the maximums switch them on themselves.
+    store.set("payout.max_llamado_bps", "0", admin.id)
+    store.set("payout.max_dehado_bps", "0", admin.id)
     load_credit(db, admin, store, player, 10_000_000)
     event = events.create_event(db, admin, title=f"Event {tag}", event_date=dt.date.today(),
                                 settings=store, fight_count=6)

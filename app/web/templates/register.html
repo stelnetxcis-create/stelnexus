@@ -27,8 +27,9 @@
     {% if role == 'player' %}
     <label class="field"><span>Date of birth</span><input type="date" name="birth_date" value="{{ birth_date or '' }}" required></label>
     <label class="field"><span>GCash number</span><input name="gcash_number" value="" required maxlength="11" inputmode="numeric" placeholder="09XXXXXXXXX"></label>
+    {% else %}
+    <label class="field"><span>Mobile number</span><input name="contact" value="{{ contact or '' }}" required maxlength="16" inputmode="tel" placeholder="09XXXXXXXXX"><small>Philippine mobile number, required.</small></label>
     {% endif %}
-    <label class="field"><span>Contact number <small>(optional)</small></span><input name="contact" value="{{ contact or '' }}" maxlength="32" inputmode="tel"></label>
     <label class="field"><span>Password</span><input type="password" name="password" required minlength="{{ settings.get('security.password_min_length', 12) }}" maxlength="256" autocomplete="new-password"><small>At least {{ settings.get('security.password_min_length', 12) }} characters, mixing 3 of: lower, upper, digits, symbols.</small></label>
     <label class="field"><span>Confirm password</span><input type="password" name="password2" required maxlength="256" autocomplete="new-password"></label>
     <button class="btn btn-primary btn-block" type="submit">Create account</button>

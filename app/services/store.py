@@ -39,6 +39,7 @@ from app.db.models import (
     AliasToken, ChatAlias, ChatPass, ChatToken, Fight, FightStatus, LedgerTxn, Role, Status, User,
 )
 from app.services import accounts, ledger
+from app.services import events as events_svc
 
 PASS_PERKS = (
     "Chat on every livestream for the whole pass: Meron/Wala games and Esports",
@@ -266,6 +267,11 @@ def access(db: Session, user: User, fight: Fight) -> dict:
     """Why this person can or cannot type right now. ``reason`` drives the composer in the fight view."""
     if is_locked(fight):
         return {"can_send": False, "reason": "closed", "via": ""}
+    # Same order as betting: chat is only available on the current game while it has not started.
+    # "paused" = it is on air; "waiting" = an earlier game is still to be done.
+    phase = events_svc.stream_phase_of(db, fight)
+    if phase in ("onair", "waiting"):
+        return {"can_send": False, "reason": "paused" if phase == "onair" else "waiting", "via": ""}
     if Perm.CHAT_USE in permissions_of(user):
         return {"can_send": True, "reason": "ok", "via": "staff"}
     if active_pass_until(db, user):
@@ -330,6 +336,8 @@ def use_token(db: Session, user: User, fight: Fight) -> ChatToken:
     """Spend one token to talk on this game. Idempotent: if one is already spent here, it is reused."""
     if is_locked(fight):
         raise Conflict("This game's result is already in, so its chat is closed.")
+    if events_svc.stream_phase_of(db, fight) in ("onair", "waiting"):
+        raise Conflict("Chat is not open for this game right now: it is on air or an earlier game is still to be done.")
     already = token_for(db, user, fight)
     if already is not None:
         return already

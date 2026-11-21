@@ -80,6 +80,12 @@ DEFS: tuple[SettingDef, ...] = (
     SettingDef("payout.min_odds_bps", "Minimum odds (pool model)", "bps", 14000, "Payout",
                "If the winning side would pay less than this multiple, the fight is cancelled and every "
                "stake refunded. 14000 = 1.40x. 0 = rule off.", 0, 100000),
+    SettingDef("payout.max_llamado_bps", "Maximum payout, Llamado side (pool model)", "bps", 15000, "Payout",
+               "The favourite side (the one marked Llamado, else the side with more bets) never pays more than this "
+               "multiple, however small its pool share. 15000 = 1.50x. 0 = no maximum.", 0, 1000000),
+    SettingDef("payout.max_dehado_bps", "Maximum payout, Dehado side (pool model)", "bps", 25000, "Payout",
+               "The other side (fewer bets) never pays more than this multiple. 25000 = 2.50x. 0 = no maximum.",
+               0, 1000000),
     SettingDef("fight.draw_bets_enabled", "Allow Draw bets", "bool", True, "Events",
                "Off hides the Draw side everywhere."),
     SettingDef("fight.pawn_proof_required", "A Pawn must upload a picture to declare a result", "bool", True,
@@ -248,6 +254,8 @@ DEFS: tuple[SettingDef, ...] = (
     SettingDef("live.show_bola", "Show the number game on the live board", "bool", True, "Events",
                "Adds a second panel: last result per area and the next draw time. Never any stakes."),
     # ---- security ---------------------------------------------------------
+    SettingDef("security.single_session", "One device per account", "bool", True, "Security",
+               "Signing in on a new device signs the account out everywhere else (web and mobile)."),
     SettingDef("security.session_idle_minutes", "Idle session timeout (minutes)", "int", 30, "Security", "", 5, 480),
     SettingDef("security.max_login_attempts", "Failed logins before lockout", "int", 5, "Security", "", 3, 20),
     SettingDef("security.lockout_minutes", "Lockout duration (minutes)", "int", 15, "Security", "", 1, 1440),

@@ -1,7 +1,7 @@
 import pytest
 from sqlalchemy import select
 
-from app.core.errors import Conflict, LockedState, ValidationError
+from app.core.errors import Conflict, InsufficientFunds, LockedState, ValidationError
 from app.db.models import Result, Role, Side, Ticket, TicketStatus
 from app.services import agents, betting, events, players, reports, settlement
 from tests.conftest import PASSWORD
@@ -99,9 +99,10 @@ def test_cash_is_not_a_payment_method(world):
     with pytest.raises(ValidationError):
         betting.place_bet(world.db, world.admin, fight_id=g.id, side=Side.MERON, stake_cents=2000,
                           settings=world.store, player_id=world.player.id, funded_by="cash")
-    with pytest.raises(ValidationError):
+    # no player = the logged-in account bets for itself from its own credit: no credit, no bet (never walk-in cash)
+    with pytest.raises(InsufficientFunds):
         betting.place_bet(world.db, world.admin, fight_id=g.id, side=Side.MERON, stake_cents=2000,
-                          settings=world.store)                    # no player, no walk-in cash
+                          settings=world.store)
     with pytest.raises(ValidationError):
         cashdesk.create_request(world.db, world.admin, direction=RequestDirection.IN,
                                 amount_cents=5000, settings=world.store, player_id=world.player.id,
@@ -192,3 +193,23 @@ def test_ledger_stays_balanced(world):
     declare(world, g, Result.DRAW)
     report = reports.integrity(world.db)
     assert report["ok"], report
+
+
+def test_settlement_applies_llamado_and_dehado_maximums(world):
+    """Pool model: Meron (more bets) pays at most 1.50x, Wala at most 2.50x; the capped-off part is house take."""
+    world.store.set("payout.max_llamado_bps", "15000", world.admin.id)
+    world.store.set("payout.max_dehado_bps", "25000", world.admin.id)
+    g = world.games[0]
+    sell(world, g, Side.MERON, 66000); sell(world, g, Side.WALA, 34000)
+    run = declare(world, g, Result.MERON)           # natural 1.439x is under the 1.50x maximum: unchanged
+    t = run.totals
+    assert 94990 <= t["payout_total"] <= 95000
+    g2 = world.games[1]
+    sell(world, g2, Side.MERON, 90000); sell(world, g2, Side.WALA, 10000)
+    t2 = declare(world, g2, Result.WALA).totals    # natural 9.5x -> 2.50x of 10,000
+    assert t2["payout_total"] == 25000
+    assert t2["house_take"] == 100000 - 25000
+    g3 = world.games[2]
+    sell(world, g3, Side.MERON, 60000); sell(world, g3, Side.WALA, 40000)
+    t3 = declare(world, g3, Result.MERON).totals   # natural 1.583x -> 1.50x
+    assert t3["payout_total"] == 90000

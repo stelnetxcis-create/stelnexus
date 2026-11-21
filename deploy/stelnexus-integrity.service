@@ -1,0 +1,17 @@
+# /etc/systemd/system/stelnexus-integrity.service  (adjust User, paths)
+# The full-ledger reconciliation (scans every ledger entry). Nightly; /cashflow shows its result.
+[Unit]
+Description=StelNexus: nightly ledger integrity check
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=stelnexus
+WorkingDirectory=/opt/stelnexus
+EnvironmentFile=/opt/stelnexus/.env
+ExecStart=/opt/stelnexus/.venv/bin/python -m app.cli refresh-reports --only integrity
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/stelnexus/var

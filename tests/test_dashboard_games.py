@@ -48,7 +48,7 @@ def test_fight_view_button_is_gone_from_the_hero_but_the_page_still_links_to_it(
     html = _dash()
     hero = html.split('<section class="hero">')[1].split("</section>")[0]
     assert "Fight view" not in hero
-    assert "Sell ticket" in hero and "Wallet" in hero          # the other quick actions are untouched
+    assert "Sell ticket" not in hero and "Wallet" in hero      # Seller Desk is gone; the other quick actions are untouched
     assert 'href="/change_name"' in html                       # still reachable (Live games card, sidebar)
 
 

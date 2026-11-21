@@ -21,8 +21,9 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func, select
 
 from app.core.rbac import Perm, hides_totals
-from app.db.models import Fight, FightStatus, Ticket, TicketStatus
-from app.services import events, reports
+from app.core.money import bps_of
+from app.db.models import Fight, FightStatus, PayoutModel, RunStatus, SettlementRun, Ticket, TicketStatus
+from app.services import betting, events, reports
 from app.web.conditional import etag_matches, not_modified
 from app.web.deps import Ctx, require_ctx
 
@@ -85,18 +86,66 @@ async def live_event(event_id: int, request: Request, ctx: Ctx = Depends(require
     fights = events.fights_of(ctx.db, event_id)
     hide = hides_totals(ctx.user)
     pools = {} if hide else _pools(ctx.db, [f.id for f in fights])
+    cur = events.current_fight(ctx.db, event_id)
+    cur_id = cur.id if cur else None
+    cut_bps = 0 if hide else events.house_cut_for(ctx.db, event, ctx.store)
+    fixed = event.payout_model == PayoutModel.FIXED
     rows = []
     for f in fights:
         row = {"id": f.id, "n": f.number, "st": f.status.value, "res": f.result.value if f.result else "",
                "mode": f.bet_mode, "lla": f.llamado_side or "", "nm": f.entry_name_meron, "nw": f.entry_name_wala,
-               "cam": bool(f.proof_file),
+               "cam": bool(f.proof_file), "sd": f.started_at is not None,
+               "ph": events.stream_phase(f, cur_id),
                "at": f.declared_at.isoformat() if f.declared_at else ""}
         pool = pools.get(f.id)
         if pool is not None and f.status in (FightStatus.OPEN, FightStatus.LOCKED):
+            main = pool["meron"] + pool["wala"]
             row.update({"pm": pool["meron"], "pw": pool["wala"], "cm": pool["cm"], "cw": pool["cw"],
                         "hot": _hot(pool) or ""})
+            # Live payout, same rules as settlement / the fight panel: pari-mutuel = (pool - house cut) shared by
+            # the winning side; fixed-odds = the fight's odds. bps are 1/10000 (x1.85 = 18500).
+            if fixed:
+                dflt = int(ctx.store.get("payout.default_fixed_odds_bps"))
+                mm, mw = f.fixed_odds_meron_bps or dflt, f.fixed_odds_wala_bps or dflt
+                row.update({"mm": mm, "mw": mw, "tt": main, "np": None, "cut": 0, "fx": True,
+                            "om": pool["meron"] * mm // 10000, "ow": pool["wala"] * mw // 10000})
+            else:
+                snap = {"meron": pool["meron"], "wala": pool["wala"], "main": main}
+                mult = betting.side_multipliers(snap, cut_bps, ctx.store, f.llamado_side)
+                house = bps_of(main, cut_bps)
+                row.update({"mm": mult["meron"]["bps"], "mw": mult["wala"]["bps"], "tt": main, "np": main - house,
+                            "cut": house, "fx": False,
+                            "lm": mult["meron"]["below_min"], "lw": mult["wala"]["below_min"],
+                        "xm": mult["meron"]["capped"], "xw": mult["wala"]["capped"],
+                        "am": mult["meron"]["max"], "aw": mult["wala"]["max"]})
         rows.append(row)
-    return _reply(request, {"event": {"id": event.id, "st": event.status.value, "live": event.live_started_at is not None}, "hide": hide, "fights": rows})
+    return _reply(request, {"event": {"id": event.id, "st": event.status.value, "live": event.live_started_at is not None,
+                                      "cur": cur_id, "cutbps": cut_bps}, "hide": hide, "fights": rows})
+
+
+@router.get("/_live/fight/{fight_id}/final")
+async def live_fight_final(fight_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
+    """How a finished game ended, for the animated result scene over the video: result, final payout multiple,
+    total bets, house cut, winners and what was paid out. Figures come from the applied settlement run (the real
+    numbers), never recomputed. Accounts that must not see totals get the result only."""
+    ctx.need(Perm.FIGHTS_VIEW)
+    fight = events.get_fight(ctx.db, fight_id)
+    out = {"id": fight.id, "n": fight.number, "res": fight.result.value if fight.result else "",
+           "nm": fight.entry_name_meron, "nw": fight.entry_name_wala, "lla": fight.llamado_side or "",
+           "at": fight.declared_at.isoformat() if fight.declared_at else "", "hide": hides_totals(ctx.user)}
+    if not out["hide"]:
+        run = ctx.db.scalar(select(SettlementRun).where(
+            SettlementRun.fight_id == fight.id, SettlementRun.status == RunStatus.APPLIED
+        ).order_by(SettlementRun.version.desc()))
+        t = (run.totals or {}) if run else {}
+        win_stake = int(t.get(out["res"], 0)) if out["res"] in ("meron", "wala") else 0
+        paid = int(t.get("payout_total", 0))
+        out.update({"tt": int(t.get("meron", 0)) + int(t.get("wala", 0)), "np": int(t.get("net_pool", 0)),
+                    "cut": int(t.get("house_cut", 0)), "paid": paid, "refund": int(t.get("refund_total", 0)),
+                    "winners": int(t.get("winners", 0)), "tickets": int(t.get("tickets", 0)),
+                    "auto_cancel": bool(t.get("auto_cancel", False)),
+                    "mult": (paid * 10000 // win_stake) if win_stake else 0})
+    return _reply(request, out)
 
 
 @router.get("/_live/lobby")

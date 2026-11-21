@@ -4,7 +4,7 @@
   "use strict";
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
-  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.classList.contains('fx-min');
   const csrf = ($('meta[name="csrf-token"]') || {}).content || "";
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },

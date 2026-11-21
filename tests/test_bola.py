@@ -404,6 +404,9 @@ def _web_setup():
             birth_date=dt.date(1990, 1, 1), gcash_number="09171234567", settings=store)
         player.kyc_verified = True
         load_credit(db, admin, store, player, 1_000_000)
+        # Web / API bets always use the logged-in account's OWN credit, so the account the tests log in as needs some.
+        ledger.post(db, kind="request.in", actor=admin, memo="test load",
+                    entries=[(accounts.gcash_clearing(db), +1_000_000), (accounts.wallet_for_user(db, admin), -1_000_000)])
         loc = locations.create_location(db, admin, name=f"Web Area {tag}")
         draw = bola.create_draw(db, admin, location_id=loc.id, draw_date=dt.date.today(), slot=1,
                                 settings=store, status=DrawStatus.OPEN,

@@ -15,10 +15,12 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.core.pagination import clamp_limit, clamp_offset
 from app.core import audit
 from app.core.errors import Forbidden, NotFound, StelError, ValidationError
 from app.core.rbac import scope_ids
@@ -115,6 +117,21 @@ def lookup_valid(db: Session, code: str) -> ReferralCode:
     return row
 
 
+_PH_MOBILE_RE = re.compile(r"^09\d{9}$")
+
+
+def _ph_mobile(raw: str | None) -> str:
+    """A Philippine mobile number, stored as 09XXXXXXXXX. Accepts 09.., +639.. and 639.. (spaces/dashes ignored)."""
+    s = re.sub(r"[\s\-()]", "", raw or "")
+    if s.startswith("+63"):
+        s = "0" + s[3:]
+    elif s.startswith("63") and len(s) == 12:
+        s = "0" + s[2:]
+    if not _PH_MOBILE_RE.match(s):
+        raise ValidationError("A Philippine mobile number is required (11 digits starting with 09).")
+    return s
+
+
 def redeem(db: Session, code: str, *, username: str, password: str, full_name: str,
            contact: str | None, settings: SettingsStore, birth_date: dt.date | None = None,
            gcash_number: str | None = None) -> User | Player:
@@ -141,6 +158,7 @@ def redeem(db: Session, code: str, *, username: str, password: str, full_name: s
                 birth_date=birth_date, gcash_number=gcash_number or "", settings=settings,
                 agent_id=row.parent_id or issuer.id)
         else:
+            contact = _ph_mobile(contact)      # every referral sign-up needs a PH mobile number
             account = agents.create_agent(db, issuer, username=username, password=password,
                                           role=Role(row.role), full_name=full_name, contact=contact,
                                           parent_id=row.parent_id, settings=settings)
@@ -158,8 +176,9 @@ def redeem(db: Session, code: str, *, username: str, password: str, full_name: s
     return account
 
 
-def list_codes(db: Session, actor: User, limit: int = 200) -> list[ReferralCode]:
-    stmt = select(ReferralCode).order_by(ReferralCode.id.desc()).limit(limit)
+def list_codes(db: Session, actor: User, limit: int = 200, offset: int = 0) -> list[ReferralCode]:
+    stmt = (select(ReferralCode).order_by(ReferralCode.id.desc())
+            .limit(clamp_limit(limit, 500)).offset(clamp_offset(offset)))
     if actor.role != Role.ADMIN:       # Admin sees every code; everyone else only their own network's
         stmt = stmt.where(ReferralCode.issuer_id.in_(scope_ids(db, actor)))
     return list(db.scalars(stmt).all())

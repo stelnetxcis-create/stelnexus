@@ -1,0 +1,11 @@
+# /etc/systemd/system/stelnexus-integrity.timer
+# Needs systemd 235+ for the timezone suffix; on older systemd use 16:30 UTC.
+[Unit]
+Description=Run the StelNexus ledger integrity check nightly at 00:30 Manila time
+
+[Timer]
+OnCalendar=*-*-* 00:30:00 Asia/Manila
+Persistent=true
+
+[Install]
+WantedBy=timers.target

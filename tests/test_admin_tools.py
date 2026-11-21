@@ -61,25 +61,12 @@ def test_bola_tile_and_nav_reach_a_kubrador_with_no_coming_soon():
     assert "game-tile is-live" in number or "is-live" in html
 
 
-def test_seller_desk_is_admin_only():
-    assert Perm.SELL_DESK in permissions_for(Role.ADMIN)
-    for role in (Role.MASTER, Role.AGENT, Role.SUB_AGENT, Role.DECLARATOR, Role.PAWN):
-        assert Perm.SELL_DESK not in permissions_for(role), role
-    tag = _tag()
-    with session_scope() as db:
-        admin, store = _admin(db), SettingsStore(db)
-        master = _mk(db, admin, store, Role.MASTER, f"sm{tag}")
-        cavo = _mk(db, admin, store, Role.AGENT, f"sc{tag}", parent=master)
-        _mk(db, admin, store, Role.SUB_AGENT, f"sk{tag}", parent=cavo)
-        _mk(db, admin, store, Role.PAWN, f"sw{tag}", grants=[g.key for g in rbac.GRANTS])
-    for name in (f"sm{tag}", f"sc{tag}", f"sk{tag}", f"sw{tag}"):
-        c, r = login(name)
-        assert r.status_code == 303, name
-        assert c.get("/sell", headers={"Accept": "application/json"}).status_code == 403, name
-        assert 'href="/sell"' not in c.get("/dashboard").text, name
+def test_seller_desk_is_gone():
+    """The experimental Seller Desk (/sell) was removed: no page, no nav link, no sell.desk permission."""
+    assert not any(p.value == "sell.desk" for p in Perm)
     c, _ = login("admin")
-    assert c.get("/sell").status_code == 200
-    assert 'href="/sell"' in c.get("/dashboard").text
+    assert c.get("/sell", headers={"Accept": "application/json"}).status_code == 404
+    assert 'href="/sell"' not in c.get("/dashboard").text
 
 
 # ------------------------------------------------------------------ IP bans

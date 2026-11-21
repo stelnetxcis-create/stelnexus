@@ -34,6 +34,7 @@
       </tbody>
     </table></div>
     {% else %}{{ ui.empty('No codes yet. Create one to invite someone.') }}{% endif %}
+    {{ ui.pager(pager) }}
   </div>
 </div>
 {% if invite_roles %}

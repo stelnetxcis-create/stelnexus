@@ -12,7 +12,7 @@
       <tbody>
       {% for ticket in rows %}
         <tr>
-          <td>{{ ticket.player.full_name if ticket.player else '—' }}</td>
+          <td>{{ ticket.player.full_name if ticket.player else (ticket.bettor.full_name if ticket.bettor else '—') }}</td>
           <td class="mono"><a href="/tickets/{{ ticket.id }}">{{ ticket.code }}</a></td>
           <td class="right num">{{ ticket.stake_cents | money }}</td>
           <td>{{ ui.side_badge(ticket.side) }}</td>

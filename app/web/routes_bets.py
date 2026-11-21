@@ -9,7 +9,7 @@ from app.core.errors import ValidationError
 from app.core.money import to_cents
 from app.core.rbac import Perm, hides_totals
 from app.db.models import Side, TicketStatus
-from app.services import betting, events
+from app.services import accounts, betting, events
 from app.web.paging import paginate
 from app.web.deps import Ctx, form_data, flash_redirect, render, require_ctx
 
@@ -113,7 +113,8 @@ def _qr_svg(payload: str) -> str:
 # ---- early bets from the livestream page (JSON, used by the floating Bet panel) ----------------------------------
 @router.post("/bets/early/place")
 async def early_place(request: Request, ctx: Ctx = Depends(require_ctx)):
-    """Same rules as /bets/place (all of betting.place_bet), plus: refused once the event's stream has started."""
+    """The livestream Bet panel: the logged-in account bets for itself. Same rules as /bets/place (all of
+    betting.place_bet), plus: refused once the game is on air."""
     ctx.need(Perm.BETS_PLACE)
     if hides_totals(ctx.user):
         raise ValidationError("Betting from the livestream is not available for your account.")
@@ -125,11 +126,12 @@ async def early_place(request: Request, ctx: Ctx = Depends(require_ctx)):
     fight = events.get_fight(ctx.db, _int(data.get("fight_id")))
     ticket = betting.place_bet(
         ctx.db, ctx.user, fight_id=fight.id, side=side, stake_cents=to_cents(data.get("amount", "0")),
-        settings=ctx.store, player_id=_int(data.get("player_id")) or None, is_diy=False,
+        settings=ctx.store, player_id=None, is_diy=False,   # the logged-in account bets for itself, from its own credit
         idempotency_key=data.get("idempotency_key") or None, ip=ctx.ip, source="live")
     return JSONResponse({"ok": True, "ticket": {
         "id": ticket.id, "code": ticket.code, "side": side.value, "stake": int(ticket.stake_cents),
-        "fight": fight.number, "fight_id": fight.id}})
+        "fight": fight.number, "fight_id": fight.id},
+        "balance": int(accounts.wallet_for_user(ctx.db, ctx.user).balance_cents)})
 
 
 @router.post("/bets/early/undo/{ticket_id}")
@@ -137,4 +139,6 @@ async def early_undo(ticket_id: int, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.BETS_CANCEL)
     ticket = betting.cancel_ticket(ctx.db, ctx.user, ticket_id=ticket_id,
                                    reason="Undone from the livestream page", settings=ctx.store)
-    return JSONResponse({"ok": True, "code": ticket.code})
+    return JSONResponse({"ok": True, "code": ticket.code,
+                         "balance": int(accounts.wallet_for_user(ctx.db, ctx.user).balance_cents)
+                         if ctx.user.has_wallet else None})

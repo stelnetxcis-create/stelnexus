@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Previewing {{ player.username or player.full_name }} · {{ brand }}{% endblock %}
+{% block heading %}{{ player.username or player.full_name }}{% endblock %}
+{% block actions %}<a class="btn btn-sm" href="/dashboard">Exit preview</a>{% endblock %}
+{% block content %}
+<div class="viewas-bar" role="status">
+  <svg class="ico"><use href="#i-eye"/></svg>
+  <span>Previewing as <b>{{ player.username or player.full_name }}</b> (Player) · read-only</span>
+  <a class="btn btn-sm" href="/dashboard">Exit preview</a>
+</div>
+
+{# ---- everything in this block is what the player sees ---- #}
+<div class="grid grid-2">
+  {{ ui.stat('Credit', balance | money, 'your wallet') }}
+  {{ ui.stat('Staked today', staked_today | money, ('of ' ~ (daily_limit | money) ~ ' daily limit') if daily_limit else 'both games') }}
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Open to bet · Sabong</h2></div>
+  <div class="card-body tight">
+    {% if open_events %}
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>Event</th><th>Date</th><th>Games</th></tr></thead>
+      <tbody>{% for e in open_events %}<tr><td>{{ e.title }}</td><td class="small nowrap">{{ e.event_date | date }}</td><td class="num">{{ e.fight_count }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}{{ ui.empty('No open events right now.') }}{% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Open to bet · Bola</h2></div>
+  <div class="card-body tight">
+    {% if not bola_enabled %}{{ ui.empty('The number game is switched off (bola.enabled).') }}
+    {% elif open_draws %}
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>Draw</th><th>Date</th><th>Slot</th><th>Cut-off</th></tr></thead>
+      <tbody>{% for d in open_draws %}<tr><td class="num">#{{ d.id }}</td><td class="small nowrap">{{ d.draw_date | date }}</td><td class="num">{{ d.slot }}</td><td class="small nowrap">{{ d.cutoff_at | datetime }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}{{ ui.empty('No open draws right now.') }}{% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>My bets · Sabong</h2><span class="muted small">latest 30</span></div>
+  <div class="card-body tight">
+    {% if sabong_tickets %}
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>Bar code</th><th>Side</th><th class="right">Amount</th><th class="right">Winning</th><th>Game #</th><th>Status</th><th>Placed</th></tr></thead>
+      <tbody>
+      {% for t in sabong_tickets %}
+        <tr>
+          <td class="mono">{{ t.code }}</td>
+          <td>{{ ui.side_badge(t.side) }}</td>
+          <td class="right num">{{ t.stake_cents | money }}</td>
+          <td class="right num">{{ t.payout_cents | money }}</td>
+          <td class="num">{{ t.fight.number }}</td>
+          <td>{{ ui.status_badge(t.status) }}</td>
+          <td class="small nowrap">{{ t.placed_at | datetime }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}{{ ui.empty('No sabong bets yet.') }}{% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>My bets · Bola</h2><span class="muted small">latest 30</span></div>
+  <div class="card-body tight">
+    {% if bola_tickets %}
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>Ticket</th><th>Draw</th><th class="right">Amount</th><th class="right">Winning</th><th>Status</th><th>Placed</th></tr></thead>
+      <tbody>
+      {% for t in bola_tickets %}
+        <tr>
+          <td class="mono small">{{ t.code }}</td>
+          <td class="num">#{{ t.draw_id }}</td>
+          <td class="right num">{{ t.stake_cents | money }}</td>
+          <td class="right num">{{ t.payout_cents | money if t.payout_cents else '—' }}</td>
+          <td>{{ ui.status_badge(t.status) }}</td>
+          <td class="small nowrap">{{ t.placed_at | datetime }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}{{ ui.empty('No Bola bets yet.') }}{% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>My credit history</h2><span class="muted small">latest 15</span></div>
+  <div class="card-body tight">
+    {% if entries %}
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>When</th><th>Type</th><th>Memo</th><th class="right">Amount</th><th class="right">Balance</th></tr></thead>
+      <tbody>
+      {% for e in entries %}
+        <tr>
+          <td class="small nowrap">{{ e.created_at | datetime }}</td>
+          <td>{{ e.txn.kind | ledger_label }}</td>
+          <td class="small">{{ e.txn.memo }}</td>
+          <td class="right num">{{ e.amount_cents | money }}</td>
+          <td class="right num">{{ e.balance_after_cents | money }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% else %}{{ ui.empty('No ledger entries.') }}{% endif %}
+  </div>
+</div>
+
+{# ---- admin-only diagnostics: the player never sees this ---- #}
+<div class="card" style="border-style:dashed">
+  <div class="card-head"><h2>Dev notes</h2><span class="muted small">not visible to the player</span></div>
+  <div class="card-body">
+    <dl class="kv">
+      <dt>Upline</dt><dd>{{ who(player.agent) }}</dd>
+      <dt>Status</dt><dd>{{ player.status.value }} · KYC {{ 'verified' if player.kyc_verified else 'not verified' }}</dd>
+      <dt>Can bet now</dt><dd>{{ ('No — ' ~ bet_block) if bet_block else 'Yes, in both games' }}</dd>
+      <dt>Daily limit</dt><dd>{{ daily_limit | money if daily_limit else 'none' }}</dd>
+      <dt>Self-excluded until</dt><dd>{{ player.self_excluded_until | datetime }}</dd>
+      <dt>Menu shown</dt><dd class="small">Events · Fight View · Game History · Betting List · Bola · Bola Tickets (Player rights, below Sub Agent)</dd>
+    </dl>
+  </div>
+</div>
+{% endblock %}

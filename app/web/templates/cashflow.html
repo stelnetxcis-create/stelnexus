@@ -4,6 +4,11 @@
 {% block heading %}Cashflow{% endblock %}
 {% block content %}
 
+<div class="small muted" style="display:flex;gap:.75rem;align-items:center;justify-content:flex-end;margin-bottom:.5rem">
+  <span>Load / cash-out and Bola totals as of {{ flows_at | datetime }}{% if integrity_at %}; ledger check as of {{ integrity_at | datetime }}{% endif %}. Balances are live.</span>
+  {% if can_refresh %}<form method="post" action="/cashflow/refresh" class="inline-form">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm" type="submit">Refresh now</button></form>{% endif %}
+</div>
+
 <div class="grid grid-4">
   {{ ui.stat('Total load', figures.cash_in | money, 'approved GCash / bank loads', 'green') }}
   {{ ui.stat('Total cash out', figures.cash_out | money, 'approved online payouts', 'red') }}

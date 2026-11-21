@@ -1,0 +1,19 @@
+# /etc/systemd/system/stelnexus-reports.service  (adjust User, paths)
+# Precomputes the heavy report figures (all-time loads / cash-outs, Bola totals, top agents) so the
+# dashboard and /cashflow read a stored copy instead of scanning the ledger on every page view.
+# Safe to run repeatedly. If this timer stops, pages fall back to computing the figures themselves.
+[Unit]
+Description=StelNexus: refresh precomputed reports
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=stelnexus
+WorkingDirectory=/opt/stelnexus
+EnvironmentFile=/opt/stelnexus/.env
+ExecStart=/opt/stelnexus/.venv/bin/python -m app.cli refresh-reports --only flows,top
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/stelnexus/var

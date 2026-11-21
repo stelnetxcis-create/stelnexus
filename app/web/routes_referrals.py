@@ -15,6 +15,7 @@ from app.core.rbac import Perm
 from app.db.models import NETWORK_ROLES, UPLINE_ROLES, Role, Status, User
 from app.services import referrals
 from app.web.deps import Ctx, flash_redirect, form_data, optional_ctx, render, require_ctx
+from app.web.paging import paginate
 
 router = APIRouter()
 _cfg = get_settings()
@@ -97,10 +98,11 @@ def _admin_uplines(ctx: Ctx) -> list[User]:
 
 
 @router.get("/referrals")
-async def referrals_page(ctx: Ctx = Depends(require_ctx)):
+async def referrals_page(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.REFERRALS_MANAGE)
-    return render(ctx, "referrals.html", active="referrals",
-                  rows=referrals.list_codes(ctx.db, ctx.user),
+    pager, rows = paginate(request, 100, lambda limit, offset: referrals.list_codes(
+        ctx.db, ctx.user, limit=limit, offset=offset))
+    return render(ctx, "referrals.html", active="referrals", pager=pager, rows=rows,
                   invite_roles=[(r, referrals.role_label(r)) for r in referrals.invite_roles(ctx.user)],
                   uplines=_admin_uplines(ctx),
                   role_names={r.value: r.label for r in Role},

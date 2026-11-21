@@ -1,0 +1,34 @@
+{# The ticket paper. Used by the ticket page and by the "just sold" reveal on the draw page. #}
+<div class="bt-stage" data-bt-stage>
+  <div class="bt-slot" aria-hidden="true"><i></i><span>Printing ticket</span></div>
+  <div class="bt-out">
+  <article class="ticket" aria-label="Number game ticket {{ ticket.code }}">
+    {% if ticket.status.value == 'settled' and ticket.payout_cents %}<div class="t-ribbon" aria-hidden="true">WINNER</div>{% endif %}
+    <h2>{{ header or brand }}</h2>
+    <div class="t-sub">{{ draw.location.name }} · {{ draw.draw_date }} · slot {{ draw.slot }}</div>
+    <div class="t-sub">Draw {{ local(draw.scheduled_at) | datetime('%H:%M') }}</div>
+    <div class="t-sep"></div>
+    <div class="t-balls" aria-hidden="true">{% for n in ticket.numbers %}<span class="mini c{{ ((n - 1) // 10) % 5 + 1 }}" style="--i:{{ loop.index0 }}">{{ n }}</span>{% endfor %}</div>
+    <div class="t-big">{{ ticket.numbers | join(' · ') }}</div>
+    <div class="t-row"><span>Type</span><span>{{ ticket.kind.value }} ({{ ticket.line_count }} line{{ 's' if ticket.line_count != 1 }})</span></div>
+    <div class="t-row"><span>Tumbok / line</span><span>{{ ticket.tumbok_cents | money }}</span></div>
+    <div class="t-row"><span>Sahod / line</span><span>{{ ticket.sahod_cents | money }}</span></div>
+    <div class="t-row"><span>Total</span><strong>{{ ticket.stake_cents | money }}</strong></div>
+    <div class="t-row"><span>Pays</span><span>{{ '%g' | format(multiplier) }}x per stake</span></div>
+    <div class="t-row"><span>Placed</span><span>{{ ticket.placed_at | datetime }}</span></div>
+    <div class="t-sep"></div>
+    {% for l in lines %}<div class="t-row"><span>{{ l.first }}–{{ l.second }}</span><span>{{ l.tumbok_cents | money }} / {{ l.sahod_cents | money }}</span></div>{% endfor %}
+    {% if ticket.status.value != 'active' %}
+    <div class="t-sep"></div>
+    <div class="t-row"><span>Status</span><strong>{{ ticket.status.value | upper }}</strong></div>
+    {% if ticket.payout_cents %}<div class="t-row"><span>{{ 'Refund' if ticket.status.value == 'refunded' else 'Payout' }}</span><strong>{{ ticket.payout_cents | money }}</strong></div>{% endif %}
+    {% endif %}
+    <div class="t-sep"></div>
+    <div class="t-qr">{{ qr | safe }}</div>
+    <div class="t-code">{{ ticket.code }}</div>
+    <div class="t-seal" aria-hidden="true"><span>ISSUED</span></div>
+    <div class="t-sub">Winnings are credited to the bettor's wallet automatically.</div>
+    {% if footer %}<div class="t-sub">{{ footer }}</div>{% endif %}
+  </article>
+  </div>
+</div>

@@ -16,14 +16,15 @@ lines, in entry order, exactly like the old teller screen:
 What is deliberately NOT ported
 -------------------------------
 * plaintext passwords, string-built SQL, "credit = cumulative cash collected";
-* anonymous walk-in tickets with a free-text nickname -- ``player_id`` is mandatory here;
+* anonymous walk-in tickets with a free-text nickname -- a ticket is the logged-in account's own bet or a
+  registered player's;
 * the dead ``limit_combination_checker`` (it read undefined variables and always computed 0).
   ``check_limits`` below implements the same intent correctly, plus a liability cap the old
   panel never had;
 * inserting the parent ticket before validating -- everything here is one transaction.
 
 Money is integer centavos and moves only through the double-entry ledger:
-    bet     wallet(player) +stake | pool(draw) -stake        kind "bola.stake"
+    bet     wallet(account or player) +stake | pool(draw) -stake   kind "bola.stake"
     cancel  ledger.reverse(stake txn)                        kind "bola.stake.reversal"
 Settlement and commissions live in ``bola_settlement`` / ``commissions``.
 """
@@ -34,10 +35,11 @@ import itertools
 from dataclasses import dataclass
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
+from app.core.pagination import clamp_limit, clamp_offset
 from app.core import audit
-from app.core.errors import Conflict, Forbidden, LockedState, NotFound, ValidationError
+from app.core.errors import Conflict, Forbidden, InsufficientFunds, LockedState, NotFound, ValidationError
 from app.core.money import fmt, payout_of
 from app.core.rbac import has_global_scope, is_top, scope_ids
 from app.core.security import random_code
@@ -476,7 +478,7 @@ def tick(db: Session, settings: SettingsStore, *, now: dt.datetime | None = None
 
 def list_draws(db: Session, *, date: dt.date | None = None, location_id: int | None = None,
                status: DrawStatus | None = None, upcoming: bool = False,
-               include_legacy: bool = True, limit: int = 200) -> list[BolaDraw]:
+               include_legacy: bool = True, limit: int = 200, offset: int = 0) -> list[BolaDraw]:
     stmt = select(BolaDraw)
     if date:
         stmt = stmt.where(BolaDraw.draw_date == date)
@@ -490,15 +492,17 @@ def list_draws(db: Session, *, date: dt.date | None = None, location_id: int | N
         stmt = stmt.where(BolaDraw.legacy.is_(False))
     order = (BolaDraw.scheduled_at.desc(), BolaDraw.id.desc()) if not upcoming else \
             (BolaDraw.scheduled_at.asc(), BolaDraw.id.asc())
-    return list(db.scalars(stmt.order_by(*order).limit(min(limit, 500))).all())
+    return list(db.scalars(stmt.order_by(*order).limit(clamp_limit(limit, 500))
+                           .offset(clamp_offset(offset))).all())
 
 
-def results(db: Session, *, location_id: int | None = None, limit: int = 60) -> list[BolaDraw]:
+def results(db: Session, *, location_id: int | None = None, limit: int = 60,
+            offset: int = 0) -> list[BolaDraw]:
     stmt = select(BolaDraw).where(BolaDraw.status == DrawStatus.SETTLED)
     if location_id:
         stmt = stmt.where(BolaDraw.location_id == location_id)
     return list(db.scalars(stmt.order_by(BolaDraw.declared_at.desc().nulls_last(), BolaDraw.id.desc())
-                           .limit(min(limit, 300))).all())
+                           .limit(clamp_limit(limit, 300)).offset(clamp_offset(offset))).all())
 
 
 def next_draw(db: Session, *, location_id: int | None = None) -> BolaDraw | None:
@@ -696,13 +700,14 @@ def network_names(db: Session, agent_id: int | None) -> tuple[str | None, str | 
 
 
 def _replay(existing: BolaTicket, *, draw_id, kind, numbers, tumbok_cents, sahod_cents,
-            player_id) -> BolaTicket:
+            player_id, user_id=None) -> BolaTicket:
     """An idempotency-key hit is only a "double tap" when it is the same bet. A reused key on a
     different bet must fail loudly: silently returning the old ticket would tell the agent the
     new bet was placed when it was not (and nothing was charged for it)."""
     try:
         same = (existing.draw_id == int(draw_id)
-                and existing.player_id == int(player_id)
+                and existing.player_id == (int(player_id) if player_id is not None else None)
+                and existing.user_id == user_id
                 and existing.kind == BolaKind(kind)
                 and list(existing.numbers) == [int(n) for n in numbers]
                 and existing.tumbok_cents == int(tumbok_cents)
@@ -717,19 +722,22 @@ def _replay(existing: BolaTicket, *, draw_id, kind, numbers, tumbok_cents, sahod
 
 def place_bola_bet(
     db: Session, actor: User, *, draw_id: int, kind: BolaKind | str, numbers,
-    tumbok_cents: int, sahod_cents: int, player_id: int, settings: SettingsStore,
+    tumbok_cents: int, sahod_cents: int, settings: SettingsStore, player_id: int | None = None,
     idempotency_key: str | None = None, note: str | None = None, ip: str | None = None,
 ) -> BolaTicket:
     """One atomic unit: validate -> limits -> ledger -> ticket + lines + exposure, or nothing.
 
-    Mirrors ``betting.place_bet`` so it feels familiar. Unlike the legacy ``gbet`` there is never
-    a half-created ticket to delete afterwards.
+    Mirrors ``betting.place_bet``: with no ``player_id`` the logged-in account bets for itself, from its own
+    credit; with a ``player_id`` the stake comes from that player's credit. Unlike the legacy ``gbet`` there
+    is never a half-created ticket to delete afterwards.
     """
+    self_key = actor.id if player_id is None else None
     if idempotency_key:
         existing = db.scalar(select(BolaTicket).where(BolaTicket.idempotency_key == idempotency_key))
         if existing is not None:
             return _replay(existing, draw_id=draw_id, kind=kind, numbers=numbers,
-                           tumbok_cents=tumbok_cents, sahod_cents=sahod_cents, player_id=player_id)
+                           tumbok_cents=tumbok_cents, sahod_cents=sahod_cents, player_id=player_id,
+                           user_id=self_key)
 
     assert_enabled(settings)
     draw = _lock_draw(db, draw_id)
@@ -739,7 +747,8 @@ def place_bola_bet(
         existing = db.scalar(select(BolaTicket).where(BolaTicket.idempotency_key == idempotency_key))
         if existing is not None:
             return _replay(existing, draw_id=draw_id, kind=kind, numbers=numbers,
-                           tumbok_cents=tumbok_cents, sahod_cents=sahod_cents, player_id=player_id)
+                           tumbok_cents=tumbok_cents, sahod_cents=sahod_cents, player_id=player_id,
+                           user_id=self_key)
     now = utcnow()
     if draw.status != DrawStatus.OPEN:
         raise LockedState(f"Betting for this draw is {draw.status}.")
@@ -756,14 +765,23 @@ def place_bola_bet(
         raise ValidationError(f"One ticket may not be more than {fmt(ceiling)} "
                               f"(this one is {fmt(stake)}).")
 
-    if player_id is None:
-        raise ValidationError("Choose the player this bet is for.")
-    player = players.get_player(db, actor, int(player_id))
-    players.assert_can_bet(db, player, stake, settings)
+    player = None
+    agent_id: int | None = None
+    if player_id is not None:
+        player = players.get_player(db, actor, int(player_id))
+        players.assert_can_bet(db, player, stake, settings)
+        agent_id = player.agent_id
+    elif not actor.has_wallet:
+        raise Forbidden(f"A {actor.role_label} account has no balance and cannot place bets.")
 
     check_limits(db, draw, lines, tumbok, sahod, settings)
 
-    source = players.wallet(db, player)
+    # No player chosen: the logged-in account bets for itself, from its own credit (same as the fight game).
+    self_bet = player is None
+    source = accounts.wallet_for_user(db, actor) if self_bet else players.wallet(db, player)
+    if self_bet and source.balance_cents < stake:
+        raise InsufficientFunds(f"Not enough credit: this ticket costs {fmt(stake)} and you have "
+                                f"{fmt(source.balance_cents)}.")
     pool = accounts.pool_for_draw(db, draw)
     code = _ticket_code(db)
     txn = ledger.post(
@@ -774,15 +792,17 @@ def place_bola_bet(
         idempotency_key=f"bola-bet:{idempotency_key}" if idempotency_key else None,
     )
 
-    agent_id = player.agent_id
-    if agent_id is None and actor.role in NETWORK_ROLES:
+    if self_bet:
+        agent_id = actor.id
+    elif agent_id is None and actor.role in NETWORK_ROLES:
         agent_id = actor.id
     chain_kubrador, chain_cavo = network_names(db, agent_id)
     t_pay, s_pay = line_payouts(tumbok, sahod, settings)
     best = max(t_pay, s_pay)
     payout_cap = int(settings.get("payout.max_payout_cents")) or None
     ticket = BolaTicket(
-        code=code, draw_id=draw.id, player_id=player.id, agent_id=agent_id, kind=kind,
+        code=code, draw_id=draw.id, player_id=player.id if player else None,
+        user_id=actor.id if self_bet else None, agent_id=agent_id, kind=kind,
         numbers=nums, tumbok_cents=tumbok, sahod_cents=sahod, line_count=len(lines),
         stake_cents=stake, status=TicketStatus.ACTIVE,
         est_max_payout_cents=min(best, payout_cap) if payout_cap else best,
@@ -800,7 +820,8 @@ def place_bola_bet(
     audit.record(db, actor, "bola.bet.place", entity_type="bola_ticket", entity_id=ticket.id,
                  after={"code": code, "draw_id": draw.id, "kind": str(kind), "numbers": nums,
                         "tumbok_cents": tumbok, "sahod_cents": sahod, "stake_cents": stake,
-                        "lines": len(lines), "player_id": player.id})
+                        "lines": len(lines), "player_id": player.id if player else None,
+                        "self_bet": self_bet})
     return ticket
 
 
@@ -887,8 +908,16 @@ def list_tickets(db: Session, actor: User, *, draw_id: int | None = None,
                  status: TicketStatus | None = None, agent_id: int | None = None,
                  player_id: int | None = None, search: str | None = None,
                  canceled_only: bool = False, include_legacy: bool = True,
-                 limit: int = 200, offset: int = 0) -> list[BolaTicket]:
+                 limit: int = 200, offset: int = 0, before_id: int | None = None,
+                 with_player: bool = False) -> list[BolaTicket]:
+    """Newest first. ``before_id`` is keyset paging (rows with a smaller id): unlike a deep OFFSET
+    its cost does not grow with how far you have read, which is what exports use.
+    ``with_player`` loads the players in one extra query instead of one per ticket."""
     stmt = select(BolaTicket)
+    if before_id is not None:
+        stmt = stmt.where(BolaTicket.id < before_id)
+    if with_player:
+        stmt = stmt.options(selectinload(BolaTicket.player))
     if not has_global_scope(actor):
         stmt = stmt.where(BolaTicket.agent_id.in_(scope_ids(db, actor)))
     if draw_id:
@@ -908,7 +937,7 @@ def list_tickets(db: Session, actor: User, *, draw_id: int | None = None,
     if not include_legacy:
         stmt = stmt.where(BolaTicket.legacy.is_(False))
     return list(db.scalars(stmt.order_by(BolaTicket.id.desc())
-                           .limit(min(limit, 1000)).offset(max(offset, 0))).all())
+                           .limit(clamp_limit(limit, 1000)).offset(clamp_offset(offset))).all())
 
 
 def active_tickets(db: Session, draw: BolaDraw) -> list[BolaTicket]:

@@ -62,14 +62,19 @@ async def clp_register(request: Request, ctx: Ctx = Depends(require_ctx)):
 
 
 @router.get("/clp/{player_id}/history")
-async def clp_history(player_id: int, ctx: Ctx = Depends(require_ctx)):
+async def clp_history(player_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.PLAYERS_VIEW)
     player = players.get_player(ctx.db, ctx.user, player_id)
-    tickets = betting.list_tickets(ctx.db, ctx.user, player_id=player_id, limit=200)
     from app.services import accounts, ledger
     account = accounts.wallet_for_player(ctx.db, player)
+    # Bets and the credit ledger each page on their own parameter, so older bets do not reset the ledger.
+    tpager, tickets = paginate(request, 50, lambda limit, offset: betting.list_tickets(
+        ctx.db, ctx.user, player_id=player_id, limit=limit, offset=offset), param="tpage")
+    lpager, entries = paginate(request, 50, lambda limit, offset: ledger.history(
+        ctx.db, account.id, limit=limit, offset=offset), param="lpage")
     return render(ctx, "player_history.html", active="clp", player=player, tickets=tickets,
-                  balance=account.balance_cents, entries=ledger.history(ctx.db, account.id, limit=40),
+                  tpager=tpager, lpager=lpager,
+                  balance=account.balance_cents, entries=entries,
                   gcash=players.decrypt_field(player.gcash_enc),
                   address=players.decrypt_field(player.address_enc))
 

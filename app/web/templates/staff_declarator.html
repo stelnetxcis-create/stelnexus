@@ -1,10 +1,49 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
-{% block title %}Declarator · Staff Panel · {{ brand }}{% endblock %}
+{% block title %}Declarator Desk · Staff Panel · {{ brand }}{% endblock %}
 {% block heading %}Staff Panel{% endblock %}
+{% block head %}{{ css('declarator') }}{% endblock %}
 {% block content %}
 {% include "_staff_nav.html" %}
-<div class="card"><div class="card-body">
-  {{ ui.empty('The Declarator section is empty for now. Tools for declarators will appear here.') }}
-</div></div>
+{# The Declarator Desk. The server renders this frame and the first board (as inert JSON, which the strict
+   script policy allows); declarator.js paints the cards and keeps them live from /_live/declarator.
+   The board never contains money. See services/declarator.py. #}
+<section class="dk" data-desk aria-label="Declarator Desk">
+  <header class="dk-bar">
+    <div class="dk-title">
+      <h2>Declarator Desk</h2>
+      <p>Every live game on one board. Pick one, then do your part without leaving this page.</p>
+    </div>
+    <div class="dk-stats" data-stats role="group" aria-label="Games by state"></div>
+    <div class="dk-tools">
+      <div class="dk-seg" role="group" aria-label="Show">
+        <button type="button" data-filter="all" aria-pressed="true">All</button>
+        <button type="button" data-filter="sabong" aria-pressed="false">Sabong</button>
+        <button type="button" data-filter="bola" aria-pressed="false">Bola</button>
+      </div>
+      <span class="dk-live" data-live title="Updates by itself every few seconds"><i></i>LIVE</span>
+    </div>
+  </header>
+
+  <div class="dk-body">
+    <aside class="dk-rail" aria-label="Live board">
+      <div class="dk-tabs" role="tablist" aria-label="Board view">
+        <button type="button" role="tab" data-tab="live" aria-selected="true">Live board <b data-tab-count="live">0</b></button>
+        <button type="button" role="tab" data-tab="recent" aria-selected="false">Recently declared <b data-tab-count="recent">0</b></button>
+      </div>
+      <div class="dk-list" data-list role="listbox" aria-label="Live games"></div>
+    </aside>
+    <div class="dk-stage" data-stage aria-live="polite"></div>
+  </div>
+
+  <footer class="dk-keys" aria-label="Keyboard shortcuts">
+    <span><kbd>&uarr;</kbd><kbd>&darr;</kbd> switch game</span>
+    <span><kbd>M</kbd> Meron</span><span><kbd>W</kbd> Wala</span><span><kbd>D</kbd> Draw</span><span><kbd>X</kbd> Cancel game</span>
+    <span><kbd>Enter</kbd> confirm</span><span><kbd>Esc</kbd> clear</span>
+  </footer>
+
+  <noscript><p class="notice">The desk needs JavaScript. Without it, use <a href="/change_name">Fight View</a> and <a href="/bola">Bola</a>.</p></noscript>
+  <script type="application/json" id="dk-boot">{{ boot | tojson }}</script>
+</section>
 {% endblock %}
+{% block scripts %}{{ js('declarator') }}{% endblock %}

@@ -1,10 +1,10 @@
-/* Bet panel inside the fight-view video: the Seller Desk controls (player, Meron / Wala / Draw, amount chips,
-   keypad, Sell, short Undo list) as a floating panel. It is the shared seller component (sellcore.js) wrapped in
+/* Bet panel inside the fight-view video: the bet controls (Meron / Wala / Draw, amount chips,
+   keypad, Bet, short Undo list) as a floating panel. It is the shared bet component (sellcore.js) wrapped in
    the shared floating panel (floatpanel.js): drag, S / M / L, transparency, collapse and a remembered position
-   come from there. It posts to the existing /sell/place and /sell/undo, so every betting rule (KYC, credit, bet mode,
-   locked games, idempotency key, cancel window) is enforced by the server exactly as on the Seller Desk.
+   come from there. It posts to /bets/early/place and /bets/early/undo, so every betting rule (KYC, credit, bet mode,
+   locked games, idempotency key, cancel window) is enforced by the server exactly as on the normal bet form.
    S = compact (no keypad, no history), M = normal, L = big buttons.
-   On the livestream page it is the EARLY BET panel: the server only takes these bets before the stream starts. */
+   On the livestream page it is the BET panel: the logged-in account bets for itself, and the server only takes bets before the game starts. */
 (function () {
   'use strict';
   const snx = (window.snx = window.snx || {});
@@ -23,7 +23,7 @@
       alphaOut: q('[data-bp-alpha-out]'), resetBtn: q('[data-bp-reset]'),
       corner: { fx: 1, fy: 1 },                              // bottom right: chat owns the top left, the LIVE badge the top right
       defaultSize: () => (phone() ? 's' : 'm'),
-      defaultCollapsed: () => false,                         // early betting is the point of the pre-show: open it
+      defaultCollapsed: () => false,                         // betting is the point of the pre-show: open it
       onLayout: () => short(),
     });
     // a phone held sideways (floating over a wide, short picture): two columns, no wasted height.
@@ -34,16 +34,15 @@
     }
     short();
     const seller = snx.Seller(q('[data-sl-root]'), { panel: true, onPick: opts.onPick });
-    // once the stream has started the panel is of no use: say so and fold it away.
-    // Back in pre-show (or first paint before the stream) it opens, whatever collapsed state was remembered.
+    // `on` = the game on screen is on air: its early betting is closed, so the whole panel goes away (it is not
+    // folded: nothing to show). Switching to an upcoming game calls setLive(false) and the panel is back, open.
     let wasLive = null;
     function setLive(on) {
       on = !!on;
       seller.setLive(on);
       el.classList.toggle('is-live', on);
-      const note = q('[data-bp-ended]'); if (note) note.hidden = !on;
-      if (on) panel.setCollapsed(true, false);
-      else if (wasLive !== false) panel.setCollapsed(false, false);
+      el.style.display = on ? 'none' : '';
+      if (!on && wasLive !== false) panel.setCollapsed(false, false);
       wasLive = on;
     }
     // maximizing during the pre-show: make sure the panel is open over the video

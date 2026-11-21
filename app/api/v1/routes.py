@@ -21,7 +21,7 @@ from app.core.rbac import Perm, hides_totals, permissions_of
 from app.core.settings_registry import SettingsStore
 from app.db.models import BolaKind, DrawStatus, EventStatus, Side, TicketStatus, User
 from app.db.session import get_db
-from app.services import agents, auth, betting, bola, events, players, reports
+from app.services import agents, auth, betting, bola, events, players, reports, snapshots
 
 router = APIRouter(tags=["api"])
 
@@ -96,6 +96,7 @@ async def issue_token(request: Request, db: Session = Depends(get_db)):
     user = auth.authenticate(db, username=str(data.get("username", "")),
                              password=str(data.get("password", "")),
                              ip=_client_ip(request), settings=store)
+    auth.end_other_logins(db, user, settings=store)       # one device per account
     raw, row = auth.create_api_token(db, user, name=str(data.get("device", "mobile")),
                                      days=int(data.get("days", 30) or 30))
     return {"token": raw, "expires_at": jsonable_encoder(row.expires_at), "user": _user(user)}
@@ -111,13 +112,14 @@ async def me(c: ApiCtx = Depends(api_ctx)):
 # --- events / fights -------------------------------------------------------
 
 @router.get("/events")
-async def list_events(status: str | None = None, limit: int = 50, c: ApiCtx = Depends(api_ctx)):
+async def list_events(status: str | None = None, limit: int = 50, offset: int = 0,
+                      c: ApiCtx = Depends(api_ctx)):
     c.need(Perm.EVENTS_VIEW)
     try:
         st = EventStatus(status) if status else None
     except ValueError as exc:
         raise ValidationError("Unknown event status.") from exc
-    return {"events": [_event(e) for e in events.list_events(c.db, limit=limit, status=st)]}
+    return {"events": [_event(e) for e in events.list_events(c.db, limit=limit, offset=offset, status=st)]}
 
 
 @router.get("/events/{event_id}/fights")
@@ -217,7 +219,7 @@ async def cancel_ticket(ticket_id: int, request: Request, c: ApiCtx = Depends(ap
 @router.get("/dashboard")
 async def dashboard(c: ApiCtx = Depends(api_ctx)):
     c.need(Perm.DASHBOARD)
-    stats = reports.dashboard(c.db, c.user)
+    stats = reports.dashboard(c.db, c.user, flows=snapshots.flows(c.db).payload)
     if not c.user.is_top:
         # The HTML dashboard hides company-wide figures from non-admins; so does the API.
         stats = {k: stats[k] for k in ("open_fights", "events") if k in stats}
@@ -283,7 +285,7 @@ def _bola_odds(c: ApiCtx) -> dict:
 @router.get("/bola/draws")
 async def bola_draws(date: str | None = None, location_id: int | None = None,
                      status: str | None = None, upcoming: bool = False,
-                     limit: int = 100, c: ApiCtx = Depends(api_ctx)):
+                     limit: int = 100, offset: int = 0, c: ApiCtx = Depends(api_ctx)):
     c.need(Perm.BOLA_VIEW)
     try:
         day = dt.date.fromisoformat(date) if date else None
@@ -291,7 +293,7 @@ async def bola_draws(date: str | None = None, location_id: int | None = None,
     except ValueError as exc:
         raise ValidationError("date must be YYYY-MM-DD and status a known draw status.") from exc
     rows = bola.list_draws(c.db, date=day, location_id=location_id, status=st,
-                           upcoming=upcoming, limit=min(limit, 200))
+                           upcoming=upcoming, limit=min(limit, 200), offset=offset)
     return {"draws": [_bola_draw(d) for d in rows], "odds": _bola_odds(c)}
 
 
@@ -330,12 +332,11 @@ async def bola_place_bet(request: Request, c: ApiCtx = Depends(api_ctx)):
     numbers = data.get("numbers")
     if not isinstance(numbers, list):
         raise ValidationError("numbers must be a JSON array like [12, 5, 36].")
-    player_id = data.get("player_id")
     ticket = bola.place_bola_bet(
         c.db, c.user, draw_id=draw_id, kind=kind, numbers=numbers,
         tumbok_cents=to_cents(str(data.get("tumbok", "0") or "0")),
         sahod_cents=to_cents(str(data.get("sahod", "0") or "0")),
-        player_id=int(player_id) if player_id else None, settings=c.store,
+        player_id=None, settings=c.store,          # always the account's own credit
         idempotency_key=data.get("idempotency_key") or request.headers.get("idempotency-key"),
         note=str(data.get("note") or "") or None, ip=c.ip)
     return {"ticket": _bola_ticket(ticket, lines=bola.ticket_lines(c.db, ticket))}
@@ -385,8 +386,8 @@ async def bola_cancel_ticket(ticket_id: int, request: Request, c: ApiCtx = Depen
 
 
 @router.get("/bola/results")
-async def bola_results(location_id: int | None = None, limit: int = 60,
+async def bola_results(location_id: int | None = None, limit: int = 60, offset: int = 0,
                        c: ApiCtx = Depends(api_ctx)):
     c.need(Perm.BOLA_VIEW)
-    rows = bola.results(c.db, location_id=location_id, limit=min(limit, 200))
+    rows = bola.results(c.db, location_id=location_id, limit=min(limit, 200), offset=offset)
     return {"results": [_bola_draw(d) for d in rows]}

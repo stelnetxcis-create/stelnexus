@@ -7,6 +7,7 @@ import io
 import threading
 import time
 
+from fastapi.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func, select
@@ -196,10 +197,12 @@ def _chat_snapshot(request: Request, after: int) -> realtime.Snapshot:
 @router.get("/chat/stream")
 async def chat_stream(request: Request, after: int = 0):
     """Server-sent events: the poll payload, pushed when something happens (plus a slow heartbeat)."""
-    with session_scope() as db:                       # authorise before the response starts: clean 401 / 403
-        ctx = require_ctx(request, db)
-        ctx.need(Perm.CHAT_USE)
-        user_id = ctx.user.id
+    def _authorise() -> int:
+        with session_scope() as db:                   # authorise before the response starts: clean 401 / 403
+            ctx = require_ctx(request, db)
+            ctx.need(Perm.CHAT_USE)
+            return ctx.user.id
+    user_id = await run_in_threadpool(_authorise)     # never block the event loop on SQLite
     return realtime.open_stream(request, user_id, {realtime.chat_topic()}, lambda a: _chat_snapshot(request, a), after=after)
 
 
@@ -259,11 +262,13 @@ async def history_page(request: Request, ctx: Ctx = Depends(require_ctx)):
 
 
 @router.get("/archives")
-async def archives_page(ctx: Ctx = Depends(require_ctx)):
+async def archives_page(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.REPORTS_VIEW)
-    rows = reports.archived_events(ctx.db)
-    return render(ctx, "archives.html", active="archives",
-                  rows=[(e, reports.event_summary(ctx.db, e.id)) for e in rows])
+    pager, rows = paginate(request, 50, lambda limit, offset: reports.archived_events(
+        ctx.db, limit=limit, offset=offset))
+    summaries = reports.event_summaries(ctx.db, [e.id for e in rows])        # 4 queries, not 4 per row
+    return render(ctx, "archives.html", active="archives", pager=pager,
+                  rows=[(e, summaries[e.id]) for e in rows])
 
 
 @router.get("/events/{event_id}/report.csv")

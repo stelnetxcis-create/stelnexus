@@ -60,7 +60,9 @@ def test_counter_pages_are_gone():
     c, _ = login("admin")
     for path in ["/stations", "/booklets", "/claim"]:
         assert c.get(path).status_code == 404, path
+    import re
     html = c.get("/dashboard").text
+    html = re.sub(r'<details class="menu dev-menu">.*?</details>', "", html, flags=re.S)   # DEV role picker lists Teller on purpose
     for word in ("Teller", "Booklets", "Claim Ticket", "Cash desk"):
         assert word not in html, word
 

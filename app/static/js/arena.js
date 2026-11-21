@@ -2,7 +2,7 @@
    count-up on box numbers, navigation progress bar. No dependencies. Does nothing under reduced-motion. */
 (function () {
   'use strict';
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches || document.documentElement.classList.contains('fx-min')) return;
   var fine = matchMedia('(pointer: fine)').matches;
   var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
 

@@ -79,7 +79,6 @@
           ('staff', '/staff', 'i-users', 'Staff Panel', 'staff.view')]),
         ('Sabong · Meron / Wala', [
           ('events', '/events', 'i-calendar', 'Events', 'events.view'),
-          ('sell', '/sell', 'i-coins', 'Seller Desk (dev)', 'sell.desk'),
           ('change_name', '/change_name', 'i-target', 'Fight View', 'fights.view'),
           ('history', '/history', 'i-clock', 'Game History', 'fights.view'),
           ('betlogs', '/betlogs', 'i-list', 'Betting List', 'bets.view'),
@@ -148,6 +147,10 @@
                   <button class="dev-role" type="submit" {{ 'disabled' if not g.users }} title="{{ (g.users|length ~ ' active account(s)') if g.users else 'No active ' ~ g.label ~ ' account yet' }}">{{ g.label }}<small>{{ g.users|length }}</small></button>
                 </form>
                 {% endfor %}
+                <form method="get" action="/dev/player">
+                  <input type="hidden" name="first" value="1">
+                  <button class="dev-role" type="submit" {{ 'disabled' if (not dev.players_total or viewing_as) }} title="{{ (dev.players_total ~ ' active player(s)') if dev.players_total else 'No active players yet' }}">Player<small>{{ dev.players_total }}</small></button>
+                </form>
               </div>
               <form method="post" action="/dev/view-as" class="dev-pick">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -159,6 +162,16 @@
                 </select>
                 <button class="btn btn-sm" type="submit">Preview</button>
               </form>
+              {% if not viewing_as and dev.players %}
+              <form method="get" action="/dev/player" class="dev-pick">
+                <select name="player_id" aria-label="Open a player" required>
+                  <option value="">A player…</option>
+                  {% for p in dev.players %}<option value="{{ p.id }}">{{ p.username or p.full_name }}{% if p.username and p.full_name %} · {{ p.full_name }}{% endif %}</option>{% endfor %}
+                </select>
+                <button class="btn btn-sm" type="submit">Open</button>
+              </form>
+              <p class="muted small">Players open a read-only player view (credit, bets in both games).</p>
+              {% endif %}
               <p class="muted small">Exactly what that account sees: same menu, dashboard and data. Read-only: nothing you click can change data while previewing.</p>
             </div>
             <details class="dev-sec dev-perms">

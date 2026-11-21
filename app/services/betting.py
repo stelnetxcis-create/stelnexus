@@ -16,6 +16,7 @@ import datetime as dt
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.pagination import clamp_limit, clamp_offset
 from app.core import audit
 from app.core import ttlcache
 from app.core.errors import Conflict, Forbidden, LockedState, NotFound, ValidationError
@@ -79,16 +80,34 @@ def pool_snapshots(db: Session, fight_ids: list[int]) -> dict[int, dict]:
     return out
 
 
-def side_multipliers(snapshot: dict, cut_bps: int, settings: SettingsStore) -> dict:
-    """Current pool multiple (bps) per side, plus whether the minimum-odds rule would
-    cancel the fight if that side won. Informational; settlement recomputes."""
+def ahead_side(snapshot: dict, llamado: str | None = None) -> str:
+    """The Llamado (favourite) side: the one staff marked on the fight, otherwise the side holding more stake."""
+    if llamado in ("meron", "wala"):
+        return llamado
+    return "wala" if snapshot["wala"] > snapshot["meron"] else "meron"
+
+
+def max_odds_bps(settings: SettingsStore, side: str, snapshot: dict, llamado: str | None = None) -> int:
+    """Payout ceiling for a winning side in the pool model (0 = no ceiling): the Llamado side, which carries the
+    most bets, pays at most ``payout.max_llamado_bps`` (e.g. 1.5x); the Dehado side at most ``payout.max_dehado_bps``
+    (e.g. 2.5x). Anything above the ceiling stays with the house."""
+    key = "payout.max_llamado_bps" if side == ahead_side(snapshot, llamado) else "payout.max_dehado_bps"
+    return int(settings.get(key))
+
+
+def side_multipliers(snapshot: dict, cut_bps: int, settings: SettingsStore, llamado: str | None = None) -> dict:
+    """Current pool multiple (bps) per side, capped at the Llamado / Dehado maximum, plus whether the minimum-odds
+    rule would cancel the fight if that side won. Informational; settlement recomputes."""
     min_odds = int(settings.get("payout.min_odds_bps"))
     net = snapshot["main"] - bps_of(snapshot["main"], cut_bps)
     out: dict[str, dict] = {}
     for side in ("meron", "wala"):
         pool = snapshot[side]
-        bps = (net * 10000) // pool if pool else 0
-        out[side] = {"bps": bps, "below_min": bool(pool and min_odds and bps < min_odds)}
+        natural = (net * 10000) // pool if pool else 0
+        ceiling = max_odds_bps(settings, side, snapshot, llamado)
+        bps = min(natural, ceiling) if ceiling else natural
+        out[side] = {"bps": bps, "natural": natural, "max": ceiling, "capped": bool(ceiling and natural > ceiling),
+                     "below_min": bool(pool and min_odds and natural < min_odds)}
     out["draw"] = {"bps": int(settings.get("payout.draw_odds_bps")), "below_min": False}
     return out
 
@@ -108,6 +127,10 @@ def estimate_payout(db: Session, fight: Fight, side: Side, stake_cents: int,
     cut = bps_of(main, events.house_cut_for(db, event, settings))
     net = main - cut
     side_pool = snap[side.value] + stake_cents
+    after = dict(snap, main=main, **{side.value: side_pool})
+    ceiling = max_odds_bps(settings, side.value, after, fight.llamado_side)
+    if ceiling and side_pool:
+        net = min(net, side_pool * ceiling // 10000)
     return (stake_cents * net) // side_pool if side_pool else 0
 
 
@@ -136,13 +159,14 @@ def network_names(db: Session, agent_id: int | None) -> tuple[str | None, str | 
     return kubrador, cavo
 
 
-def _replay(existing: Ticket, *, fight_id, side, stake_cents, player_id) -> Ticket:
+def _replay(existing: Ticket, *, fight_id, side, stake_cents, player_id, user_id=None) -> Ticket:
     """An idempotency-key hit is a double tap only when it is the same bet. A reused key on a
     different bet must fail loudly, not hand back the old ticket as if the new one was placed."""
     try:
         same = (existing.fight_id == int(fight_id) and existing.side == Side(side)
                 and existing.stake_cents == int(stake_cents)
-                and existing.player_id == (int(player_id) if player_id is not None else None))
+                and existing.player_id == (int(player_id) if player_id is not None else None)
+                and existing.user_id == user_id)
     except (TypeError, ValueError):
         same = False
     if not same:
@@ -162,7 +186,7 @@ def place_bet(
         existing = db.scalar(select(Ticket).where(Ticket.idempotency_key == idempotency_key))
         if existing is not None:
             return _replay(existing, fight_id=fight_id, side=side, stake_cents=stake_cents,
-                           player_id=player_id)
+                           player_id=player_id, user_id=actor.id if player_id is None else None)
 
     fight = db.scalar(select(Fight).where(Fight.id == fight_id).with_for_update())
     if fight is None:
@@ -173,12 +197,20 @@ def place_bet(
         existing = db.scalar(select(Ticket).where(Ticket.idempotency_key == idempotency_key))
         if existing is not None:
             return _replay(existing, fight_id=fight_id, side=side, stake_cents=stake_cents,
-                           player_id=player_id)
+                           player_id=player_id, user_id=actor.id if player_id is None else None)
     event = events.get_event(db, fight.event_id)
     if event.status != EventStatus.OPEN:
         raise LockedState("This event is not open for betting.")
-    if source == "live" and event.live_started_at is not None:
-        raise LockedState("Early betting is closed: the stream has started.")
+    # Livestream betting follows the game order (events.stream_phase): only the CURRENT game, while it has not
+    # started, takes bets. Once it is on air everything is closed; the next game opens when it is declared.
+    if source == "live":
+        cur = events.current_fight(db, fight.event_id)
+        phase = events.stream_phase(fight, cur.id if cur else None)
+        if phase == "waiting":
+            raise LockedState(f"Game #{fight.number} is not open yet: it opens when game #{cur.number} is done.")
+        if phase == "onair":
+            raise LockedState(f"Betting is closed: game #{fight.number} has started. "
+                              f"Game #{fight.number + 1} opens when it is done.")
     if fight.status != FightStatus.OPEN:
         raise LockedState(f"Game #{fight.number} is {fight.status} -- betting is closed.")
 
@@ -203,9 +235,15 @@ def place_bet(
     if actor.role in NETWORK_ROLES and agent_id is None:
         agent_id = actor.id
 
-    if player is None:
-        raise ValidationError("Choose the player this bet is for.")
-    source = players.wallet(db, player)
+    # No player chosen: the logged-in account bets for itself, from its own credit.
+    self_bet = player is None
+    if self_bet:
+        if not actor.has_wallet:
+            raise Forbidden(f"A {actor.role_label} account has no balance and cannot place bets.")
+        source = accounts.wallet_for_user(db, actor)
+        agent_id = actor.id
+    else:
+        source = players.wallet(db, player)
 
     pool = accounts.pool_for_fight(db, fight)
     est = estimate_payout(db, fight, side, stake_cents, settings)
@@ -223,6 +261,7 @@ def place_bet(
     ticket = Ticket(
         code=code, event_id=event.id, fight_id=fight.id,
         player_id=player.id if player else None,
+        user_id=actor.id if self_bet else None,
         agent_id=agent_id,
         side=side, stake_cents=stake_cents, funded_by=funded_by, est_payout_cents=est,
         status=TicketStatus.ACTIVE, is_diy=is_diy, stake_txn_id=txn.id,
@@ -317,7 +356,7 @@ def list_tickets(
     if search:
         term = f"%{search.strip()[:40]}%"
         stmt = stmt.where(or_(Ticket.code.ilike(term), Ticket.kubrador.ilike(term), Ticket.cavo.ilike(term)))
-    stmt = stmt.order_by(Ticket.id.desc()).limit(min(limit, 1000)).offset(max(offset, 0))
+    stmt = stmt.order_by(Ticket.id.desc()).limit(clamp_limit(limit, 1000)).offset(clamp_offset(offset))
     return list(db.scalars(stmt).all())
 
 
@@ -330,4 +369,8 @@ def beneficiary_account(db: Session, ticket: Ticket) -> Account:
         player = db.get(Player, ticket.player_id)
         if player is not None:
             return accounts.wallet_for_player(db, player)
+    if ticket.user_id:
+        bettor = db.get(User, ticket.user_id)
+        if bettor is not None and bettor.has_wallet:
+            return accounts.wallet_for_user(db, bettor)
     return accounts.central_cash(db)

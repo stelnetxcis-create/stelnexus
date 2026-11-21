@@ -12,6 +12,7 @@ import datetime as dt
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.pagination import clamp_limit, clamp_offset
 from app.core import audit
 from app.core import ttlcache
 from app.core.errors import Conflict, Forbidden, LockedState, NotFound, ValidationError
@@ -230,10 +231,11 @@ def my_requests(db: Session, user: User, *, limit: int = 50) -> list[CashRequest
     stmt = select(CashRequest).where(or_(CashRequest.requested_by_id == user.id,
                                          CashRequest.agent_id == user.id))
     return list(db.scalars(stmt.options(*_REQ_LOAD).order_by(CashRequest.id.desc())
-                           .limit(min(limit, 200))).all())
+                           .limit(clamp_limit(limit, 200))).all())
 
 
-def list_requests(db: Session, actor: User, *, view: str = "in", limit: int = 200) -> list[CashRequest]:
+def list_requests(db: Session, actor: User, *, view: str = "in", limit: int = 200,
+                  offset: int = 0) -> list[CashRequest]:
     stmt = select(CashRequest)
     if not (is_top(actor) or actor.role == Role.TELLER):
         stmt = stmt.where(or_(CashRequest.requested_by_id == actor.id,
@@ -246,4 +248,4 @@ def list_requests(db: Session, actor: User, *, view: str = "in", limit: int = 20
                           CashRequest.status == RequestStatus.PENDING)
     stmt = gcash.visible_to(stmt, actor)
     return list(db.scalars(stmt.options(*_REQ_LOAD).order_by(CashRequest.id.desc())
-                           .limit(min(limit, 1000))).all())
+                           .limit(clamp_limit(limit, 1000)).offset(clamp_offset(offset))).all())

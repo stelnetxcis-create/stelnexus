@@ -69,7 +69,7 @@ def test_switch_off_is_kept_audited_and_admin_only():
         db.flush()
         assert teams.ensure_teams(db) == 0 and not db.get(Team, team.id).is_active   # a re-seed does not switch it back on
         assert "BOS" not in {t.code for t in teams.list_teams(db, "nba", active_only=True)}
-        assert db.scalar(select(AuditLog.id).where(AuditLog.action == "team.deactivate", AuditLog.entity_id == team.id))
+        assert db.scalar(select(AuditLog.id).where(AuditLog.action == "team.deactivate", AuditLog.entity_id == str(team.id)))
         teams.set_active(db, admin, team.id, True)
 
 

@@ -188,18 +188,25 @@ def test_permissions_master_is_admin_minus_admin_panel(monkeypatch):
                   Perm.CASHFLOW_VIEW, Perm.REPORTS_VIEW,
                   # livestream chat: Admin, and Pawns it was granted to
                   Perm.CHAT_USE,
-                  # account tools, IP bans and the experimental Seller Desk
+                  # account tools, IP bans
                   Perm.ACCOUNTS_VIEW, Perm.ACCOUNTS_EDIT, Perm.ACCOUNTS_REMOVE, Perm.IPBANS_MANAGE,
-                  Perm.SELL_DESK, Perm.CANCEL_LOG,
+                  Perm.CANCEL_LOG,
                   # Staff Panel: each section opens for its own role, the Admin and granted Pawns
                   Perm.STAFF_VIEW, Perm.STAFF_TELLER, Perm.STAFF_DECLARATOR,
                   # Master never enters or changes a result
                   Perm.FIGHTS_DECLARE, Perm.FIGHTS_REDECLARE,
-                  Perm.BOLA_DECLARE, Perm.BOLA_REDECLARE}
+                  Perm.BOLA_DECLARE, Perm.BOLA_REDECLARE,
+                  # approving / rejecting belongs to designated staff (Teller, Admin), never Master
+                  Perm.REQUESTS_REVIEW, Perm.FIGHTS_APPROVE, Perm.BOLA_APPROVE}
     assert permissions_for(Role.ADMIN) - permissions_for(Role.MASTER) == admin_only
     assert Perm.EVENTS_CREATE in permissions_for(Role.MASTER)
     for role in (Role.AGENT, Role.SUB_AGENT, Role.DECLARATOR, Role.PAWN):
-        assert Perm.CUTS_VIEW not in permissions_for(role) and Perm.EVENTS_CREATE not in permissions_for(role)
+        assert Perm.CUTS_VIEW not in permissions_for(role)
+    for role in (Role.DECLARATOR, Role.PAWN):
+        assert Perm.EVENTS_CREATE not in permissions_for(role)
+    for role in (Role.AGENT, Role.SUB_AGENT):      # agents host events but never run or approve them
+        assert Perm.EVENTS_CREATE in permissions_for(role) and Perm.EVENTS_MANAGE not in permissions_for(role)
+        assert Perm.AGENTS_CREATE not in permissions_for(role) and Perm.REQUESTS_REVIEW not in permissions_for(role)
     for role in (Role.AGENT, Role.SUB_AGENT):
         assert Perm.AGENTS_VIEW not in permissions_for(role) and Perm.PLAYERS_VIEW not in permissions_for(role)
         assert Perm.WALLET_TRANSFER in permissions_for(role)

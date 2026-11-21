@@ -11,7 +11,7 @@ from app.core.errors import Forbidden
 from app.core.money import to_cents
 from app.core.rbac import Perm, assert_user_in_scope, hides_totals
 from app.db.models import CommissionStatus, RequestDirection
-from app.services import bola, cashdesk, commissions, reports
+from app.services import bola, cashdesk, commissions, reports, snapshots
 from app.web.paging import paginate
 from app.web.deps import Ctx, form_data, flash_redirect, render, require_ctx
 
@@ -157,6 +157,20 @@ async def commissions_withdraw(request: Request, ctx: Ctx = Depends(require_ctx)
 @router.get("/cashflow")
 async def cashflow_page(ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.CASHFLOW_VIEW)
-    return render(ctx, "cashflow.html", active="cashflow", figures=reports.cashflow(ctx.db),
+    flows = snapshots.flows(ctx.db)             # history-scanning totals: precomputed, "as of" shown
+    integ = snapshots.integrity(ctx.db) if ctx.can(Perm.HIDDEN_VIEW) else None
+    return render(ctx, "cashflow.html", active="cashflow",
+                  figures=reports.cashflow(ctx.db, flows.payload),
                   series=reports.daily_series(ctx.db, 14),
-                  integrity=reports.integrity(ctx.db) if ctx.can(Perm.HIDDEN_VIEW) else None)
+                  integrity=integ.payload if integ else None,
+                  flows_at=flows.computed_at, integrity_at=integ.computed_at if integ else None,
+                  can_refresh=ctx.can(Perm.CASHFLOW_VIEW))
+
+
+@router.post("/cashflow/refresh")
+async def cashflow_refresh(ctx: Ctx = Depends(require_ctx)):
+    """Recompute the precomputed figures now (the integrity scan only for those who may see it)."""
+    ctx.need(Perm.CASHFLOW_VIEW)
+    only = ["flows", "top"] + (["integrity"] if ctx.can(Perm.HIDDEN_VIEW) else [])
+    snapshots.refresh_all(ctx.db, only)
+    return flash_redirect("/cashflow", "Figures refreshed.")

@@ -303,12 +303,21 @@ async def accounts_page(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.ACCOUNTS_VIEW)
     q = request.query_params
     kind = q.get("kind") if q.get("kind") in ("all", "users", "players") else "all"
+    from app.web.paging import make_pager, page_number
+    per = 100
+    upage, ppage = page_number(request, "upage"), page_number(request, "ppage")
     found = account_admin.list_accounts(ctx.db, search=q.get("q", "")[:60] or None, kind=kind,
-                                        include_removed=q.get("removed") == "1")
+                                        include_removed=q.get("removed") == "1", limit=per + 1,
+                                        user_offset=upage * per, player_offset=ppage * per)
     viewer_is_admin = ctx.user.role == Role.ADMIN
     # Pawns are the Admin's to manage; a Pawn never even sees the controls for another Pawn.
-    users = [u for u in found["users"] if viewer_is_admin or u.role != Role.PAWN]
-    return panel(ctx, "accounts", "admin_accounts.html", users=users, players=found["players"],
+    users_pager = make_pager(request, per, upage, min(len(found["users"]), per),
+                             len(found["users"]) > per, "upage")
+    players_pager = make_pager(request, per, ppage, min(len(found["players"]), per),
+                               len(found["players"]) > per, "ppage")
+    users = [u for u in found["users"][:per] if viewer_is_admin or u.role != Role.PAWN]
+    return panel(ctx, "accounts", "admin_accounts.html", users=users, players=found["players"][:per],
+                 users_pager=users_pager, players_pager=players_pager,
                  search=q.get("q", "")[:60], kind=kind, removed=q.get("removed") == "1",
                  can_edit=ctx.can(Perm.ACCOUNTS_EDIT), can_remove=ctx.can(Perm.ACCOUNTS_REMOVE),
                  me=ctx.user.id)
@@ -354,9 +363,11 @@ async def accounts_player_remove(player_id: int, request: Request, ctx: Ctx = De
 # --------------------------------------------------------------------------- IP bans
 
 @router.get("/admin/ipbans")
-async def ipbans_page(ctx: Ctx = Depends(require_ctx)):
+async def ipbans_page(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.IPBANS_MANAGE)
-    return panel(ctx, "ipbans", "admin_ipbans.html", bans=ipbans.list_bans(ctx.db),
+    pager, bans = paginate(request, 100, lambda limit, offset: ipbans.list_bans(
+        ctx.db, limit=limit, offset=offset))
+    return panel(ctx, "ipbans", "admin_ipbans.html", bans=bans, pager=pager,
                  my_ip=ctx.request.scope.get("state", {}).get("client_ip"))
 
 

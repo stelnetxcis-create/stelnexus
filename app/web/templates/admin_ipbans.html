@@ -36,6 +36,7 @@
     {% endfor %}
     {{ ui.table_end() }}
   {% else %}{{ ui.empty('No addresses are banned.') }}{% endif %}
+  {{ ui.pager(pager) }}
   </div>
 </div>
 {% endblock %}

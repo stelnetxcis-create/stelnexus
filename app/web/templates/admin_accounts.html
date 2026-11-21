@@ -39,6 +39,7 @@
   {% endif %}
 </details>
 {% else %}{{ ui.empty('No matching accounts.') }}{% endfor %}
+{{ ui.pager(users_pager) }}
 </div></div>
 {% endif %}
 
@@ -70,6 +71,7 @@
   {% endif %}
 </details>
 {% else %}{{ ui.empty('No matching players.') }}{% endfor %}
+{{ ui.pager(players_pager) }}
 </div></div>
 {% endif %}
 {% endblock %}

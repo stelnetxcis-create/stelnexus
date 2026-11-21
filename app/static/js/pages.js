@@ -67,4 +67,23 @@
     role.addEventListener('change', sync);
     sync();
   }
+
+  /* Profile: animation level for this device (read in nav-init.js before first paint). */
+  (function () {
+    var box = document.querySelector('[data-fx-pref]');
+    if (!box) return;
+    var saved = 'auto';
+    try { saved = localStorage.getItem('snx.fx') || 'auto'; } catch (e) { /* storage blocked */ }
+    var note = document.querySelector('[data-fx-note]');
+    var current = document.documentElement.getAttribute('data-fx') || 'full';
+    var names = { full: 'Full', lite: 'Lite', min: 'Minimal' };
+    box.querySelectorAll('input[name="fx"]').forEach(function (r) { r.checked = r.value === saved; });
+    if (note) note.textContent = 'Right now this device is using: ' + (names[current] || current) + '.';
+    box.addEventListener('change', function (e) {
+      var r = e.target; if (!r || r.name !== 'fx') return;
+      try { localStorage.setItem('snx.fx', r.value); } catch (x) { if (note) note.textContent = 'This browser blocks saving settings.'; return; }
+      if (note) note.textContent = 'Saved. Applying…';
+      setTimeout(function () { location.reload(); }, 200);
+    });
+  })();
 })();

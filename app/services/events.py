@@ -15,6 +15,7 @@ import re
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.pagination import clamp_limit, clamp_offset
 from app.core import audit
 from app.core import ttlcache
 from app.core.errors import Conflict, Forbidden, LockedState, NotFound, ValidationError
@@ -41,11 +42,11 @@ def create_event(
     fight_count: int | None = None, payout_model: PayoutModel | None = None,
     house_cut_bps: int | None = None, location_id: int | None = None,
 ) -> Event:
-    """Only Master and Admin create events. The location (if any) supplies defaults for
+    """Master, Agents, Sub Agents and the Admin create (host) events. The location (if any) supplies defaults for
     whatever the form left blank: games, payout model, tong."""
     ttlcache.invalidate_after_commit(db)   # dashboard KPIs changed
     if not has_perm(actor, Perm.EVENTS_CREATE):
-        raise Forbidden("Only a Master or the Admin can create an event.")
+        raise Forbidden("Your account cannot create events.")
     title = title.strip()
     if not title or len(title) > 120:
         raise ValidationError("Event title is required (max 120 characters).")
@@ -103,7 +104,7 @@ def list_events(db: Session, *, limit: int = 50, offset: int = 0,
     if status:
         stmt = stmt.where(Event.status == status)
     return list(db.scalars(stmt.order_by(Event.event_date.desc(), Event.id.desc())
-                           .limit(min(limit, 200)).offset(max(offset, 0))).all())
+                           .limit(clamp_limit(limit, 200)).offset(clamp_offset(offset))).all())
 
 
 def lobby_stats(db: Session, event_ids: list[int]) -> dict[int, dict]:
@@ -176,21 +177,77 @@ def set_event_status(db: Session, actor: User, event_id: int, status: EventStatu
     return event
 
 
-def set_stream_live(db: Session, actor: User, event_id: int, live: bool) -> Event:
-    """Start the livestream (closes early betting from the livestream page) or put the event back to pre-show."""
+def current_fight(db: Session, event_id: int) -> Fight | None:
+    """The game that is on (or next on) air: the lowest-numbered game that is not settled or void yet."""
+    return db.scalar(select(Fight).where(
+        Fight.event_id == event_id, Fight.status.in_((FightStatus.OPEN, FightStatus.LOCKED)))
+        .order_by(Fight.number).limit(1))
+
+
+def fight_started(fight: Fight) -> bool:
+    """A game has started once staff put it on air (``started_at``)."""
+    return fight.started_at is not None
+
+
+def stream_phase(fight: Fight, current_id: int | None) -> str:
+    """Where one game stands for the livestream page. Betting and chat follow ONE rule, game by game:
+
+      open     the current game, not started and still open: early betting and chat are available
+      onair    the current game has started (or staff locked it): bets and chat are closed until it is declared
+      waiting  a later game: nothing opens until every game before it is done (game 2 opens when 1 is declared,
+               game 3 only after game 2 ...)
+      ended    settled or void
+    """
+    if fight.status in (FightStatus.SETTLED, FightStatus.VOID):
+        return "ended"
+    if current_id != fight.id:
+        return "waiting"
+    if fight.started_at is not None or fight.status != FightStatus.OPEN:
+        return "onair"
+    return "open"
+
+
+def stream_phase_of(db: Session, fight: Fight) -> str:
+    cur = current_fight(db, fight.event_id)
+    return stream_phase(fight, cur.id if cur else None)
+
+
+def set_stream_live(db: Session, actor: User, event_id: int, live: bool, fight_id: int | None = None) -> Fight:
+    """Put ONE game on air (its early betting / bet panel / chat panel close) or back to pre-show.
+
+    Only the current game (the first one not yet declared) can go on air, and the games after it stay closed
+    until it is done (see ``stream_phase``).
+    Without ``fight_id`` it targets the current game. ``event.live_started_at`` is kept as a derived
+    "something is on air" flag for the lobby and old clients."""
     from app.db.base import utcnow
     event = get_event(db, event_id)
     if event.status != EventStatus.OPEN:
         raise LockedState("Only an open event can go live.")
-    before = {"live_started_at": event.live_started_at}
-    if live and event.live_started_at is None:
-        event.live_started_at = utcnow()
+    fight = get_fight(db, fight_id) if fight_id else current_fight(db, event_id)
+    if fight is None or fight.event_id != event.id:
+        raise NotFound("There is no game to put on air.")
+    if live and fight.status in (FightStatus.SETTLED, FightStatus.VOID):
+        raise LockedState(f"Game #{fight.number} has already ended.")
+    if live:
+        cur = current_fight(db, event_id)
+        if cur is not None and cur.id != fight.id:
+            raise LockedState(f"Game #{cur.number} comes first: finish it before putting game #{fight.number} on air.")
+    before = {"started_at": fight.started_at}
+    if live and fight.started_at is None:
+        fight.started_at = utcnow()
     elif not live:
+        fight.started_at = None
+    db.flush()
+    any_on_air = db.scalar(select(func.count(Fight.id)).where(
+        Fight.event_id == event.id, Fight.started_at.is_not(None))) or 0
+    if any_on_air and event.live_started_at is None:
+        event.live_started_at = utcnow()
+    elif not any_on_air:
         event.live_started_at = None
     db.flush()
-    audit.record(db, actor, "event.stream", entity_type="event", entity_id=event.id,
-                 before=before, after={"live_started_at": event.live_started_at})
-    return event
+    audit.record(db, actor, "event.stream", entity_type="fight", entity_id=fight.id,
+                 before=before, after={"started_at": fight.started_at, "fight": fight.number})
+    return fight
 
 
 def _has_stakes(db: Session, fight: Fight) -> bool:

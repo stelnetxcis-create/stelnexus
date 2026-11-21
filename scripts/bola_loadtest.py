@@ -76,9 +76,9 @@ def setup(n_players: int, credit_cents: int) -> dict:
         master = agents.create_agent(db, admin, username=f"lm{tag}", password=PASSWORD,
                                      role=Role.MASTER, full_name="LM", settings=store)
         cavo = agents.create_agent(db, master, username=f"lc{tag}", password=PASSWORD,
-                                   role=Role.CAVO, full_name="LC", settings=store)
+                                   role=Role.AGENT, full_name="LC", settings=store)
         kub = agents.create_agent(db, cavo, username=f"lk{tag}", password=PASSWORD,
-                                  role=Role.KUBRADOR, full_name="LK", settings=store)
+                                  role=Role.SUB_AGENT, full_name="LK", settings=store)
         ids = []
         for i in range(n_players):
             p = players.register_online_player(

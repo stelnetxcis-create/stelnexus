@@ -17,6 +17,7 @@ from app.core.rbac import Perm
 from app.db.models import GcashAccount, RequestDirection
 from app.services import agents, cashdesk, gcash, players, wallet
 from app.web.deps import Ctx, audit_action, flash_redirect, form_data, render, require_ctx
+from app.web.paging import paginate
 
 router = APIRouter()
 
@@ -112,7 +113,8 @@ async def wallet_page(request: Request, ctx: Ctx = Depends(require_ctx)):
         view = q.get("v", "in")
         view = view if view in ("in", "out", "hist") else "in"
         data["view"] = view
-        data["queue"] = cashdesk.list_requests(db, user, view=view)
+        data["pager"], data["queue"] = paginate(request, 50, lambda limit, offset: cashdesk.list_requests(
+            db, user, view=view, limit=limit, offset=offset))
         data["gc_nums"] = _gc_numbers(db, data["queue"], only_pending_loads=False)
     return render(ctx, "wallet.html", active="wallet", **data)
 

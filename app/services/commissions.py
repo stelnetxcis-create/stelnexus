@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.pagination import clamp_limit, clamp_offset
 from app.core import audit
 from app.core.errors import ValidationError
 from app.core.money import bps_of, fmt
@@ -200,6 +201,8 @@ def compute_lines(
             continue
 
         chain = _chain(db, ticket.agent_id)
+        if getattr(ticket, "user_id", None):   # a self-bet: the bettor is the player, only their upline earns
+            chain = [u for u in chain if u.id != ticket.user_id]
         sub, agent, master = (_first(chain, Role.SUB_AGENT), _first(chain, Role.AGENT),
                               _first(chain, Role.MASTER))
         agent_bps = effective_agent_bps(agent, settings, game)
@@ -362,7 +365,7 @@ def list_bola_for(db: Session, actor: User, *, status: CommissionStatus | None =
     if status:
         stmt = stmt.where(BolaCommission.status == status)
     return list(db.scalars(stmt.order_by(BolaCommission.id.desc())
-                           .limit(min(limit, 1000)).offset(max(offset, 0))).all())
+                           .limit(clamp_limit(limit, 1000)).offset(clamp_offset(offset))).all())
 
 
 # ---------------------------------------------------------------------------
@@ -492,22 +495,27 @@ def claim_to_wallet(db: Session, actor: User, *, amount_cents: int | None = None
     if amount <= 0 or amount > available:
         raise ValidationError(f"Amount must be between {fmt(1)} and {fmt(available)}.")
 
-    rows = list(db.scalars(select(Commission).where(
-        Commission.agent_id == actor.id, Commission.status == CommissionStatus.UNCLAIMED
-    ).order_by(Commission.id)).all())
-    rows += list(db.scalars(select(BolaCommission).where(
-        BolaCommission.agent_id == actor.id, BolaCommission.status == CommissionStatus.UNCLAIMED
-    ).order_by(BolaCommission.id)).all())
     remaining = amount
     now = dt.datetime.now(dt.timezone.utc)
-    for row in rows:
+    # Oldest first, Meron / Wala then Bola, read in chunks and stopped as soon as the amount is
+    # covered: an agent with years of unclaimed lines no longer loads them all into memory.
+    for model in (Commission, BolaCommission):
         if remaining <= 0:
             break
-        if row.amount_cents <= remaining:
-            remaining -= row.amount_cents
-            row.status = CommissionStatus.CLAIMED
-            row.claimed_at = now
-        # partial rows stay UNCLAIMED; the payable account is the source of truth
+        result = db.scalars(select(model).where(
+            model.agent_id == actor.id, model.status == CommissionStatus.UNCLAIMED
+        ).order_by(model.id).execution_options(yield_per=500))
+        try:
+            for row in result:
+                if remaining <= 0:
+                    break
+                if row.amount_cents <= remaining:
+                    remaining -= row.amount_cents
+                    row.status = CommissionStatus.CLAIMED
+                    row.claimed_at = now
+                # partial rows stay UNCLAIMED; the payable account is the source of truth
+        finally:
+            result.close()
 
     wallet = accounts.wallet_for_user(db, actor)
     txn = ledger.post(
@@ -528,7 +536,7 @@ def list_for(db: Session, actor: User, *, status: CommissionStatus | None = None
     if status:
         stmt = stmt.where(Commission.status == status)
     return list(db.scalars(stmt.order_by(Commission.id.desc())
-                           .limit(min(limit, 1000)).offset(max(offset, 0))).all())
+                           .limit(clamp_limit(limit, 1000)).offset(clamp_offset(offset))).all())
 
 
 def _earner_ids(db: Session, actor: User, agent_id: int | None) -> set[int] | None:
@@ -553,7 +561,7 @@ def list_scope(db: Session, actor: User, *, game: str = "all", status: Commissio
     for anyone else, and reversed lines are only shown when asked for."""
     ids = _earner_ids(db, actor, agent_id)
     out: list[dict] = []
-    offset = max(offset, 0)
+    limit, offset = clamp_limit(limit, 1000), clamp_offset(offset)
     # Two tables merge into one newest-first list, so each is read down to offset + limit and the
     # merged list is sliced. Bounded at 2000 per table; narrow the date range to go further back.
     take = min(offset + limit, 2000)
@@ -587,10 +595,12 @@ def list_scope(db: Session, actor: User, *, game: str = "all", status: Commissio
         if model is Commission:
             stmt = stmt.options(joinedload(Commission.agent),
                                 joinedload(Commission.ticket).joinedload(Ticket.fight),
-                                joinedload(Commission.ticket).joinedload(Ticket.player))
+                                joinedload(Commission.ticket).joinedload(Ticket.player),
+                                joinedload(Commission.ticket).joinedload(Ticket.bettor))
         else:
             stmt = stmt.options(joinedload(BolaCommission.agent),
-                                joinedload(BolaCommission.ticket).joinedload(BolaTicket.player))
+                                joinedload(BolaCommission.ticket).joinedload(BolaTicket.player),
+                                joinedload(BolaCommission.ticket).joinedload(BolaTicket.bettor))
         return stmt.order_by(model.id.desc()).limit(take)
 
     if game in ("all", "sabong"):
@@ -607,7 +617,8 @@ def _line_view(row, game: str, label: str) -> dict:
     ticket = row.ticket
     return {
         "game": game, "game_label": label, "earner": row.agent, "tier": row.tier,
-        "player": ticket.player.full_name if getattr(ticket, "player", None) else "walk-in",
+        "player": (ticket.player.full_name if getattr(ticket, "player", None)
+                   else ticket.bettor.username if getattr(ticket, "bettor", None) else "walk-in"),
         "ticket": ticket.code, "base_cents": row.base_cents, "rate_bps": row.rate_bps,
         "amount_cents": row.amount_cents, "status": row.status, "created_at": row.created_at,
         "calc": row.calc,

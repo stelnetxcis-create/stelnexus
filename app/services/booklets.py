@@ -9,6 +9,7 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.pagination import clamp_limit, clamp_offset
 from app.core import audit
 from app.core.errors import Conflict, NotFound, ValidationError
 from app.core.security import random_code
@@ -83,7 +84,7 @@ def release_page(db: Session, page_id: int) -> None:
 
 
 def list_booklets(db: Session, limit: int = 100) -> list[Booklet]:
-    return list(db.scalars(select(Booklet).order_by(Booklet.id.desc()).limit(min(limit, 500))).all())
+    return list(db.scalars(select(Booklet).order_by(Booklet.id.desc()).limit(clamp_limit(limit, 500))).all())
 
 
 def get_booklet(db: Session, booklet_id: int) -> Booklet:

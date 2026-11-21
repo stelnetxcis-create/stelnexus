@@ -389,6 +389,7 @@ class Session(Base):
     last_seen_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow)
     absolute_expires_at: Mapped[dt.datetime] = mapped_column(UtcDateTime())
     revoked_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+    revoked_reason: Mapped[str | None] = mapped_column(String(32))   # 'signed_in_elsewhere' when a newer login replaced it
 
     user: Mapped[User] = relationship()
 
@@ -610,6 +611,9 @@ class Fight(TimestampMixin, Base):
     settlement_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     pool_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id", ondelete="RESTRICT"))
     locked_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+    # When THIS game went on air (staff pressed "Start stream" on it). From then on the livestream page
+    # takes no early bets and shows no bet/chat panel for it; the other, upcoming games stay open.
+    started_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
     declared_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
     declared_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     # Picture of the result (stored outside /static, served only to signed-in staff).
@@ -640,6 +644,8 @@ class Ticket(UUIDMixin, TimestampMixin, Base):
     fight_id: Mapped[int] = mapped_column(ForeignKey("fights.id", ondelete="RESTRICT"), index=True)
     player_id: Mapped[int | None] = mapped_column(ForeignKey("players.id", ondelete="RESTRICT"), index=True)
     agent_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    # Set when the logged-in account bet for itself (stake, payout and refund use that user's own wallet).
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
 
     side: Mapped[Side] = mapped_column(EnumStr(Side, 8))
     stake_cents: Mapped[int] = mapped_column(Money)
@@ -667,6 +673,7 @@ class Ticket(UUIDMixin, TimestampMixin, Base):
     fight: Mapped[Fight] = relationship()
     event: Mapped[Event] = relationship()
     player: Mapped[Player | None] = relationship()
+    bettor: Mapped[User | None] = relationship(foreign_keys=[user_id])
 
     __table_args__ = (
         CheckConstraint("stake_cents > 0", name="stake_positive"),
@@ -1099,14 +1106,17 @@ class BolaDraw(UUIDMixin, TimestampMixin, Base):
 
 
 class BolaTicket(UUIDMixin, TimestampMixin, Base):
-    """One sold ticket (old tbl_bet). Always belongs to a verified player: no walk-ins."""
+    """One sold ticket (old tbl_bet). No walk-ins: it is either the logged-in account's own bet (``user_id``,
+    paid from that account's credit, like the fight game) or a bet placed for one of its players (``player_id``)."""
     __tablename__ = "bola_tickets"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     code: Mapped[str] = mapped_column(String(16), unique=True, index=True)
     draw_id: Mapped[int] = mapped_column(ForeignKey("bola_draws.id", ondelete="RESTRICT"), index=True)
-    player_id: Mapped[int] = mapped_column(ForeignKey("players.id", ondelete="RESTRICT"), index=True)
+    player_id: Mapped[int | None] = mapped_column(ForeignKey("players.id", ondelete="RESTRICT"), index=True)
     agent_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
+    # Set when the logged-in account bet for itself (stake, payout and refund use that user's own wallet).
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
     kind: Mapped[BolaKind] = mapped_column(EnumStr(BolaKind, 12), index=True)
     numbers: Mapped[list] = mapped_column(JsonType)          # in the order typed
     tumbok_cents: Mapped[int] = mapped_column(Money, default=0, nullable=False)   # per line
@@ -1133,8 +1143,9 @@ class BolaTicket(UUIDMixin, TimestampMixin, Base):
     legacy: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     draw: Mapped[BolaDraw] = relationship()
-    player: Mapped["Player"] = relationship()
+    player: Mapped["Player | None"] = relationship()
     agent: Mapped["User | None"] = relationship(foreign_keys=[agent_id])
+    bettor: Mapped["User | None"] = relationship(foreign_keys=[user_id])
     lines: Mapped[list["BolaLine"]] = relationship(
         back_populates="ticket", cascade="all, delete-orphan", order_by="BolaLine.id")
 
@@ -1278,6 +1289,21 @@ class BolaExpense(TimestampMixin, Base):
     draw: Mapped[BolaDraw] = relationship()
 
     __table_args__ = (CheckConstraint("amount_cents > 0", name="bola_expense_positive"),)
+
+
+class ReportSnapshot(Base):
+    """A precomputed report figure (see app.services.snapshots). One row per (kind, scope); the
+    refresh job overwrites it, so the table never grows."""
+    __tablename__ = "report_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(40))
+    scope: Mapped[str] = mapped_column(String(64), default="")
+    payload: Mapped[dict | list | None] = mapped_column(JsonType)
+    computed_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow, index=True)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+
+    __table_args__ = (UniqueConstraint("kind", "scope", name="uq_report_snapshots_kind_scope"),)
 
 
 __all__ = [n for n in dir() if isinstance(getattr(n, "__mro__", None), tuple)]

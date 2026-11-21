@@ -6,7 +6,7 @@
 {% block content %}
 <div class="grid grid-3">
   {{ ui.stat('Balance', balance | money, 'credit / card load') }}
-  {{ ui.stat('Tickets', tickets | length, 'last 200') }}
+  {{ ui.stat('Bets shown', tickets | length, 'newest first, 50 per page') }}
   {{ ui.stat('Status', player.status.value | upper, 'KYC ' ~ ('verified' if player.kyc_verified else 'not verified')) }}
 </div>
 
@@ -68,11 +68,12 @@
       </tbody>
     </table></div>
     {% else %}{{ ui.empty('No bets yet.') }}{% endif %}
+    {{ ui.pager(tpager) }}
   </div>
 </div>
 
 <div class="card">
-  <div class="card-head"><h2>Credit ledger</h2><span class="muted small">latest 40 entries</span></div>
+  <div class="card-head"><h2>Credit ledger</h2><span class="muted small">newest first</span></div>
   <div class="card-body tight">
     {% if entries %}
     <div class="table-wrap"><table class="table">
@@ -90,6 +91,7 @@
       </tbody>
     </table></div>
     {% else %}{{ ui.empty('No ledger entries.') }}{% endif %}
+    {{ ui.pager(lpager) }}
   </div>
 </div>
 {% endblock %}

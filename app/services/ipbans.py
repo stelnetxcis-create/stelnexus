@@ -17,6 +17,7 @@ import time
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.core.pagination import clamp_limit, clamp_offset
 from app.core import audit
 from app.core.errors import Conflict, Forbidden, NotFound, ValidationError
 from app.db.base import utcnow
@@ -87,8 +88,10 @@ def is_banned(ip: str | None) -> bool:
     return any(addr.version == n.version and addr in n for n in _cache["nets"])
 
 
-def list_bans(db: Session) -> list[IpBan]:
-    return list(db.scalars(select(IpBan).order_by(IpBan.id.desc())).all())
+def list_bans(db: Session, *, limit: int = 200, offset: int = 0) -> list[IpBan]:
+    """Newest first, one page at a time (auto-bans can pile up without bound)."""
+    return list(db.scalars(select(IpBan).order_by(IpBan.id.desc())
+                           .limit(clamp_limit(limit, 500)).offset(clamp_offset(offset))).all())
 
 
 def ban(db: Session, actor: User, *, network: str, reason: str, hours: int | None = None,

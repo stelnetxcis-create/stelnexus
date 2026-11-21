@@ -7,6 +7,7 @@ import datetime as dt
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
+from app.core.pagination import clamp_limit, clamp_offset
 from app.db.models import (
     Account,
     AccountKind,
@@ -64,17 +65,34 @@ def _kind_balance(db: Session, kind: AccountKind, *, players_only: bool = False,
     return row["players"] if players_only else row["users"] if users_only else row["all"]
 
 
-def cashflow(db: Session) -> dict:
-    """Online money only: loads and cash-outs approved through the request flow."""
+def cashflow_flows(db: Session) -> dict:
+    """The part of the cashflow card that scans history instead of reading balances: all-time
+    loads / cash-outs (a join over every request ledger entry) and the Bola P&L (sums over every
+    Bola ticket). These grow with the business, so they are what ``app.services.snapshots``
+    precomputes off-request; the balances in ``cashflow`` below are one tiny grouped query and
+    stay live."""
     online = [AccountKind.GCASH_CLEARING]
+    return {
+        "cash_in": _sum_kind(db, ["request.in"], online, True),
+        "cash_out": _sum_kind(db, ["request.out"], online, False),
+        "bola": bola_totals(db),
+    }
+
+
+def cashflow(db: Session, flows: dict | None = None) -> dict:
+    """Online money only: loads and cash-outs approved through the request flow.
+
+    ``flows`` is the (possibly precomputed) result of ``cashflow_flows``; omitted, it is computed
+    here, which is what tests and ad-hoc callers want."""
+    flows = flows if flows is not None else cashflow_flows(db)
     bal = _kind_balances(db)
 
     def kb(kind, **kw):
         return _kind_balance(db, kind, _cache=bal, **kw)
 
     return {
-        "cash_in": _sum_kind(db, ["request.in"], online, True),
-        "cash_out": _sum_kind(db, ["request.out"], online, False),
+        "cash_in": int(flows["cash_in"]),
+        "cash_out": int(flows["cash_out"]),
         "gcash_float": kb(AccountKind.GCASH_CLEARING),
         "player_balances": kb(AccountKind.WALLET, players_only=True),
         "agent_wallets": kb(AccountKind.WALLET, users_only=True),
@@ -83,20 +101,24 @@ def cashflow(db: Session) -> dict:
         "commission_expense": kb(AccountKind.COMMISSION_EXPENSE),
         "pool_escrow": kb(AccountKind.FIGHT_POOL),
         "bola_pool_escrow": kb(AccountKind.BOLA_POOL),
-        "bola": bola_totals(db),
+        "bola": flows["bola"],
     }
 
 
 def bola_totals(db: Session) -> dict:
     """Number-game (Bola) P&L, kept separate from sabong so each game reads on its own."""
     from app.db.models import BolaCommission, BolaTicket, CommissionStatus
-    live = [TicketStatus.ACTIVE, TicketStatus.SETTLED]
-    staked = int(db.scalar(select(func.coalesce(func.sum(BolaTicket.stake_cents), 0))
-                           .where(BolaTicket.status.in_(live))) or 0)
-    settled_stake = int(db.scalar(select(func.coalesce(func.sum(BolaTicket.stake_cents), 0))
-                                  .where(BolaTicket.status == TicketStatus.SETTLED)) or 0)
-    paid = int(db.scalar(select(func.coalesce(func.sum(BolaTicket.payout_cents), 0))
-                         .where(BolaTicket.status == TicketStatus.SETTLED)) or 0)
+    # One pass over bola_tickets grouped by status (it used to be three separate full scans).
+    staked = settled_stake = paid = 0
+    for status, stake, payout in db.execute(
+            select(BolaTicket.status, func.coalesce(func.sum(BolaTicket.stake_cents), 0),
+                   func.coalesce(func.sum(BolaTicket.payout_cents), 0))
+            .where(BolaTicket.status.in_([TicketStatus.ACTIVE, TicketStatus.SETTLED]))
+            .group_by(BolaTicket.status)).all():
+        staked += int(stake)
+        if status == TicketStatus.SETTLED:
+            settled_stake += int(stake)
+            paid += int(payout)
     commission = int(db.scalar(select(func.coalesce(func.sum(BolaCommission.amount_cents), 0))
                                .where(BolaCommission.status != CommissionStatus.REVERSED)) or 0)
     return {"staked": staked, "settled_stake": settled_stake, "paid_out": paid,
@@ -493,7 +515,8 @@ def bola_board(db: Session, settings) -> dict | None:
             "bettable": bola.bettable}
 
 
-def dashboard(db: Session, actor: User) -> dict:
+def dashboard(db: Session, actor: User, *, flows: dict | None = None) -> dict:
+    """House-wide KPIs. ``flows`` = precomputed ``cashflow_flows`` (see snapshots); omitted = live."""
     today = dt.datetime.now(dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     open_fights = int(db.scalar(select(func.count(Fight.id)).where(
         Fight.status.in_([FightStatus.OPEN, FightStatus.LOCKED]))) or 0)
@@ -523,7 +546,7 @@ def dashboard(db: Session, actor: User) -> dict:
     stats["stake_delta_pct"] = (round((stats["stake_today"] - stats["stake_yesterday"]) * 100 / stats["stake_yesterday"])
                                 if stats["stake_yesterday"] else None)
     stats["live_fights"] = live_fights(db)
-    stats["cashflow"] = cashflow(db)
+    stats["cashflow"] = cashflow(db, flows)
     stats["series"] = daily_series(db, days=7)
     totals = [p["stake"] for p in stats["series"]]
     stats["week_total"] = sum(totals)
@@ -604,35 +627,56 @@ def fight_figures(db: Session, fight: Fight) -> dict:
             "auto_cancel": bool(totals.get("auto_cancel", False))}
 
 
-def event_summary(db: Session, event_id: int) -> dict:
+def event_summaries(db: Session, event_ids: list[int]) -> dict[int, dict]:
+    """``event_summary`` for many events in FOUR grouped queries, however many events there are
+    (the archive page used to run four queries per row)."""
+    ids = list(dict.fromkeys(event_ids))
+    out = {i: {"staked": 0, "payouts": 0, "house": 0, "commission": 0, "expenses": 0, "net": 0}
+           for i in ids}
+    if not ids:
+        return out
     live = [TicketStatus.ACTIVE, TicketStatus.SETTLED, TicketStatus.REFUNDED]
-    staked, payouts = db.execute(
-        select(func.coalesce(func.sum(Ticket.stake_cents), 0), func.coalesce(func.sum(Ticket.payout_cents), 0))
-        .where(Ticket.event_id == event_id, Ticket.status.in_(live))).one()
-    house = 0
-    for run in db.scalars(select(SettlementRun).join(Fight, Fight.id == SettlementRun.fight_id).where(
-            Fight.event_id == event_id, SettlementRun.status == RunStatus.APPLIED)).all():
-        house += int((run.totals or {}).get("house_take", 0))
-    commission = db.scalar(select(func.coalesce(func.sum(Commission.amount_cents), 0))
-                           .join(Fight, Fight.id == Commission.fight_id)
-                           .where(Fight.event_id == event_id,
-                                  Commission.status != CommissionStatus.REVERSED)) or 0
-    expenses = db.scalar(select(func.coalesce(func.sum(EventExpense.amount_cents), 0))
-                         .where(EventExpense.event_id == event_id)) or 0
-    return {"staked": int(staked), "payouts": int(payouts), "house": house, "commission": int(commission),
-            "expenses": int(expenses), "net": house - int(commission) - int(expenses)}
+    for event_id, staked, payouts in db.execute(
+            select(Ticket.event_id, func.coalesce(func.sum(Ticket.stake_cents), 0),
+                   func.coalesce(func.sum(Ticket.payout_cents), 0))
+            .where(Ticket.event_id.in_(ids), Ticket.status.in_(live))
+            .group_by(Ticket.event_id)).all():
+        out[event_id]["staked"], out[event_id]["payouts"] = int(staked), int(payouts)
+    for event_id, totals in db.execute(
+            select(Fight.event_id, SettlementRun.totals)
+            .join(Fight, Fight.id == SettlementRun.fight_id)
+            .where(Fight.event_id.in_(ids), SettlementRun.status == RunStatus.APPLIED)).all():
+        out[event_id]["house"] += int((totals or {}).get("house_take", 0))
+    for event_id, amount in db.execute(
+            select(Fight.event_id, func.coalesce(func.sum(Commission.amount_cents), 0))
+            .join(Fight, Fight.id == Commission.fight_id)
+            .where(Fight.event_id.in_(ids), Commission.status != CommissionStatus.REVERSED)
+            .group_by(Fight.event_id)).all():
+        out[event_id]["commission"] = int(amount)
+    for event_id, amount in db.execute(
+            select(EventExpense.event_id, func.coalesce(func.sum(EventExpense.amount_cents), 0))
+            .where(EventExpense.event_id.in_(ids)).group_by(EventExpense.event_id)).all():
+        out[event_id]["expenses"] = int(amount)
+    for row in out.values():
+        row["net"] = row["house"] - row["commission"] - row["expenses"]
+    return out
+
+
+def event_summary(db: Session, event_id: int) -> dict:
+    return event_summaries(db, [event_id])[event_id]
 
 
 def history(db: Session, *, limit: int = 100, offset: int = 0) -> list[Fight]:
     return list(db.scalars(
         select(Fight).where(Fight.status.in_([FightStatus.SETTLED, FightStatus.VOID]))
         .order_by(Fight.declared_at.desc().nulls_last(), Fight.id.desc())
-        .limit(min(limit, 500)).offset(max(offset, 0))).all())
+        .limit(clamp_limit(limit, 500)).offset(clamp_offset(offset))).all())
 
 
-def archived_events(db: Session, *, limit: int = 200) -> list[Event]:
+def archived_events(db: Session, *, limit: int = 200, offset: int = 0) -> list[Event]:
     return list(db.scalars(select(Event).where(Event.status.in_([EventStatus.CLOSED, EventStatus.CANCELED]))
-                           .order_by(Event.event_date.desc(), Event.id.desc()).limit(limit)).all())
+                           .order_by(Event.event_date.desc(), Event.id.desc())
+                           .limit(clamp_limit(limit, 200)).offset(clamp_offset(offset))).all())
 
 
 def live_board(db: Session, settings) -> dict:
@@ -651,6 +695,6 @@ def live_board(db: Session, settings) -> dict:
         snap = betting.pool_snapshot(db, current)
         cut = events.house_cut_for(db, event, settings)
         board.update(fight=current, snapshot=snap,
-                     multipliers=betting.side_multipliers(snap, cut, settings),
+                     multipliers=betting.side_multipliers(snap, cut, settings, current.llamado_side),
                      draw_enabled=bool(settings.get("fight.draw_bets_enabled")))
     return board

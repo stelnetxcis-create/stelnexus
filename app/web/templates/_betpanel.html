@@ -1,15 +1,15 @@
-{# Early-bet panel floating over the fight-view video, for accounts that can place bets, only before the stream starts.
+{# Bet panel floating over the fight-view video: every account that holds credit bets as itself (no player picker), only before the game starts.
    Logic is sellcore.js (shared with the Seller Desk page), floating behaviour is floatpanel.js. Bets go to
    /bets/early/place, which runs betting.place_bet (every betting rule) and refuses once the stream has started. #}
-{% macro bet_panel(event_id, players, draw_enabled, can_undo, undo_window) %}
-<div class="fc-overlay bp" data-bp data-size="m" role="region" aria-label="Early bets">
+{% macro bet_panel(event_id, balance_cents, draw_enabled, can_undo, undo_window, closed=False) %}
+<div class="fc-overlay bp" data-bp data-size="m" role="region" aria-label="Bet panel"{% if closed %} style="display:none"{% endif %}>
   <div class="fc-head">
     <span class="bp-ico" aria-hidden="true"><svg class="ico"><use href="#i-coins"/></svg></span>
-    <div class="fc-title" data-bp-grip title="Drag to move · double-click to reset"><b>Early bets</b><small>Before the stream starts</small></div>
+    <div class="fc-title" data-bp-grip title="Drag to move · double-click to reset"><b>Place a bet</b><small>Open until this game starts</small></div>
     <button type="button" class="fc-toggle fc-cog" data-bp-cog aria-expanded="false" aria-label="Bet panel display settings" title="Size, transparency &amp; position"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg></button>
     <button type="button" class="fc-toggle" data-bp-toggle aria-expanded="true" aria-label="Collapse bet panel" title="Collapse / expand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
   </div>
-  <div class="fc-body bp-body" data-sl-root data-verb="Bet" data-place-url="/bets/early/place" data-undo-url="/bets/early/undo/" data-event="{{ event_id }}" data-draw="{{ 1 if draw_enabled else 0 }}" data-undo="{{ undo_window if can_undo else -1 }}">
+  <div class="fc-body bp-body" data-sl-root data-self="1" data-verb="Bet" data-place-url="/bets/early/place" data-undo-url="/bets/early/undo/" data-event="{{ event_id }}" data-draw="{{ 1 if draw_enabled else 0 }}" data-undo="{{ undo_window if can_undo else -1 }}">
     <div class="fc-set" data-bp-set hidden>
       <div class="fc-size" role="group" aria-label="Bet panel size">
         <span>Size</span>
@@ -20,13 +20,10 @@
       <label class="fc-only-overlay">Transparency <input type="range" min="20" max="100" step="5" value="82" data-bp-alpha aria-label="Bet panel background opacity"><output data-bp-alpha-out>82%</output></label>
       <button type="button" class="btn btn-sm fc-only-overlay" data-bp-reset>Reset position</button>
     </div>
-    <div class="sell-closed bp-ended" data-bp-ended hidden><span>The stream has started, so early betting is closed.</span></div>
+    <div class="sell-closed bp-ended" data-bp-ended hidden><span>This game has started, so betting is closed.</span></div>
     <div class="bp-scroll">
       <div class="bp-col">
-      <input class="bp-player" data-sl="player" list="bp-players" placeholder="Player (type a name or card)" autocomplete="off" aria-label="Player">
-      <datalist id="bp-players" data-sl="players">
-        {% for p in players %}<option value="{{ p.name }}{{ ' · ' ~ p.ref if p.ref }}" data-id="{{ p.id }}"></option>{% endfor %}
-      </datalist>
+      <div class="bp-bal muted small">Your credit <b data-sl="balance">{{ balance_cents | money }}</b></div>
       <div class="bp-game"><b data-sl="name">Game</b><span class="sell-state" data-sl="state"></span></div>
       <div class="sell-sides bp-sides">
         <button class="side-btn m" type="button" data-sl="side-meron" data-side="meron"><span class="sb-lab">MERON</span><span class="sb-name" data-sl="nm-meron">Meron</span><span class="sb-pool"><span data-sl="sh-meron"></span><b data-sl="pl-meron"></b></span></button>

@@ -18,7 +18,7 @@
       <tbody>
       {% for t in rows %}
         <tr>
-          <td>{{ t.player.full_name if t.player else '—' }}</td>
+          <td>{{ t.player.full_name if t.player else (t.bettor.username if t.bettor else '—') }}</td>
           <td class="mono small"><a href="/bola/tickets/{{ t.id }}">{{ t.code }}</a></td>
           <td><a href="/bola/draws/{{ t.draw_id }}">#{{ t.draw_id }}</a></td>
           <td class="num">{{ t.numbers | join(', ') }}</td>

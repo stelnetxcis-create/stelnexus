@@ -205,3 +205,69 @@ def test_api_draws_bet_idempotency_cancel_and_results():
         assert TestClient(app).get("/api/v1/bola/draws").status_code == 401      # no token, no data
     finally:
         _web_teardown(ids)
+
+
+# --------------------------------------------------------------------------- reveal, live draw, celebration
+def _declare(c, ids, a="7", b="9"):
+    r = c.post(f"/bola/draws/{ids['draw']}/declare", data={
+        "csrf_token": _csrf(c), "ball_first": a, "ball_second": b, "reason": "ui test, before draw time"})
+    assert r.status_code == 303, r.text[:300]
+
+
+def test_sale_without_print_lands_on_the_draw_page_with_the_ticket_reveal():
+    ids = _web_setup()
+    try:
+        c, _ = login("admin")
+        r = c.post("/bola/bets/place", data={
+            "csrf_token": _csrf(c), "draw_id": ids["draw"], "player_id": ids["player"], "kind": "pair",
+            "n1": "3", "n2": "4", "tumbok": "5", "sahod": "0"})
+        assert r.status_code == 303 and r.headers["location"].endswith(f"/bola/draws/{ids['draw']}?sold={_tid(c, ids)}")
+        page = c.get(r.headers["location"]).text
+        assert "data-bt-modal" in page and "bt-stage" in page and "data-bt-print" in page
+        assert asset_urls("js", "bola-live")[0] in page
+        # no ?sold= means no modal; junk or a foreign id never breaks the page
+        assert "data-bt-modal" not in c.get(f"/bola/draws/{ids['draw']}").text
+        assert c.get(f"/bola/draws/{ids['draw']}?sold=abc").status_code == 200
+        assert "data-bt-modal" not in c.get(f"/bola/draws/{ids['draw']}?sold=99999999").text
+    finally:
+        _web_teardown(ids)
+
+
+def _tid(c, ids):
+    html = c.get(f"/bola/draws/{ids['draw']}").text
+    return max(int(x) for x in re.findall(r"/bola/tickets/(\d+)", html))
+
+
+def test_ticket_page_uses_the_printer_stage_and_marks_winners():
+    ids = _web_setup()
+    try:
+        c, _ = login("admin")
+        win = _place(c, ids, "7", "9", tumbok="7")
+        html = c.get(f"/bola/tickets/{win}").text
+        assert "bt-stage" in html and "t-balls" in html and "t-seal" in html and "t-ribbon" not in html
+        _declare(c, ids)
+        assert "t-ribbon" in c.get(f"/bola/tickets/{win}").text          # settled with a payout
+    finally:
+        _web_teardown(ids)
+
+
+def test_live_endpoint_hides_balls_until_settled_and_reports_only_my_wins():
+    ids = _web_setup()
+    try:
+        c, _ = login("admin")
+        before = c.get(f"/bola/draws/{ids['draw']}/live").json()
+        assert before["status"] == "open" and before["ball_first"] is None and before["won_cents"] == 0
+        assert before["scheduled_ms"] > before["now_ms"]                   # draw time is ahead of the server clock
+        _place(c, ids, "7", "9", tumbok="7")
+        _place(c, ids, "1", "2", tumbok="3")
+        _declare(c, ids)
+        after = c.get(f"/bola/draws/{ids['draw']}/live").json()
+        assert after["status"] == "settled" and (after["ball_first"], after["ball_second"]) == (7, 9)
+        assert after["won_cents"] == 560000                                # 7 x 800 (see the CSV test: PHP 5,600.00)
+        assert len(after["won_codes"]) == 1                                # the losing ticket is not listed
+        anon = TestClient(app).get(f"/bola/draws/{ids['draw']}/live", follow_redirects=False)
+        assert anon.status_code in (303, 307, 401) and "ball_first" not in anon.text    # login required
+        page = c.get(f"/bola/draws/{ids['draw']}").text
+        assert "data-bola-live" in page and f"/bola/draws/{ids['draw']}/live" in page
+    finally:
+        _web_teardown(ids)

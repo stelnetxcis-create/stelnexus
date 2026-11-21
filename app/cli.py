@@ -9,6 +9,8 @@
     python -m app.cli unban-ip 203.0.113.9            # lift an IP ban from the server shell (lock-out recovery)
     python -m app.cli bola-generate --days 2          # create the number-game draws from schedules
     python -m app.cli bola-tick                       # cron, every minute: open/lock draws on time
+    python -m app.cli sqlite-to-postgres --source sqlite:///./dev.db --target postgresql+psycopg://... [--apply]
+    python -m app.cli refresh-reports [--only flows,top,integrity]   # timer: precompute heavy reports
     python -m app.cli bola-convert-cuts --rates r.csv # legacy % -> Volume/SOP bps (prints; --apply writes)
     python -m app.cli bola-import-legacy --sql online_bukis.sql   # dry run; add --apply to write
 """
@@ -279,6 +281,32 @@ def bola_import_legacy(args) -> None:
           "Passwords, credits, users and tickets are never imported.")
 
 
+def refresh_reports(args) -> None:
+    """Recompute the heavy report figures (systemd timer). Safe to run any time, any number of times."""
+    from app.services import snapshots
+    only = [x.strip() for x in (args.only or "").split(",") if x.strip()] or None
+    unknown = [x for x in (only or []) if x not in snapshots.KINDS]
+    if unknown:
+        sys.exit(f"Unknown report(s): {', '.join(unknown)}. Choose from: {', '.join(snapshots.KINDS)}.")
+    with session_scope() as db:
+        done = snapshots.refresh_all(db, only)
+    for name, snap in done.items():
+        print(f"{name:<10} {snap.duration_ms:>6} ms")
+
+
+def sqlite_to_postgres(args) -> None:
+    """Copy a SQLite database into an empty PostgreSQL one (dry run unless --apply)."""
+    from app.db.sqlite_to_postgres import MigrationError, migrate, redact
+    source = args.source or (get_settings().DATABASE_URL if get_settings().is_sqlite else None)
+    if not source:
+        sys.exit("Error: --source sqlite:///path/to.db is required.")
+    print(f"{redact(source)}  ->  {redact(args.target)}")
+    try:
+        migrate(source, args.target, apply=args.apply)
+    except MigrationError as exc:
+        sys.exit(f"Error: {exc}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="app.cli")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -311,6 +339,14 @@ def main() -> None:
     ub = sub.add_parser("unban-ip")
     ub.add_argument("address")
     ub.set_defaults(fn=unban_ip)
+    rr = sub.add_parser("refresh-reports")
+    rr.add_argument("--only", help="comma list of: flows, top, integrity (default: all)")
+    rr.set_defaults(fn=refresh_reports)
+    sp = sub.add_parser("sqlite-to-postgres")
+    sp.add_argument("--source", help="sqlite:///./dev.db (default: DATABASE_URL when it is SQLite)")
+    sp.add_argument("--target", required=True, help="postgresql+psycopg://user:pass@host/db (must be empty)")
+    sp.add_argument("--apply", action="store_true", help="write; without it only the source is counted")
+    sp.set_defaults(fn=sqlite_to_postgres)
     sub.add_parser("bola-tick").set_defaults(fn=bola_tick)
     sub.add_parser("bola-preflight").set_defaults(fn=bola_preflight)
     bc = sub.add_parser("bola-convert-cuts")

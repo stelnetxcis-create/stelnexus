@@ -1,0 +1,11 @@
+# /etc/systemd/system/stelnexus-reports.timer
+[Unit]
+Description=Refresh StelNexus precomputed reports every 5 minutes
+
+[Timer]
+OnCalendar=*:0/5
+AccuracySec=15s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

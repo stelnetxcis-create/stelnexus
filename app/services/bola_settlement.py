@@ -186,12 +186,17 @@ def _rollback_previous(db: Session, draw: BolaDraw, actor: User, reason: str) ->
 
 
 def beneficiary_account(db: Session, ticket: BolaTicket) -> Account:
-    """Payouts and refunds land on the player's credit wallet. A legacy archive ticket with no
-    real player falls back to the retired central account so old rows still balance."""
+    """Payouts and refunds land on the bettor's credit wallet: the player's, or the account's own for a
+    self-bet. A legacy archive ticket with neither falls back to the retired central account so old rows
+    still balance."""
     if ticket.player_id:
         player = db.get(Player, ticket.player_id)
         if player is not None:
             return accounts.wallet_for_player(db, player)
+    if ticket.user_id:
+        bettor = db.get(User, ticket.user_id)
+        if bettor is not None and bettor.has_wallet:
+            return accounts.wallet_for_user(db, bettor)
     return accounts.central_cash(db)
 
 

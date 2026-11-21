@@ -500,7 +500,7 @@
 .fv-strip{position:absolute;left:0;right:0;top:0;z-index:3;box-sizing:border-box;height:var(--fv-strip);display:flex;align-items:center;
   padding:var(--sa-t) max(8px,var(--sa-r)) 0 max(8px,var(--sa-l));
   background:linear-gradient(180deg,rgba(7,6,10,.88),rgba(7,6,10,.6) 70%,transparent)}
-.fv-list{display:flex;align-items:center;gap:6px;width:100%;overflow-x:auto;padding:4px 2px;scrollbar-width:none;
+.fv-list{display:flex;align-items:center;gap:6px;flex:1 1 0;min-width:0;overflow-x:auto;padding:4px 2px;scrollbar-width:none;
   scroll-snap-type:x proximity;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
 .fv-list::-webkit-scrollbar{display:none}
 .fv-chip{flex:0 0 auto;display:grid;place-items:center;min-width:36px;height:30px;padding:0 10px;border-radius:999px;scroll-snap-align:center;
@@ -626,3 +626,147 @@
 
 /* the player toggles icons and the Go live button with [hidden]; a display rule on .vp-btn must not win over it */
 .vp [hidden],.vp-btn[hidden],.vp-btn svg[hidden]{display:none!important}
+
+/* ---------- game strip controls (events with hundreds of games) ---------- */
+.fv-strip{gap:6px}
+.fv-list{cursor:grab}.fv-list.is-drag{cursor:grabbing;scroll-snap-type:none;user-select:none}.fv-list.is-drag .fv-chip{pointer-events:none}
+.fv-nav,.fv-now{flex:0 0 auto;height:28px;border-radius:999px;border:1px solid var(--line-2);background:rgba(20,18,23,.85);color:var(--ink-2);cursor:pointer;
+  font:800 15px/1 var(--sans,inherit);transition:border-color .15s,color .15s,opacity .15s}
+.fv-nav{width:28px;padding:0}.fv-now{padding:0 10px;font-size:12px;letter-spacing:.04em;color:#7ee8bd;border-color:rgba(47,191,134,.55)}
+.fv-nav:hover:not(:disabled),.fv-now:hover{border-color:var(--gold);color:#fff}.fv-nav:disabled{opacity:.3;cursor:default}
+.fv-jump{flex:0 0 auto;width:58px;height:28px;box-sizing:border-box;padding:0 8px;border-radius:999px;border:1px solid var(--line-2);background:rgba(20,18,23,.85);
+  color:var(--ink);font:700 12px var(--sans,inherit);text-align:center}
+.fv-jump:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 2px rgba(217,177,85,.25)}
+.fv-chip.ph-waiting:not(.is-active){opacity:.55}
+.fv-chip.ph-open:not(.is-active){box-shadow:0 0 0 1.5px rgba(47,191,134,.8)}                 /* the game that is taking bets */
+.fv-chip.is-air::before{content:"";position:absolute;margin:-22px 0 0 -2px;width:7px;height:7px;border-radius:50%;background:#ff3b5c;animation:fvair 1.2s ease-in-out infinite}
+.fv-chip{position:relative}
+@keyframes fvair{50%{opacity:.35;transform:scale(.8)}}
+@media (pointer:coarse){.fv-nav{display:none}.fv-list{cursor:auto}}
+@media (prefers-reduced-motion:reduce){.fv-chip.is-air::before{animation:none}}
+
+/* ---------- payout scene in the video area (betting open / up next / final result) ---------- */
+.pbs{position:absolute;inset:0;z-index:1;container-type:size;container-name:pbs;display:grid;place-items:center;overflow:hidden;pointer-events:none;
+  background:linear-gradient(180deg,#14111a,#08070b);box-sizing:border-box;
+  padding:var(--pbs-t,12px) var(--pbs-r,14px) var(--pbs-b,12px) var(--pbs-l,14px)}   /* fightview.js sets --pbs-l/-r so the content sits between the chat and bet overlays */
+.pbs-stage{container-type:inline-size;container-name:pbss;width:100%;display:grid;place-items:center;min-height:0}
+.pbs[hidden]{display:none}
+.pbs ~ .vp-badge,.pbs ~ .vp-big{display:none}                                   /* the scene has its own heading; no play button over it */
+.pbs[hidden] ~ .vp-badge{display:inline-flex}
+.pbs-bg{position:absolute;inset:0;overflow:hidden}
+.pbs-bg i{position:absolute;width:62%;aspect-ratio:1;border-radius:50%;filter:blur(46px);opacity:.55;animation:pbsDrift 9s ease-in-out infinite alternate}
+.pbs-bg .a{left:-16%;bottom:-34%;background:radial-gradient(circle,rgba(229,56,79,.55),transparent 65%)}
+.pbs-bg .b{right:-16%;bottom:-34%;background:radial-gradient(circle,rgba(74,163,255,.5),transparent 65%);animation-delay:-4s}
+@keyframes pbsDrift{to{transform:translate(6%,-8%) scale(1.12)}}
+.pbs-pane{display:none;position:relative;z-index:1;flex-direction:column;align-items:center;justify-content:center;gap:8px;width:100%;max-width:100%;text-align:center;min-height:0}
+.pbs[data-state="open"] .pbs-open,.pbs[data-state="waiting"] .pbs-wait,.pbs[data-state="ended"] .pbs-end{display:flex;animation:pbsIn .45s cubic-bezier(.2,.8,.2,1) both}
+@keyframes pbsIn{from{opacity:0;transform:translateY(10px) scale(.97)}}
+.pbs[data-money="0"] [data-m]{display:none}
+.pbs-kicker{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-2)}
+.pbs-kicker i{width:8px;height:8px;border-radius:50%;background:#2fbf86;box-shadow:0 0 0 0 rgba(47,191,134,.55);animation:pbsBeat 1.6s ease-out infinite}
+.pbs-open[data-closed] .pbs-kicker i{background:#e8b64a}
+@keyframes pbsBeat{70%{box-shadow:0 0 0 9px rgba(47,191,134,0)}100%{box-shadow:0 0 0 0 rgba(47,191,134,0)}}
+.pbs-dot{opacity:.5}
+.pbs-kicker [data-pb^="gn"]{margin-left:-.14em}
+/* compact: a vertical card that fits the gap between the chat and bet overlays */
+.pbs-duel{display:grid;grid-template-columns:1fr;gap:8px;width:min(100%,264px)}
+.pbs-side{position:relative;padding:8px 12px 9px;border-radius:14px;border:1px solid var(--line-2);text-align:left;background:rgba(14,12,18,.78);backdrop-filter:blur(3px);transition:box-shadow .3s,border-color .3s}
+.pbs-side.meron{border-color:rgba(229,56,79,.55);background:linear-gradient(150deg,rgba(229,56,79,.18),rgba(14,12,18,.8) 65%)}
+.pbs-side.wala{border-color:rgba(74,163,255,.55);background:linear-gradient(150deg,rgba(74,163,255,.18),rgba(14,12,18,.8) 65%)}
+.pbs-side.pbs-hit{animation:pbsHit .9s ease-out}
+@keyframes pbsHit{0%{box-shadow:0 0 0 0 rgba(247,222,147,.0)}20%{box-shadow:0 0 28px 2px rgba(247,222,147,.55);border-color:var(--gold-hi,#f7de93)}100%{box-shadow:0 0 0 0 rgba(247,222,147,0)}}
+.pbs-tag{display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:800;letter-spacing:.14em;color:var(--ink-3)}
+.pbs-tag em{font-style:normal;padding:1px 6px;border-radius:999px;background:rgba(217,177,85,.16);color:var(--gold-hi,#f7de93);letter-spacing:.04em}
+.pbs-tag em:empty{display:none}
+.pbs-name{font-weight:700;font-size:13.5px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pbs-x{display:flex;align-items:baseline;gap:3px;margin-top:2px;font-family:var(--serif,Georgia,serif);font-weight:800;font-variant-numeric:tabular-nums}
+.pbs-x b{font-size:34px;line-height:1}.pbs-x small{font-size:15px;color:var(--ink-3)}
+.pbs-side.meron .pbs-x b{color:#ff9aa8}.pbs-side.wala .pbs-x b{color:#9fceff}
+.pbs-side.is-low .pbs-x b{color:#f2cd7c}.pbs-side.is-low::after{content:"Below minimum odds: refunded if it wins";display:block;margin-top:3px;font-size:10.5px;color:#f2cd7c}
+.pbs-dir{margin-left:4px;font-size:13px;font-weight:800}.pbs-dir.up{color:#2fbf86;animation:pbsNudge .6s ease-out}.pbs-dir.down{color:#ff6b81;animation:pbsNudge .6s ease-out}
+@keyframes pbsNudge{from{transform:translateY(6px);opacity:0}}
+.pbs-pool{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-top:3px;font-variant-numeric:tabular-nums}
+.pbs-pool b{font-size:14px;color:var(--ink)}.pbs-pool small{font-size:11.5px;color:var(--ink-3)}
+.pbs-plus{position:absolute;right:12px;top:6px;font-size:13px;font-weight:800;color:var(--gold-hi,#f7de93);text-shadow:0 0 12px rgba(217,177,85,.7);pointer-events:none;animation:pbsFloat 1.6s ease-out forwards}
+@keyframes pbsFloat{0%{opacity:0;transform:translateY(10px) scale(.9)}15%{opacity:1}100%{opacity:0;transform:translateY(-26px) scale(1.08)}}
+.pbs-mid{order:3;display:flex;flex-direction:column;gap:2px;padding:2px 4px}
+.pbs-vs{display:none;font-weight:800;letter-spacing:.2em;color:var(--ink-3);font-size:12px;text-align:center}
+.pbs-row{display:flex;justify-content:space-between;gap:12px;font-size:12px;color:var(--ink-3);padding:1px 0}
+.pbs-row b{color:var(--ink);font-variant-numeric:tabular-nums;font-weight:700}
+.pbs-bar{display:flex;height:6px;border-radius:99px;overflow:hidden;margin-top:4px;background:rgba(255,255,255,.07)}
+.pbs-bar .m{background:#e5384f;transition:width .7s cubic-bezier(.2,.8,.2,1)}.pbs-bar .w{background:#4aa3ff;transition:width .7s cubic-bezier(.2,.8,.2,1)}
+.pbs-note{margin:0;font-size:10.5px;color:var(--ink-3)}
+/* up next */
+.pbs-ring{position:absolute;width:min(60cqh,60cqw);aspect-ratio:1;border-radius:50%;border:2px solid rgba(217,177,85,.35);box-shadow:inset 0 0 50px -12px rgba(217,177,85,.45);animation:pbsRing 2.8s ease-in-out infinite}
+@keyframes pbsRing{50%{transform:scale(1.07);border-color:rgba(217,177,85,.65)}}
+.pbs-big{position:relative;font-family:var(--serif,Georgia,serif);font-weight:800;font-size:clamp(30px,9cqh,54px);line-height:1;color:var(--gold-hi,#f7de93)}
+.pbs-vsline{position:relative;display:flex;flex-wrap:wrap;justify-content:center;gap:8px;font-weight:700;font-size:15px}
+.pbs-vsline em{font-style:normal;color:var(--ink-3);font-weight:800;letter-spacing:.14em;font-size:12px}
+.pbs-vsline .m{color:#ff9aa8}.pbs-vsline .w{color:#9fceff}
+.pbs-wait p{position:relative;margin:2px 0 0;font-size:12.5px;color:var(--ink-2)}
+/* final */
+.pbs-crown{width:46px;height:46px;display:grid;place-items:center;color:#1a1306;background:linear-gradient(135deg,#f7de93,#c99a2e);border-radius:50%;box-shadow:0 0 34px rgba(217,177,85,.55);animation:pbsCrown .8s cubic-bezier(.3,1.5,.5,1) both}
+.pbs-crown .ico{width:24px;height:24px}
+@keyframes pbsCrown{from{opacity:0;transform:translateY(-34px) scale(.5) rotate(-18deg)}}
+.pbs-result{font-family:var(--serif,Georgia,serif);font-weight:800;font-size:clamp(24px,8cqh,46px);line-height:1.05;letter-spacing:.04em;color:var(--gold-hi,#f7de93);
+  animation:pbsReveal .8s .15s cubic-bezier(.2,.8,.2,1) both;background:linear-gradient(100deg,#f7de93 30%,#fff 50%,#f7de93 70%) 0 0/250% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.pbs-end[data-x] .pbs-result{animation:none}
+.pbs[data-res="meron"] .pbs-result{background-image:linear-gradient(100deg,#ff9aa8 30%,#fff 50%,#ff9aa8 70%)}
+.pbs[data-res="wala"] .pbs-result{background-image:linear-gradient(100deg,#9fceff 30%,#fff 50%,#9fceff 70%)}
+.pbs[data-res="draw"] .pbs-result,.pbs[data-res=""] .pbs-result,.pbs[data-res="canceled"] .pbs-result{background-image:linear-gradient(100deg,#cdb9ff 30%,#fff 50%,#cdb9ff 70%)}
+@keyframes pbsReveal{from{opacity:0;letter-spacing:.3em;filter:blur(6px);background-position:100% 0}to{background-position:0 0}}
+.pbs-winner{font-weight:700;font-size:14px;color:var(--ink);animation:pbsIn .5s .35s both}
+.pbs-winner em{font-style:normal;margin-left:4px;padding:1px 7px;border-radius:999px;background:rgba(217,177,85,.16);color:var(--gold-hi,#f7de93);font-size:11px}
+.pbs-final{width:min(100%,264px);display:flex;flex-direction:column;gap:1px;padding:8px 12px;border-radius:14px;border:1px solid var(--line-2);background:rgba(14,12,18,.78);animation:pbsIn .5s .5s both}
+.pbs-fx{display:flex;align-items:baseline;justify-content:center;gap:6px;margin-bottom:3px}
+.pbs-fx b{font:800 30px/1 var(--serif,Georgia,serif);color:var(--gold-hi,#f7de93);font-variant-numeric:tabular-nums}.pbs-fx small{font-size:11.5px;color:var(--ink-3)}
+/* short stage (phones, landscape): two sides next to each other */
+@container pbs (max-height: 340px){
+  .pbs-duel{grid-template-columns:1fr 1fr;gap:6px}
+  .pbs-mid{grid-column:1 / -1}.pbs-note{display:none}
+  .pbs-x b{font-size:26px}.pbs-side{padding:6px 9px}
+  .pbs-final .pbs-row:nth-of-type(n+4){display:none}
+}
+/* the room that is actually free (between the overlays) decides the layout */
+@container pbss (min-width: 430px){
+  .pbs-duel{grid-template-columns:1fr 1fr;width:min(100%,520px);gap:10px}
+  .pbs-mid{grid-column:1 / -1}.pbs-x b{font-size:40px}
+}
+@container pbss (min-width: 700px){
+  .pbs-duel{grid-template-columns:1fr minmax(200px,.7fr) 1fr;width:min(100%,1040px);gap:18px;align-items:stretch}
+  .pbs-mid{grid-column:auto;order:0;justify-content:center;gap:5px}.pbs-vs{display:block;margin-bottom:6px}
+  .pbs-side{padding:16px 20px 18px}.pbs-name{font-size:19px}.pbs-tag{font-size:12px}
+  .pbs-x b{font-size:68px}.pbs-x small{font-size:26px}.pbs-pool b{font-size:20px}.pbs-pool small{font-size:13px}
+  .pbs-row{font-size:14px}.pbs-note{font-size:12px}
+  .pbs-final{width:min(100%,420px)}.pbs-fx b{font-size:52px}.pbs-result{font-size:clamp(34px,11cqh,64px)}.pbs-winner{font-size:18px}
+}
+@media (prefers-reduced-motion:reduce){.pbs *,.pbs-pane{animation:none!important}.pbs-bar i{transition:none}}
+
+.pbs-side.is-max .pbs-x b{color:#ffd978}.pbs-side.is-max .pbs-x::after{content:"MAX";margin-left:6px;padding:1px 6px;border-radius:999px;font-size:10px;font-weight:800;letter-spacing:.08em;color:#2b1d00;background:linear-gradient(135deg,#ffe08a,#f2a93b);animation:pbsHit .5s ease-out}
+
+/* ---------- phone, full screen / landscape: keep the payout scene readable ---------- */
+.pbs:not([hidden]) ~ .vp-title{display:none}                                      /* the scene has its own heading */
+.pbs{top:var(--fv-strip,0px)}                                                     /* never run under the game strip */
+@container pbs (max-height: 300px){
+  .pbs-pane{gap:4px}
+  .pbs-crown{width:30px;height:30px}.pbs-crown .ico{width:16px;height:16px}
+  .pbs-result{font-size:clamp(18px,9cqh,26px)}
+  .pbs-winner{display:none}
+  .pbs-final{padding:5px 10px;width:min(100%,230px)}.pbs-fx{margin-bottom:1px}.pbs-fx b{font-size:22px}
+  .pbs-row{font-size:11px}.pbs-kicker{font-size:10px}
+  .pbs-big{font-size:clamp(24px,12cqh,34px)}.pbs-wait p{font-size:11px}
+  .pbs-x b{font-size:22px}.pbs-side{padding:4px 8px}.pbs-name{font-size:12px}
+  .pbs-pool{flex-direction:column;align-items:flex-start;gap:0}.pbs-pool b{font-size:12.5px}.pbs-pool small{font-size:10px}
+}
+@media (max-height:520px) and (orientation:landscape){
+  .fc-stagewrap.is-fs .fc-overlay:not(.is-collapsed),.fc-stagewrap:fullscreen .fc-overlay:not(.is-collapsed){width:min(300px,38%)!important}
+}
+
+.pbs{align-items:safe center}                                                     /* too tall for the gap: keep the top, never slide up under the chat */
+@container pbs (max-height: 230px){
+  .pbs-note,.pbs-bar,.pbs-vs{display:none}
+  .pbs-kicker{margin-bottom:-2px}
+  .pbs-duel{gap:5px}.pbs-side{padding:3px 8px 4px}.pbs-tag{font-size:9.5px}
+  .pbs-x{margin-top:0}.pbs-x b{font-size:20px}.pbs-x small{font-size:11px}
+  .pbs-row{font-size:10.5px;padding:0}
+}

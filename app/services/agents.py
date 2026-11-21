@@ -15,6 +15,7 @@ import datetime as dt
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.pagination import clamp_limit, clamp_offset
 from app.core import audit
 from app.core.errors import Conflict, Forbidden, NotFound, ValidationError
 from app.core.rbac import assert_user_in_scope, can_create_role, downline_ids, has_global_scope, is_top, scope_ids
@@ -250,7 +251,7 @@ def list_agents(db: Session, actor: User, *, search: str | None = None,
     if search:
         term = f"%{search.strip()[:60]}%"
         stmt = stmt.where(or_(User.username.ilike(term), User.full_name.ilike(term), User.ref_code.ilike(term)))
-    stmt = stmt.order_by(User.id.desc()).limit(min(limit, 500)).offset(max(offset, 0))
+    stmt = stmt.order_by(User.id.desc()).limit(clamp_limit(limit, 500)).offset(clamp_offset(offset))
     return list(db.scalars(stmt).all())
 
 

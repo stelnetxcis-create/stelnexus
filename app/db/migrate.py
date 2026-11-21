@@ -14,6 +14,8 @@ The project has no Alembic history, so ``Base.metadata.create_all`` only ever ad
 * relabelling the house account and the online-payments clearing account;
 * ``users.role`` also gained ``pawn``; new columns ``users.grants``, ``events.location_id`` and
   ``cash_requests.target`` are added, and the ``locations`` table is created;
+* ``bola_tickets.player_id`` becomes nullable and ``bola_tickets.user_id`` is added: the number game now
+  lets the logged-in account bet from its own credit (like the fight game) instead of forcing a player;
 * retiring the teller role: the platform is online-only, so existing teller accounts are
   closed and their sessions revoked (rows, tickets and ledger history are kept).
 
@@ -145,6 +147,62 @@ def _upgrade_checks_postgres(engine: Engine) -> list[str]:
     return changed
 
 
+# (table, column) pairs that used to be NOT NULL and must now accept NULL.
+RELAX_NOT_NULL = (("bola_tickets", "player_id"),)
+
+
+def _relax_not_null(engine: Engine) -> list[str]:
+    """Drop NOT NULL on the columns in RELAX_NOT_NULL (``create_all`` never alters an existing table).
+    SQLite cannot ALTER a column, so its stored CREATE TABLE text is edited under writable_schema, the same
+    documented route the CHECK upgrade uses. Idempotent; never touches rows."""
+    import re
+    changed: list[str] = []
+    inspector = inspect(engine)
+    pending = []
+    for table, column in RELAX_NOT_NULL:
+        if not inspector.has_table(table):
+            continue
+        info = {c["name"]: c for c in inspector.get_columns(table)}
+        if column in info and not info[column]["nullable"]:
+            pending.append((table, column))
+    if not pending:
+        return changed
+    if engine.dialect.name == "sqlite":
+        raw = engine.raw_connection()
+        try:
+            dbapi = raw.driver_connection
+            dbapi.isolation_level = None
+            cur = dbapi.cursor()
+            for table, column in pending:
+                row = cur.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
+                if not row or not row[0]:
+                    continue
+                new_sql, n = re.subn(rf'(["`]?\b{column}["`]?\s+INTEGER)\s+NOT\s+NULL', r"\1", row[0], count=1)
+                if not n:
+                    continue
+                cur.execute("BEGIN IMMEDIATE")
+                version = cur.execute("PRAGMA schema_version").fetchone()[0]
+                cur.execute("PRAGMA writable_schema=ON")
+                cur.execute("UPDATE sqlite_master SET sql=? WHERE type='table' AND name=?", (new_sql, table))
+                cur.execute(f"PRAGMA schema_version={version + 1}")
+                cur.execute("PRAGMA writable_schema=OFF")
+                cur.execute("COMMIT")
+                changed.append(f"{table}.{column}: NOT NULL dropped")
+            if changed:
+                ok = cur.execute("PRAGMA integrity_check").fetchone()[0]
+                if ok != "ok":
+                    log.error("SQLite integrity_check after NOT NULL upgrade: %s", ok)
+            cur.close()
+        finally:
+            raw.close()
+    else:
+        with engine.begin() as conn:
+            for table, column in pending:
+                conn.exec_driver_sql(f'ALTER TABLE "{table}" ALTER COLUMN "{column}" DROP NOT NULL')
+                changed.append(f"{table}.{column}: NOT NULL dropped")
+    return changed
+
+
 def _rename_roles(engine: Engine) -> list[str]:
     """gold -> cavo, sub -> kubrador. Runs after the CHECK is widened, with raw SQL so the ORM's
     enum validation never sees the old values. Idempotent."""
@@ -270,6 +328,7 @@ def upgrade(engine: Engine) -> dict[str, list[str]]:
         "checks": (_upgrade_checks_sqlite if engine.dialect.name == "sqlite"
                    else _upgrade_checks_postgres)(engine),
     }
+    report["nullable"] = _relax_not_null(engine)
     report["roles"] = _rename_roles(engine)
     report["tiers"] = _merge_tiers(engine)
     report["tellers"] = _retire_tellers(engine)

@@ -1,33 +1,35 @@
 {
-  "build": "0806e09f",
-  "inputs": "3d3bfa1948c78cc4264e728088f13480e746e829366ce2bcdb0135f2ea159b9a",
+  "build": "5fb8aa97",
+  "inputs": "f0fe463bab5a80de185b2950a07bb78c03306a3e2071f9e13a96fe2fa7746d44",
   "css": {
-    "auth": "/static/dist/auth.f2e975fe.css",
-    "site": "/static/dist/site.e2c656df.css",
-    "store": "/static/dist/store.01c28751.css",
-    "bola-ui": "/static/dist/bola-ui.36c32a5c.css",
-    "livestream": "/static/dist/livestream.f6922ca2.css"
+    "auth": "/static/dist/auth.cf352f83.css",
+    "site": "/static/dist/site.88f6ec4c.css",
+    "store": "/static/dist/store.4d208154.css",
+    "bola-ui": "/static/dist/bola-ui.eb124345.css",
+    "livestream": "/static/dist/livestream.f6922ca2.css",
+    "declarator": "/static/dist/declarator.c7b92d0e.css"
   },
   "js": {
-    "nav-init": "/static/dist/nav-init.adaac247.js",
-    "auth": "/static/dist/auth.ff37ee08.js",
-    "site": "/static/dist/site.d841745c.js",
-    "bola": "/static/dist/bola.bf04ab47.js",
+    "nav-init": "/static/dist/nav-init.fc81cd4e.js",
+    "auth": "/static/dist/auth.e9f575a4.js",
+    "site": "/static/dist/site.c8822fa1.js",
+    "bola": "/static/dist/bola.de086b58.js",
+    "bola-live": "/static/dist/bola-live.0f128a91.js",
     "chat": "/static/dist/chat.a5798df9.js",
-    "dash": "/static/dist/dash.5aec12c6.js",
-    "fightchat": "/static/dist/fightchat.b534c96f.js",
-    "fightview": "/static/dist/fightview.52fa00ba.js",
+    "dash": "/static/dist/dash.8f6468b6.js",
+    "declarator": "/static/dist/declarator.6b3c0380.js",
+    "fightchat": "/static/dist/fightchat.854136c8.js",
+    "fightview": "/static/dist/fightview.c9819a4f.js",
     "referrals": "/static/dist/referrals.0ec603de.js",
-    "sell": "/static/dist/sell.8bf195e6.js",
-    "stream": "/static/dist/stream.1afdbf3c.js"
+    "stream": "/static/dist/stream.9ad2813c.js"
   },
   "preload": [
     "/static/dist/fonts/manrope-latin-wght-normal.a30ddcd3.woff2",
     "/static/dist/fonts/cormorant-garamond-latin-600-normal.ae062b6d.woff2"
   ],
   "shell": [
-    "/static/dist/site.e2c656df.css",
-    "/static/dist/site.d841745c.js",
-    "/static/dist/nav-init.adaac247.js"
+    "/static/dist/site.88f6ec4c.css",
+    "/static/dist/site.c8822fa1.js",
+    "/static/dist/nav-init.fc81cd4e.js"
   ]
 }

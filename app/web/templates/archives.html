@@ -21,6 +21,7 @@
       </tbody>
     </table></div>
     {% else %}{{ ui.empty('Nothing archived yet. Close an event to see it here.') }}{% endif %}
+    {{ ui.pager(pager) }}
   </div>
 </div>
 {% endblock %}

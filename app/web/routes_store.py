@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 
+from fastapi.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
@@ -211,10 +212,12 @@ def _fight_snapshot(request: Request, fight_id: int, after: int) -> realtime.Sna
 @router.get("/fights/{fight_id}/chat/stream")
 async def chat_stream(fight_id: int, request: Request, after: int = 0):
     """Server-sent events for one game's chat: new lines, the result being announced, slow-mode changes."""
-    with session_scope() as db:                       # authorise before the response starts: clean 401 / 403 / 404
-        ctx = require_ctx(request, db)
-        _fight(ctx, fight_id)
-        user_id = ctx.user.id
+    def _authorise() -> int:
+        with session_scope() as db:                   # authorise before the response starts: clean 401 / 403 / 404
+            ctx = require_ctx(request, db)
+            _fight(ctx, fight_id)
+            return ctx.user.id
+    user_id = await run_in_threadpool(_authorise)     # never block the event loop on SQLite
     return realtime.open_stream(request, user_id, {realtime.fight_topic(fight_id)},
                                 lambda a: _fight_snapshot(request, fight_id, a), after=after)
 
@@ -224,9 +227,10 @@ async def chat_send(fight_id: int, request: Request, ctx: Ctx = Depends(require_
     fight = _fight(ctx, fight_id)
     acc = store_svc.access(ctx.db, ctx.user, fight)
     if not acc["can_send"]:
-        raise ValidationError("This game's chat is closed: the result has been announced."
-                              if acc["reason"] == "closed"
-                              else "Chat is locked. Get a Battle Pass or Chat Tokens in the Store.")
+        raise ValidationError({"closed": "This game's chat is closed: the result has been announced.",
+                               "paused": "Chat is closed while this game is on air. It opens again for the next game.",
+                               "waiting": "Chat for this game opens after the games before it are done.",
+                               }.get(acc["reason"], "Chat is locked. Get a Battle Pass or Chat Tokens in the Store."))
     if "json" in request.headers.get("content-type", ""):
         try:
             data = await request.json()

@@ -102,10 +102,44 @@ def authenticate(db: Session, *, username: str, password: str, ip: str | None,
     return user
 
 
+SIGNED_IN_ELSEWHERE = "signed_in_elsewhere"
+DISPLACED_MSG = "You were signed out because this account signed in on another device."
+
+
+def end_other_logins(db: Session, user: User, *, settings: SettingsStore) -> int:
+    """One device per account: revoke every live web session and mobile token of ``user``.
+
+    Called just before a brand-new login is issued, so the newest sign-in is the only one left.
+    Returns how many were ended. A no-op when ``security.single_session`` is switched off."""
+    if not bool(settings.get("security.single_session")):
+        return 0
+    now = _now()
+    ended = 0
+    for row in db.scalars(select(DbSession).where(DbSession.user_id == user.id, DbSession.revoked_at.is_(None))).all():
+        row.revoked_at, row.revoked_reason = now, SIGNED_IN_ELSEWHERE
+        ended += 1
+    for tok in db.scalars(select(ApiToken).where(ApiToken.user_id == user.id, ApiToken.revoked_at.is_(None))).all():
+        tok.revoked_at = now
+        ended += 1
+    if ended:
+        db.flush()
+        audit.record(db, user, "auth.other_logins_ended", entity_type="user", entity_id=user.id, after={"ended": ended})
+    return ended
+
+
+def was_displaced(db: Session, raw_token: str | None) -> bool:
+    """True when this cookie belongs to a session that a newer login replaced (to tell the person why)."""
+    if not raw_token or len(raw_token) > 200:
+        return False
+    row = db.scalar(select(DbSession).where(DbSession.token_hash == token_hash(raw_token)))
+    return row is not None and row.revoked_reason == SIGNED_IN_ELSEWHERE
+
+
 def create_session(db: Session, user: User, *, ip: str | None, user_agent: str | None,
                    settings: SettingsStore) -> tuple[str, DbSession]:
     from app.core.config import get_settings
     cfg = get_settings()
+    end_other_logins(db, user, settings=settings)
     raw = new_token()
     row = DbSession(
         token_hash=token_hash(raw), user_id=user.id, csrf_token=new_csrf_token(),

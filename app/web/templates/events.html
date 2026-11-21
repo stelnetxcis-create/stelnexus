@@ -4,7 +4,6 @@
 {% block title %}Sabong Events · {{ brand }}{% endblock %}
 {% block heading %}Sabong Events{% endblock %}
 {% block actions %}
-{% if 'sell.desk' in perms %}<a class="btn btn-sm btn-ghost" href="/sell"><svg class="ico"><use href="#i-coins"/></svg><span class="lbl">Seller desk</span></a>{% endif %}
 {% if 'events.create' in perms %}<button class="btn btn-sm btn-brand" data-modal="event-modal"><svg class="ico"><use href="#i-plus"/></svg>Create event</button>{% endif %}
 {% endblock %}
 {% block content %}

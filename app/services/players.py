@@ -15,6 +15,7 @@ import re
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.pagination import clamp_limit, clamp_offset
 from app.core import audit
 from app.core.errors import Conflict, Forbidden, NotFound, ValidationError
 from app.core.rbac import assert_player_in_scope, has_global_scope, is_top, scope_ids
@@ -141,7 +142,7 @@ def list_players(db: Session, actor: User, *, kind: PlayerKind | None = None,
         term = f"%{search.strip()[:60]}%"
         stmt = stmt.where(or_(Player.full_name.ilike(term), Player.card_number.ilike(term),
                               Player.username.ilike(term)))
-    stmt = stmt.order_by(Player.id.desc()).limit(min(limit, 500)).offset(max(offset, 0))
+    stmt = stmt.order_by(Player.id.desc()).limit(clamp_limit(limit, 500)).offset(clamp_offset(offset))
     return list(db.scalars(stmt).all())
 
 

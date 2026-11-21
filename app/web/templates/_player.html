@@ -2,7 +2,7 @@
    Play/pause is for everyone. Previous / Forward are Battle Pass features: without one they show a lock
    and point to the Store. When a real stream is wired, swap the .vp-scene for the <video> element; the
    controls and the pass rule stay as they are. #}
-{% macro stream_player(kind, title, left, right, pass_ok, ended=false, strip='') %}
+{% macro stream_player(kind, title, left, right, pass_ok, ended=false, strip='', scene='') %}
 <div class="vp{{ ' is-ended' if ended }}" data-player data-kind="{{ kind }}" data-pass="{{ 1 if pass_ok else 0 }}" data-ended="{{ 1 if ended else 0 }}" data-store="/store">
   <div class="vp-screen" data-vp-screen tabindex="-1">
     <div class="vp-scene" aria-hidden="true">
@@ -11,6 +11,7 @@
       <span class="vp-mark">SAMPLE FEED</span>
     </div>
     {{ strip }}
+    {{ scene }}
     <span class="vp-badge" data-vp-badge><i></i><span data-vp-badge-text>{{ 'ENDED' if ended else 'LIVE' }}</span></span>
     <span class="vp-title">{{ title }}</span>
     <button type="button" class="vp-big" data-vp-big aria-label="Play">
