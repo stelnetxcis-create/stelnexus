@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from app.core.config import get_settings
 from app.core.errors import Forbidden, NotFound, ValidationError
 from app.core.money import to_cents
-from app.core.rbac import Perm, hides_totals
+from app.core.rbac import Perm, hides_totals, sees_house
 from app.db.models import EventStatus, PayoutModel, Result
 from app.services import accounts, betting, events, locations, proofs, reports, settlement
 from app.services import players as player_service
@@ -100,9 +100,9 @@ async def event_stream(event_id: int, request: Request, ctx: Ctx = Depends(requi
 async def events_status(event_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
     data = await form_data(request)
     if not ctx.can(Perm.EVENTS_MANAGE):
-        ctx.need(Perm.EVENTS_OPEN)           # a Declarator may only set an event to OPEN
-        if data.get("status", "open") != "open":
-            raise Forbidden("You can only open an event.")
+        ctx.need(Perm.EVENTS_OPEN)           # a Declarator may open or close an event, never draft or cancel it
+        if data.get("status", "open") not in ("open", "closed"):
+            raise Forbidden("You can only open or close an event.")
     previous = events.get_event(ctx.db, event_id).status.value
     events.set_event_status(ctx.db, ctx.user, event_id, EventStatus(data.get("status", "open")))
     undo = {"action": f"/events/{event_id}/status", "fields": {"status": previous}} if previous != "canceled" else None
@@ -161,6 +161,7 @@ async def change_name(request: Request, ctx: Ctx = Depends(require_ctx)):
     tickets_pager = None
     figures = None
     multipliers = None
+    figs = None
     hide = hides_totals(ctx.user)
     if fight is not None:
         runs = [] if hide else settlement.runs_for(ctx.db, fight.id)
@@ -169,8 +170,10 @@ async def change_name(request: Request, ctx: Ctx = Depends(require_ctx)):
             tickets_pager, tickets = paginate(request, 200, lambda limit, offset: betting.list_tickets(
                 ctx.db, ctx.user, fight_id=fight.id, limit=limit, offset=offset))
             figures = reports.fight_figures(ctx.db, fight)
+            figs = None if event.payout_model.value == "fixed" else betting.pool_figures(snapshot["meron"], snapshot["wala"], events.house_cut_for(ctx.db, event, ctx.store),
+                                        events.platform_cut_for(ctx.store))
             multipliers = betting.side_multipliers(
-                snapshot, events.house_cut_for(ctx.db, event, ctx.store), ctx.store, fight.llamado_side)
+                snapshot, events.pool_cut_for(ctx.db, event, ctx.store), ctx.store, fight.llamado_side)
         if fight.status.value in ("open", "locked") and ctx.user.is_top:
             plan = settlement.build_plan(ctx.db, fight, Result.MERON, ctx.store).as_dict()
     # Bet panel inside the video: any account that holds credit bets for ITSELF from its own wallet (no player picker).
@@ -189,7 +192,9 @@ async def change_name(request: Request, ctx: Ctx = Depends(require_ctx)):
     return render(ctx, "change_name.html", active="change_name", event=event, fight=fight, bet_panel=bet_panel,
                   fights=fights, events=[], snapshot=snapshot, runs=runs, tickets=tickets,
                   tickets_pager=tickets_pager, preview=plan, figures=figures, multipliers=multipliers, hide_totals=hide,
+                  can_house=sees_house(ctx.user) and not hide,
                   house_cut_bps=events.house_cut_for(ctx.db, event, ctx.store),
+                  platform_cut_bps=events.platform_cut_for(ctx.store), figs=figs,
                   role_of=events.role_of, proof_required=proofs.required_for(ctx.user, ctx.store),
                   fv_phase=events.stream_phase_of(ctx.db, fight) if fight is not None else None,
                   cur_number=(lambda c: c.number if c else None)(events.current_fight(ctx.db, event.id)),

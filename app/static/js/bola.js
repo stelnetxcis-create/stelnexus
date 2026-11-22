@@ -86,7 +86,7 @@
   let timer = null, target = 'both', valid = false, closed = false, seq = 0, busy = false;
   const shown = { lines: 0, stake: 0, win: 0 };
   const why = form.querySelector('[data-bola-why]'), hint = form.querySelector('[data-bola-hint]'), picksBox = form.querySelector('.bs-picks');
-  const bar = form.querySelector('.bs-bar'), player = form.querySelector('[name=player_id]');
+  const bar = form.querySelector('.bs-bar');
 
   const boxes = () => Array.from(form.querySelectorAll('[data-num]'));
   const need = () => COUNT[kind.value] || 2;
@@ -303,7 +303,6 @@
     form.classList.remove('is-sending');
     submits.forEach((b) => { if (b.dataset.label) b.textContent = b.dataset.label; });
   });
-  if (player) player.addEventListener('change', gate);
   document.addEventListener('bola:closed', () => { closed = true; gate(); });
 
   buildGrid();

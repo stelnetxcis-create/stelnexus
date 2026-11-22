@@ -1,7 +1,7 @@
 /* Bet panel inside the fight-view video: the bet controls (Meron / Wala / Draw, amount chips,
-   keypad, Bet, short Undo list) as a floating panel. It is the shared bet component (sellcore.js) wrapped in
+   keypad, Bet, short Undo list) as a floating panel. It is the shared bet component (betcore.js) wrapped in
    the shared floating panel (floatpanel.js): drag, S / M / L, transparency, collapse and a remembered position
-   come from there. It posts to /bets/early/place and /bets/early/undo, so every betting rule (KYC, credit, bet mode,
+   come from there. It posts to /bets/live/place and /bets/live/undo, so every betting rule (KYC, credit, bet mode,
    locked games, idempotency key, cancel window) is enforced by the server exactly as on the normal bet form.
    S = compact (no keypad, no history), M = normal, L = big buttons.
    On the livestream page it is the BET panel: the logged-in account bets for itself, and the server only takes bets before the game starts. */
@@ -42,12 +42,31 @@
       seller.setLive(on);
       el.classList.toggle('is-live', on);
       el.style.display = on ? 'none' : '';
-      if (!on && wasLive !== false) panel.setCollapsed(false, false);
+      if (!on && wasLive !== false && !(stage.classList.contains('dk-on'))) panel.setCollapsed(false, false);   // in the dock the Bet tab opens it
       wasLive = on;
     }
     // maximizing during the pre-show: make sure the panel is open over the video
     const stageEl = el.closest('[data-stage]');
-    if (stageEl) stageEl.addEventListener('snx:fs', (ev) => { if (ev.detail && wasLive === false) panel.setCollapsed(false, false); });
+    if (stageEl) stageEl.addEventListener('snx:fs', (ev) => { if (ev.detail && wasLive === false && !stage.classList.contains('dk-on')) panel.setCollapsed(false, false); });
+    // dock mode: no keypad by default; "Other" opens it. A line under the Bet button says what the bet could win.
+    const other = q('[data-bp-other]'), est = q('[data-bp-est]'), amtEl = q('[data-sl="amt"]');
+    if (other) other.addEventListener('click', () => {
+      const on = el.classList.toggle('show-pad'); other.setAttribute('aria-pressed', String(on));
+    });
+    function estimate() {
+      if (!est) return;
+      const side = ['meron', 'wala'].find((k) => { const b = q('[data-sl="side-' + k + '"]'); return b && b.classList.contains('is-on'); });
+      const amt = Number(((amtEl && amtEl.textContent) || '').replace(/[^\d]/g, '')) || 0;
+      const bps = side ? Number(el.dataset['x' + side]) || 0 : 0;
+      est.hidden = !(side && amt && bps);
+      if (!est.hidden) est.textContent = 'Wins about \u20B1' + Math.floor(amt * bps / 10000).toLocaleString('en-PH') + ' at ' + (bps / 10000).toFixed(2) + 'x \u00B7 moves as bets come in';
+    }
+    if (window.MutationObserver) {
+      const mo = new MutationObserver(estimate);
+      if (amtEl) mo.observe(amtEl, { childList: true, characterData: true, subtree: true });
+      el.querySelectorAll('[data-sl^="side-"]').forEach((b) => mo.observe(b, { attributes: true, attributeFilter: ['class'] }));
+    }
+    el.addEventListener('snx:odds', estimate);
     return { panel, seller, setFights: seller.setFights, select: seller.select, setLive };
   };
 })();

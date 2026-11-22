@@ -137,6 +137,14 @@
               <div><small>Previewing as</small><strong>{{ viewing_as.username }}</strong><span class="muted small"> · {{ viewing_as.role_label }} · read-only</span></div>
               <form method="post" action="/dev/view-as/exit"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn btn-sm btn-brand" type="submit">Exit preview</button></form>
             </div>
+            {% if dev.player_notes %}
+            <div class="dev-sec">
+              <label class="dev-label">Dev notes · the player does not see this</label>
+              <p class="muted small">Upline {{ dev.player_notes.upline }} · {{ dev.player_notes.status }} · KYC {{ 'verified' if dev.player_notes.kyc else 'not verified' }}<br>
+              Staked today {{ dev.player_notes.staked | money }}{% if dev.player_notes.limit %} of {{ dev.player_notes.limit | money }}{% endif %}<br>
+              Can bet now: {{ 'yes, both games' if dev.player_notes.can_bet else 'no — ' ~ dev.player_notes.block }}</p>
+            </div>
+            {% endif %}
             {% endif %}
             <div class="dev-sec">
               <label class="dev-label">View console as</label>
@@ -147,9 +155,9 @@
                   <button class="dev-role" type="submit" {{ 'disabled' if not g.users }} title="{{ (g.users|length ~ ' active account(s)') if g.users else 'No active ' ~ g.label ~ ' account yet' }}">{{ g.label }}<small>{{ g.users|length }}</small></button>
                 </form>
                 {% endfor %}
-                <form method="get" action="/dev/player">
-                  <input type="hidden" name="first" value="1">
-                  <button class="dev-role" type="submit" {{ 'disabled' if (not dev.players_total or viewing_as) }} title="{{ (dev.players_total ~ ' active player(s)') if dev.players_total else 'No active players yet' }}">Player<small>{{ dev.players_total }}</small></button>
+                <form method="post" action="/dev/view-as">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="role" value="player">
+                  <button class="dev-role" type="submit" {{ 'disabled' if not dev.players_total }} title="{{ (dev.players_total ~ ' active player(s)') if dev.players_total else 'No active players yet' }}">Player<small>{{ dev.players_total }}</small></button>
                 </form>
               </div>
               <form method="post" action="/dev/view-as" class="dev-pick">
@@ -162,15 +170,15 @@
                 </select>
                 <button class="btn btn-sm" type="submit">Preview</button>
               </form>
-              {% if not viewing_as and dev.players %}
-              <form method="get" action="/dev/player" class="dev-pick">
-                <select name="player_id" aria-label="Open a player" required>
-                  <option value="">A player…</option>
-                  {% for p in dev.players %}<option value="{{ p.id }}">{{ p.username or p.full_name }}{% if p.username and p.full_name %} · {{ p.full_name }}{% endif %}</option>{% endfor %}
+              {% if dev.players %}
+              <form method="post" action="/dev/view-as" class="dev-pick">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <select name="player_id" aria-label="Preview a specific player" required>
+                  <option value="">A specific player…</option>
+                  {% for p in dev.players %}<option value="{{ p.id }}" {{ 'selected' if viewing_as and viewing_as.preview_player_id == p.id }}>{{ p.username or p.full_name }}</option>{% endfor %}
                 </select>
-                <button class="btn btn-sm" type="submit">Open</button>
+                <button class="btn btn-sm" type="submit">Preview</button>
               </form>
-              <p class="muted small">Players open a read-only player view (credit, bets in both games).</p>
               {% endif %}
               <p class="muted small">Exactly what that account sees: same menu, dashboard and data. Read-only: nothing you click can change data while previewing.</p>
             </div>

@@ -306,7 +306,14 @@
           '<p class="dk-hint">Pick the result, then confirm. Nothing is settled until you press Confirm.</p>')) + '</div>';
       }
     }
+    if (data.can.open_event) html += eventPanel();
     return html;
+  }
+
+  /* Close the whole event: only offered to accounts that may open events; the server refuses while bets are unsettled. */
+  function eventPanel() {
+    return '<div class="dk-panel"><h5>Event</h5><div class="dk-actions"><button type="button" class="btn" data-act="closeevent"' + dis() + '>Close event</button></div>' +
+      '<p class="dk-hint">Closing the event stops new games. Every game with bets must be declared first.</p></div>';
   }
 
   function draftStage(e) {
@@ -328,6 +335,17 @@
   }
   const ballsReady = (d) => !!(d.b1 && d.b2) && !ballsError(d);
 
+  /* Open / close betting on a draw: Declarators and managers only. */
+  function bolaControls(dw) {
+    if (!data.can.bola_open) return '';
+    const open = dw.st === 'open';
+    if (!open && dw.st !== 'scheduled' && dw.st !== 'locked') return '';
+    return '<div class="dk-panel"><h5>Draw betting</h5><div class="dk-actions">' + (open
+      ? '<button type="button" class="btn btn-danger" data-act="bola-lock"' + dis() + '>Close betting</button>'
+      : '<button type="button" class="btn btn-primary" data-act="bola-open"' + dis() + '>Open betting</button>') + '</div>' +
+      (st.error && !draft('b' + dw.id).b1 ? errHtml() : '') + '</div>';
+  }
+
   function bolaStage(c) {
     const dw = c.d, d = draft('b' + dw.id);
     const due = now() >= dw.at, early = !due && data.early_ok;
@@ -347,7 +365,7 @@
       '</span><input type="text" data-f="note" maxlength="200" placeholder="' + (early ? 'why this draw is declared early' : 'e.g. read from the draw sheet') + '" value="' + esc(d.note) + '"></label>' +
       proofField(d) + '</div><div class="dk-err" role="alert" data-err' + (st.error ? '' : ' hidden') + '>' + esc(st.error) + '</div>' +
       '<div class="dk-go-row"><button type="button" class="btn btn-primary dk-go" data-act="bola-declare" disabled>Confirm &amp; settle</button>' +
-      '<button type="button" class="btn" data-act="bola-clear"' + dis() + '>Clear</button></div></div></div>';
+      '<button type="button" class="btn" data-act="bola-clear"' + dis() + '>Clear</button></div></div></div>' + bolaControls(dw);
   }
 
   /* Update the Bola stage in place while typing (a redraw would drop the cursor). */
@@ -494,6 +512,10 @@
         default: return;
       }
     }
+    if (c.kind === 'sabong' && t.dataset.act === 'closeevent') {
+      twoTap(t, () => run(() => post('/staff/declarator/events/' + c.e.id + '/close', {})));
+      return;
+    }
     if (c.kind === 'sabong' && t.dataset.act === 'openevent') {
       twoTap(t, () => run(() => post('/staff/declarator/events/' + c.e.id + '/open', {})));
       return;
@@ -501,6 +523,8 @@
     if (c.kind === 'bola') {
       const d = draft('b' + c.d.id);
       if (t.dataset.act === 'proof') { chooseProof('b' + c.d.id); return; }
+      if (t.dataset.act === 'bola-open') { twoTap(t, () => run(() => post('/staff/declarator/bola/' + c.d.id + '/open', {}))); return; }
+      if (t.dataset.act === 'bola-lock') { twoTap(t, () => run(() => post('/staff/declarator/bola/' + c.d.id + '/lock', {}))); return; }
       if (t.dataset.act === 'bola-clear') { d.b1 = ''; d.b2 = ''; d.note = ''; st.error = ''; renderStage(true); return; }
       if (t.dataset.act === 'bola-declare' && ballsReady(d)) {
         run(() => post('/staff/declarator/bola/' + c.d.id + '/declare',

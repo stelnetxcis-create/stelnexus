@@ -31,7 +31,8 @@ def test_unbuilt_fallback_emits_source_files_with_a_cache_buster(monkeypatch):
     assets._state.update(mtime=None, manifest=None, fresh=False, checked=0.0)
     try:
         tags = str(assets.css("site"))
-        assert tags.count("<link") == 2 and re.search(r"/static/css/theme\.css\?v=\d+", tags)
+        bundles = json.loads(assets.BUNDLES_FILE.read_text("utf-8"))
+        assert tags.count("<link") == len(bundles["css"]["site"]) and re.search(r"/static/css/theme\.css\?v=\d+", tags)
         assert 'src="/static/js/nav-init.js?v=' in str(assets.js("nav-init", defer=False))
         assert " defer" not in str(assets.js("nav-init", defer=False)) and " defer" in str(assets.js("site"))
         assert assets.service_worker_file() == assets.SW_SOURCE_FILE

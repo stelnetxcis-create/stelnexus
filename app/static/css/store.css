@@ -758,9 +758,6 @@
   .pbs-x b{font-size:22px}.pbs-side{padding:4px 8px}.pbs-name{font-size:12px}
   .pbs-pool{flex-direction:column;align-items:flex-start;gap:0}.pbs-pool b{font-size:12.5px}.pbs-pool small{font-size:10px}
 }
-@media (max-height:520px) and (orientation:landscape){
-  .fc-stagewrap.is-fs .fc-overlay:not(.is-collapsed),.fc-stagewrap:fullscreen .fc-overlay:not(.is-collapsed){width:min(300px,38%)!important}
-}
 
 .pbs{align-items:safe center}                                                     /* too tall for the gap: keep the top, never slide up under the chat */
 @container pbs (max-height: 230px){
@@ -770,3 +767,78 @@
   .pbs-x{margin-top:0}.pbs-x b{font-size:20px}.pbs-x small{font-size:11px}
   .pbs-row{font-size:10.5px;padding:0}
 }
+
+/* =====================================================================================================
+   Dock (dock.js): chat and the bet slip no longer float over the picture. A bar on the bottom edge of the video opens
+   one of them as a side drawer (wide stage) or a bottom sheet (phone upright, full screen). The payout scene underneath
+   never reflows. When the stage is narrow and NOT full screen, none of this applies: panels stack under the video.
+   ===================================================================================================== */
+.dk-bar,.dk-scrim,.dk-feed{display:none}
+.bp .sb-x{display:inline-block;margin-left:8px;font-style:normal;letter-spacing:0;font:800 14px var(--serif,Georgia,serif);color:var(--gold-hi,#f7de93);font-variant-numeric:tabular-nums}
+.bp .sb-x:empty{display:none}
+.bp .sb-x.is-max{padding:0 6px;border-radius:999px;font-size:11px;color:#2b1d00;background:linear-gradient(135deg,#ffe08a,#f2a93b)}
+.bp .bp-est{margin:-2px 0 0;text-align:center;font-size:11.5px;color:var(--gold-hi,#f7de93)}
+.bp .bp-other{display:none}
+.fc-stagewrap.dk-on .dk-bar{display:flex}
+.dk-bar{position:absolute;left:0;right:0;bottom:0;z-index:16;height:var(--dk-bar,52px);box-sizing:border-box;align-items:center;gap:8px;
+  padding:0 max(10px,var(--sa-r,0px)) 0 max(10px,var(--sa-l,0px));background:linear-gradient(0deg,rgba(7,6,10,.92),rgba(7,6,10,.55) 70%,transparent);pointer-events:none}
+.dk-tab{pointer-events:auto;position:relative;display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 15px;border-radius:999px;cursor:pointer;touch-action:manipulation;
+  border:1px solid var(--line-2);background:rgba(20,18,23,.9);color:var(--ink);font:700 13.5px var(--sans,inherit);white-space:nowrap;transition:transform .15s,box-shadow .2s,background .2s}
+.dk-tab svg{width:18px;height:18px}
+.dk-tab:active{transform:scale(.96)}
+.dk-tab.dk-bet{border-color:rgba(217,177,85,.65);background:linear-gradient(135deg,rgba(247,222,147,.22),rgba(20,18,23,.92));color:var(--gold-hi,#f7de93)}
+.dk-tab.is-open{box-shadow:0 0 0 2px var(--gold-hi,#f7de93)}
+.dk-tab.is-off,.dk-tab:disabled{opacity:.45;cursor:default}
+.dk-badge{position:absolute;top:-6px;right:-4px;min-width:18px;height:18px;padding:0 5px;box-sizing:border-box;border-radius:999px;display:grid;place-items:center;font:800 10.5px var(--sans,inherit);font-style:normal;color:#fff;background:#ff3b5c}
+.dk-badge[hidden]{display:none}
+.fc-stagewrap.dk-on .dk-feed:not([hidden]){display:flex}
+.dk-feed{position:absolute;left:max(10px,var(--sa-l,0px));bottom:calc(var(--dk-bar,52px) + 2px);z-index:15;flex-direction:column;align-items:flex-start;gap:4px;
+  max-width:min(70%,420px);pointer-events:none}
+.dk-msg{max-width:100%;padding:5px 11px;border-radius:12px;background:rgba(9,8,11,.62);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);font-size:12.5px;line-height:1.3;
+  color:var(--ink);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  animation:dkIn .3s cubic-bezier(.2,.8,.2,1) both;transition:opacity .45s,transform .45s}
+.dk-msg b{color:var(--gold-hi,#f7de93);margin-right:6px}
+.dk-msg.mine{background:rgba(217,177,85,.28)}
+.dk-msg.is-out{opacity:0;transform:translateY(-6px)}
+@keyframes dkIn{from{opacity:0;transform:translateY(8px)}}
+.fc-stagewrap.dk-on.dk-sheet .dk-scrim:not([hidden]){display:block;position:absolute;inset:0;z-index:11;background:rgba(0,0,0,.5);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}
+
+/* the panels: fixed places, no dragging, size or transparency */
+.fc-stagewrap.dk-on .fc-overlay{--fc-a:.96;position:absolute;z-index:12;margin:0;transform:none;box-shadow:0 0 44px rgba(0,0,0,.65);
+  transition:transform .3s cubic-bezier(.2,.8,.2,1),opacity .2s,visibility 0s}
+.fc-stagewrap.dk-on .fc-overlay.is-collapsed{visibility:hidden;opacity:0;pointer-events:none;transition:transform .28s cubic-bezier(.4,0,.8,.4),opacity .2s,visibility 0s .28s}
+.fc-stagewrap.dk-on .fc-cog,.fc-stagewrap.dk-on .fc-set{display:none!important}
+.fc-stagewrap.dk-on .fc-title{cursor:default}
+.fc-stagewrap.dk-on .bp .bp-other{display:inline-grid;place-items:center}
+.fc-stagewrap.dk-on .bp .sell-chips{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:5px}
+.fc-stagewrap.dk-on .bp .chip-key{min-height:38px;padding:0 2px;font-size:12.5px}
+.fc-stagewrap.dk-on .bp .chip-key[aria-pressed="true"]{border-color:var(--gold-hi,#f7de93);color:var(--gold-hi,#f7de93)}
+.fc-stagewrap.dk-on .bp .bp-pad{display:none}
+.fc-stagewrap.dk-on .bp.show-pad .bp-pad{display:grid}
+.fc-stagewrap.dk-on .bp .sb-pool{display:none}
+.fc-stagewrap.dk-on .bp .side-btn{min-height:64px}
+
+/* wide / landscape: a drawer on the right edge */
+.fc-stagewrap.dk-side .fc-overlay{left:auto;right:var(--sa-r,0px);width:min(360px,50%);border-radius:16px 0 0 16px;border-right:0}
+.fc-stagewrap.dk-side .fc-overlay:not(.is-collapsed){top:calc(var(--dk-st,0px) + var(--fv-strip,0px));bottom:var(--dk-sb,0px);height:auto;max-height:none;width:min(360px,50%)}
+.fc-stagewrap.dk-side .bp:not(.is-collapsed){top:auto;height:auto;max-height:calc(var(--dk-sh,100%) - var(--fv-strip,0px))}
+.fc-stagewrap.dk-side .fc-overlay.is-collapsed{top:calc(var(--dk-st,0px) + var(--fv-strip,0px));bottom:auto;transform:translateX(110%)}
+.fc-stagewrap.dk-side .fc-toggle:not(.fc-cog) svg{transform:rotate(-90deg)}
+/* phone upright (full screen): a bottom sheet */
+.fc-stagewrap.dk-sheet .fc-overlay{left:0;right:0;top:auto;bottom:calc(var(--dk-sb,0px) + var(--dk-bar,52px));width:auto;border-radius:20px 20px 0 0;border-bottom:1px solid rgba(217,177,85,.25)}
+.fc-stagewrap.dk-sheet .fc-overlay:not(.is-collapsed){width:auto;height:min(calc(var(--dk-sh,100%) - var(--dk-bar,52px) - var(--fv-strip,0px) - 24px),600px);max-height:none}
+.fc-stagewrap.dk-sheet .bp:not(.is-collapsed){height:auto;max-height:calc(var(--dk-sh,100%) - var(--dk-bar,52px) - var(--fv-strip,0px) - 12px)}
+.fc-stagewrap.dk-sheet .fc-overlay.is-collapsed{transform:translateY(110%)}
+.fc-stagewrap.dk-sheet .fc-head::before{content:"";position:absolute;left:50%;top:5px;width:38px;height:4px;margin-left:-19px;border-radius:4px;background:rgba(255,255,255,.28)}
+.fc-stagewrap.dk-sheet .fc-head{position:relative;padding-top:14px}
+/* a short landscape screen: a wider drawer, the slip in two columns (sides left, amount + Bet right) so nothing scrolls */
+.fc-stagewrap.dk-short.dk-side .bp:not(.is-collapsed){width:min(500px,64%)}
+.fc-stagewrap.dk-short .bp .bp-scroll{overflow-y:auto}
+.fc-stagewrap.dk-short .bp .fc-title small,.fc-stagewrap.dk-short .bp .bp-bal{display:none}
+.fc-stagewrap.dk-short .bp .side-btn{min-height:50px;padding:6px 10px}
+.fc-stagewrap.dk-short .bp .sell-amt{font-size:24px}
+.fc-stagewrap.dk-short .bp .chip-key{min-height:32px}
+.fc-stagewrap.dk-short .bp .sell-go{min-height:44px}
+.fc-stagewrap.dk-short .bp .bp-scroll{gap:6px;padding-top:6px}
+@media (prefers-reduced-motion:reduce){.fc-stagewrap.dk-on .fc-overlay,.dk-msg,.dk-tab{transition:none;animation:none}}
+.fc-stagewrap.dk-on .pbs-ring{display:none}

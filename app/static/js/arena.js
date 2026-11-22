@@ -3,7 +3,8 @@
 (function () {
   'use strict';
   if (matchMedia('(prefers-reduced-motion: reduce)').matches || document.documentElement.classList.contains('fx-min')) return;
-  var fine = matchMedia('(pointer: fine)').matches;
+  var lite = document.documentElement.classList.contains('fx-lite');   // lite / min: no cursor glow, tilt, sparks or count-up
+  var fine = matchMedia('(pointer: fine)').matches && !lite;
   var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
 
   /* 1) tilt + glare + picture drift. One delegated listener, rAF-throttled. */
@@ -57,7 +58,7 @@
     s.className = 'rpl'; s.style.left = (e.clientX - r.left) + 'px'; s.style.top = (e.clientY - r.top) + 'px';
     if (getComputedStyle(t).position === 'static') t.style.position = 'relative';
     t.appendChild(s); s.addEventListener('animationend', function () { s.remove(); });
-    if (!t.matches(BIG)) return;
+    if (lite || !t.matches(BIG)) return;
     for (var i = 0; i < 7; i++) {
       var p = document.createElement('i'), a = Math.random() * 6.283, d = 34 + Math.random() * 46;
       p.className = 'spk'; p.style.setProperty('--x', e.clientX + 'px'); p.style.setProperty('--y', e.clientY + 'px');
@@ -69,7 +70,7 @@
   /* 3) count-up on the numbers inside event boxes */
   $$('.lobby-nums b').forEach(function (el, idx) {
     var n = parseInt(el.textContent, 10);
-    if (!isFinite(n) || n <= 0) return;
+    if (lite || !isFinite(n) || n <= 0) return;
     var t0 = null, delay = 250 + (idx % 40) * 12;
     el.textContent = '0';
     (function tick(t) {

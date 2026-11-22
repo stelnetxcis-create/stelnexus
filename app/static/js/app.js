@@ -337,7 +337,7 @@
   };
 
   /* ---- PWA ---- */
-  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  if ('serviceWorker' in navigator && location.protocol === 'https:' && !document.documentElement.classList.contains('in-app')) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
     });

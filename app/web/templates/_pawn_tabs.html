@@ -1,0 +1,5 @@
+<div class="subtabs" role="tablist" aria-label="Pawns and Access">
+  <a class="subtab {{ 'is-active' if access_view == 'pawns' }}" href="/admin/pawns">Pawns</a>
+  <a class="subtab {{ 'is-active' if access_view in ('chart', 'edit') }}" href="/admin/pawns/access">Rights chart &amp; account permissions</a>
+  <a class="subtab {{ 'is-active' if access_view == 'roles' }}" href="/admin/pawns/access/roles">Role defaults</a>
+</div>

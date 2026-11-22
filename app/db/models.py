@@ -70,8 +70,6 @@ class Role(StrEnum):
                Sub Agents and players. (Replaces the old Cavo.)
     sub_agent  Invited by an Agent. Earns the SOP % taken out of its Agent's cut (default 30% of the
                Agent's 30%). Recruits players. (Replaces the old Kubrador.)
-    cavo       RETIRED. Merged into agent by the migration; kept only so old rows still parse.
-    kubrador   RETIRED. Merged into sub_agent by the migration; kept only so old rows still parse.
     teller     Wallet desk. Admin creates it, directly under the Admin. Approves or rejects load / cash-out
                requests and sees the Users list; nothing else. No balance: it moves money through its own
                GCash account, so a GCash number is mandatory. (Legacy teller rows without one stay closed.)
@@ -86,8 +84,6 @@ class Role(StrEnum):
     MASTER = "master"
     AGENT = "agent"
     SUB_AGENT = "sub_agent"
-    CAVO = "cavo"
-    KUBRADOR = "kubrador"
     TELLER = "teller"
     DECLARATOR = "declarator"
     PAWN = "pawn"
@@ -96,7 +92,6 @@ class Role(StrEnum):
     def label(self) -> str:
         return {
             "admin": "Admin", "master": "Master Agent", "agent": "Agent", "sub_agent": "Sub Agent",
-            "cavo": "Cavo", "kubrador": "Kubrador",
             "teller": "Teller", "declarator": "Declarator", "pawn": "Pawn",
         }[self.value]
 
@@ -105,7 +100,6 @@ AGENT_ROLES = (Role.ADMIN, Role.MASTER, Role.AGENT, Role.SUB_AGENT)
 # Every visible account that sells for players and earns commission (no Admin: it is hidden).
 NETWORK_ROLES = (Role.MASTER, Role.AGENT, Role.SUB_AGENT)
 # Retired tiers: still valid stored values (old rows, old ledger accounts) but nobody can be given them.
-RETIRED_ROLES = (Role.CAVO, Role.KUBRADOR)
 # Spectator / helper accounts: no balance, no bets, no money movement, nobody's upline.
 NO_WALLET_ROLES = (Role.DECLARATOR, Role.PAWN, Role.TELLER)
 TOP_ROLES = (Role.ADMIN, Role.MASTER)          # the operator tier: see everything visible
@@ -119,8 +113,6 @@ CHILD_ROLES: dict[Role, tuple[Role, ...]] = {
     Role.MASTER: (Role.AGENT,),
     Role.AGENT: (Role.SUB_AGENT,),
     Role.SUB_AGENT: (),
-    Role.CAVO: (),
-    Role.KUBRADOR: (),
     Role.TELLER: (),
     Role.DECLARATOR: (),
     Role.PAWN: (),
@@ -131,8 +123,6 @@ INVITE_ROLES: dict[Role, tuple[str, ...]] = {
     Role.MASTER: ("agent",),
     Role.AGENT: ("sub_agent", "player"),
     Role.SUB_AGENT: ("player",),
-    Role.CAVO: (),
-    Role.KUBRADOR: (),
     Role.TELLER: (),
     Role.DECLARATOR: (),
     Role.PAWN: (),
@@ -305,13 +295,18 @@ class User(UUIDMixin, TimestampMixin, Base):
     # Pawn only: the list of grant keys the Admin switched on (see app.core.rbac.GRANTS).
     grants: Mapped[list | None] = mapped_column(JsonType)
 
+    # Any role except the Admin: per-account permission overrides set in Admin Panel -> Pawns & Access.
+    # perm_grants = extra permission keys, perm_revokes = removed ones (removal wins). See app.core.rbac.
+    perm_grants: Mapped[list | None] = mapped_column(JsonType)
+    perm_revokes: Mapped[list | None] = mapped_column(JsonType)
+
     parent: Mapped["User | None"] = relationship(
         remote_side="User.id", back_populates="children", foreign_keys="User.parent_id")
     children: Mapped[list["User"]] = relationship(
         back_populates="parent", foreign_keys="User.parent_id")
 
     __table_args__ = (
-        CheckConstraint("role in ('admin','master','cavo','kubrador','teller','declarator','pawn','agent','sub_agent')", name="role_valid"),
+        CheckConstraint("role in ('admin','master','teller','declarator','pawn','agent','sub_agent')", name="role_valid"),
         CheckConstraint("id <> parent_id", name="no_self_parent"),
         CheckConstraint("cut_bps is null or cut_bps between 0 and 10000", name="cut_range"),
         CheckConstraint("sop_bps is null or sop_bps between 0 and 10000", name="sop_range"),
@@ -333,7 +328,14 @@ class User(UUIDMixin, TimestampMixin, Base):
         return self.role in TOP_ROLES
 
     @property
+    def preview_player_id(self) -> int | None:
+        """Only the DEV 'view as a player' stand-in (built in memory, never saved) carries this."""
+        return self.__dict__.get("_preview_player_id")
+
+    @property
     def role_label(self) -> str:
+        if self.preview_player_id is not None:
+            return "Player"
         return Role(self.role).label
 
     @property
@@ -433,6 +435,19 @@ class IpBan(TimestampMixin, Base):
     reason: Mapped[str] = mapped_column(String(255))
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     expires_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())       # NULL = until lifted
+
+
+class RolePermOverride(TimestampMixin, Base):
+    """The Admin's changes to a role's DEFAULT rights (Admin Panel -> Pawns & Access -> Role defaults).
+
+    One row per role (a Role value, or ``player``). ``perm_grants`` are rights added on top of the built-in
+    defaults in app.core.rbac, ``perm_revokes`` are rights taken away (removal wins). No row = built-in defaults."""
+    __tablename__ = "role_perm_overrides"
+
+    role: Mapped[str] = mapped_column(String(20), primary_key=True)
+    perm_grants: Mapped[list | None] = mapped_column(JsonType)
+    perm_revokes: Mapped[list | None] = mapped_column(JsonType)
+    updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
 
 class Account(TimestampMixin, Base):
@@ -1106,8 +1121,8 @@ class BolaDraw(UUIDMixin, TimestampMixin, Base):
 
 
 class BolaTicket(UUIDMixin, TimestampMixin, Base):
-    """One sold ticket (old tbl_bet). No walk-ins: it is either the logged-in account's own bet (``user_id``,
-    paid from that account's credit, like the fight game) or a bet placed for one of its players (``player_id``)."""
+    """One sold ticket (old tbl_bet). No walk-ins: it is the logged-in account's own bet (``user_id``, paid from
+    that account's credit, like the fight game). ``player_id`` is only set on rows from before that rule."""
     __tablename__ = "bola_tickets"
 
     id: Mapped[int] = mapped_column(primary_key=True)

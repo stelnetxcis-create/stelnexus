@@ -1,6 +1,6 @@
 {# Bet panel floating over the fight-view video: every account that holds credit bets as itself (no player picker), only before the game starts.
-   Logic is sellcore.js (shared with the Seller Desk page), floating behaviour is floatpanel.js. Bets go to
-   /bets/early/place, which runs betting.place_bet (every betting rule) and refuses once the stream has started. #}
+   Logic is betcore.js (shared with the Seller Desk page), floating behaviour is floatpanel.js. Bets go to
+   /bets/live/place, which runs betting.place_bet (every betting rule) and refuses once the stream has started. #}
 {% macro bet_panel(event_id, balance_cents, draw_enabled, can_undo, undo_window, closed=False) %}
 <div class="fc-overlay bp" data-bp data-size="m" role="region" aria-label="Bet panel"{% if closed %} style="display:none"{% endif %}>
   <div class="fc-head">
@@ -9,7 +9,7 @@
     <button type="button" class="fc-toggle fc-cog" data-bp-cog aria-expanded="false" aria-label="Bet panel display settings" title="Size, transparency &amp; position"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg></button>
     <button type="button" class="fc-toggle" data-bp-toggle aria-expanded="true" aria-label="Collapse bet panel" title="Collapse / expand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
   </div>
-  <div class="fc-body bp-body" data-sl-root data-self="1" data-verb="Bet" data-place-url="/bets/early/place" data-undo-url="/bets/early/undo/" data-event="{{ event_id }}" data-draw="{{ 1 if draw_enabled else 0 }}" data-undo="{{ undo_window if can_undo else -1 }}">
+  <div class="fc-body bp-body" data-sl-root data-self="1" data-verb="Bet" data-place-url="/bets/live/place" data-undo-url="/bets/live/undo/" data-event="{{ event_id }}" data-draw="{{ 1 if draw_enabled else 0 }}" data-undo="{{ undo_window if can_undo else -1 }}">
     <div class="fc-set" data-bp-set hidden>
       <div class="fc-size" role="group" aria-label="Bet panel size">
         <span>Size</span>
@@ -26,8 +26,8 @@
       <div class="bp-bal muted small">Your credit <b data-sl="balance">{{ balance_cents | money }}</b></div>
       <div class="bp-game"><b data-sl="name">Game</b><span class="sell-state" data-sl="state"></span></div>
       <div class="sell-sides bp-sides">
-        <button class="side-btn m" type="button" data-sl="side-meron" data-side="meron"><span class="sb-lab">MERON</span><span class="sb-name" data-sl="nm-meron">Meron</span><span class="sb-pool"><span data-sl="sh-meron"></span><b data-sl="pl-meron"></b></span></button>
-        <button class="side-btn w" type="button" data-sl="side-wala" data-side="wala"><span class="sb-lab">WALA</span><span class="sb-name" data-sl="nm-wala">Wala</span><span class="sb-pool"><span data-sl="sh-wala"></span><b data-sl="pl-wala"></b></span></button>
+        <button class="side-btn m" type="button" data-sl="side-meron" data-side="meron"><span class="sb-lab">MERON<em class="sb-x" data-bp-x="meron"></em></span><span class="sb-name" data-sl="nm-meron">Meron</span><span class="sb-pool"><span data-sl="sh-meron"></span><b data-sl="pl-meron"></b></span></button>
+        <button class="side-btn w" type="button" data-sl="side-wala" data-side="wala"><span class="sb-lab">WALA<em class="sb-x" data-bp-x="wala"></em></span><span class="sb-name" data-sl="nm-wala">Wala</span><span class="sb-pool"><span data-sl="sh-wala"></span><b data-sl="pl-wala"></b></span></button>
       </div>
       {% if draw_enabled %}<div class="sell-draw"><button class="side-btn d" type="button" data-sl="side-draw" data-side="draw"><span class="sb-lab">DRAW</span><span class="sb-name">Draw</span></button></div>{% endif %}
       <div class="sell-split" data-sl="split" hidden><div class="bar"><i class="m"></i><i class="w"></i></div><small><span data-sl="bar-m"></span><span data-sl="bar-w"></span></small></div>
@@ -36,15 +36,16 @@
       <div class="bp-col">
       <div class="sell-amt-wrap"><span class="muted small">Amount</span><div class="sell-amt" data-sl="amt"><i>&#8369;</i><span>0</span></div></div>
       <div class="sell-chips">
-        {% for v in [50, 100, 200, 500, 1000] %}<button class="chip-key" type="button" data-amt="{{ v }}">{{ v }}</button>{% endfor %}
+        {% for v in [50, 100, 200, 500, 1000] %}<button class="chip-key" type="button" data-amt="{{ v }}">{{ v }}</button>{% endfor %}<button class="chip-key bp-other" type="button" data-bp-other aria-pressed="false">Other</button>
       </div>
       <div class="pad bp-pad">
         {% for k in ['1','2','3','4','5','6','7','8','9'] %}<button class="pad-key" type="button" data-key="{{ k }}">{{ k }}</button>{% endfor %}
         <button class="pad-key fn" type="button" data-key="C" aria-label="Clear">C</button><button class="pad-key" type="button" data-key="0">0</button><button class="pad-key fn" type="button" data-key="back" aria-label="Backspace">&#9003;</button>
       </div>
       <button class="sell-go" type="button" data-sl="go" disabled><span data-sl="go-main">Choose a side</span><small data-sl="go-sub"></small></button>
+      <p class="bp-est" data-bp-est hidden></p>
       </div>
-      <ul class="sell-recent bp-recent" data-sl="recent"><li style="grid-template-columns:1fr"><span class="meta">Bets you place here show up with a short Undo.</span></li></ul>
+      <ul class="sell-recent bp-recent" data-sl="recent"><li style="grid-template-columns:1fr"><span class="meta">{% if can_undo %}Bets you place here show up with a short Undo.{% else %}Bets you place here show up in this list. Once placed, a bet is final.{% endif %}</span></li></ul>
     </div>
   </div>
 </div>

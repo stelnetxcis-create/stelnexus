@@ -1,25 +1,26 @@
 {
-  "build": "5fb8aa97",
-  "inputs": "f0fe463bab5a80de185b2950a07bb78c03306a3e2071f9e13a96fe2fa7746d44",
+  "build": "34efe952",
+  "inputs": "a7571b33129ba31afa4fa2d3dc333102d525afd465e78c06cf53e668d6e79e63",
   "css": {
-    "auth": "/static/dist/auth.cf352f83.css",
-    "site": "/static/dist/site.88f6ec4c.css",
-    "store": "/static/dist/store.4d208154.css",
+    "auth": "/static/dist/auth.e039c162.css",
+    "site": "/static/dist/site.6e6b4b3b.css",
+    "store": "/static/dist/store.2b7da7ee.css",
     "bola-ui": "/static/dist/bola-ui.eb124345.css",
     "livestream": "/static/dist/livestream.f6922ca2.css",
     "declarator": "/static/dist/declarator.c7b92d0e.css"
   },
   "js": {
-    "nav-init": "/static/dist/nav-init.fc81cd4e.js",
-    "auth": "/static/dist/auth.e9f575a4.js",
-    "site": "/static/dist/site.c8822fa1.js",
-    "bola": "/static/dist/bola.de086b58.js",
+    "nav-init": "/static/dist/nav-init.f71a574e.js",
+    "auth": "/static/dist/auth.4a767180.js",
+    "site": "/static/dist/site.0719aa16.js",
+    "bola": "/static/dist/bola.c47601b4.js",
     "bola-live": "/static/dist/bola-live.0f128a91.js",
     "chat": "/static/dist/chat.a5798df9.js",
     "dash": "/static/dist/dash.8f6468b6.js",
-    "declarator": "/static/dist/declarator.6b3c0380.js",
-    "fightchat": "/static/dist/fightchat.854136c8.js",
-    "fightview": "/static/dist/fightview.c9819a4f.js",
+    "declarator": "/static/dist/declarator.124681b2.js",
+    "dock": "/static/dist/dock.ddf3de4b.js",
+    "fightchat": "/static/dist/fightchat.aff4bc85.js",
+    "fightview": "/static/dist/fightview.1b1c4c3a.js",
     "referrals": "/static/dist/referrals.0ec603de.js",
     "stream": "/static/dist/stream.9ad2813c.js"
   },
@@ -28,8 +29,8 @@
     "/static/dist/fonts/cormorant-garamond-latin-600-normal.ae062b6d.woff2"
   ],
   "shell": [
-    "/static/dist/site.88f6ec4c.css",
-    "/static/dist/site.c8822fa1.js",
-    "/static/dist/nav-init.fc81cd4e.js"
+    "/static/dist/site.6e6b4b3b.css",
+    "/static/dist/site.0719aa16.js",
+    "/static/dist/nav-init.f71a574e.js"
   ]
 }

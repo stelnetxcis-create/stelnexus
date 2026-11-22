@@ -305,6 +305,22 @@ def house_cut_for(db: Session, event: Event, settings: SettingsStore) -> int:
     return int(event.house_cut_bps if event.house_cut_bps is not None else settings.get("payout.house_cut_bps"))
 
 
+def platform_cut_for(settings: SettingsStore) -> int:
+    """StelNexus's disclosed platform cut (bps of the Meron + Wala pool), on top of the house commission."""
+    return int(settings.get("payout.platform_cut_bps") or 0)
+
+
+def combined_cut_bps(house_bps: int, platform_bps: int) -> int:
+    """The platform cut comes off every bet first, then the house commission off what is left:
+    1 - (1 - platform) * (1 - house). 5% + 5% -> 9.75% of the Meron + Wala pool."""
+    return 10000 - (10000 - platform_bps) * (10000 - house_bps) // 10000
+
+
+def pool_cut_for(db: Session, event: Event, settings: SettingsStore) -> int:
+    """Everything taken out of the pool before it is shared, as one rate (bps)."""
+    return combined_cut_bps(house_cut_for(db, event, settings), platform_cut_for(settings))
+
+
 # ---------------------------------------------------------------------------
 # Per-fight switches: force bet side, Llamado (favourite)
 # ---------------------------------------------------------------------------

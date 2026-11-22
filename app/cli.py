@@ -55,9 +55,7 @@ def create_admin(args) -> None:
             sys.exit("An Admin already exists. Only one Admin is allowed.")
         if db.scalar(select(User.id).where(User.username == args.username)):
             sys.exit(f"User '{args.username}' already exists.")
-        problems = password_problems(password, args.username)
-        if len(password) < int(store.get("security.password_min_length")):
-            problems.append("Password is shorter than the configured minimum.")
+        problems = password_problems(password, args.username, min_length=int(store.get("security.password_min_length")))
         if problems:
             sys.exit("Weak password: " + " ".join(dict.fromkeys(problems)))
         user = User(username=args.username, password_hash=hash_password(password), role=Role.ADMIN,
@@ -255,7 +253,7 @@ def bola_convert_cuts(args) -> None:
         done = 0
         for name, _com, _sop, vol, sbps in rows:
             agent = db.scalar(select(User).where(User.username == name,
-                                                 User.role.in_((Role.AGENT, Role.CAVO))))
+                                                 User.role == Role.AGENT))
             if agent is None:
                 print(f"NOT FOUND (no such Agent): {name}")
                 continue

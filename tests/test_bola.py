@@ -10,9 +10,9 @@ from app.db.models import (
     BolaCommission, BolaExposure, BolaKind, CommissionStatus, DrawStatus, Role, Status, TicketStatus,
 )
 from app.services import (
-    accounts, agents, bola, bola_settlement, commissions, ledger, locations, players,
+    accounts, agents, bola, bola_settlement, commissions, ledger, locations,
 )
-from tests.conftest import PASSWORD, load_credit
+from tests.conftest import PASSWORD, fund_user
 
 
 def test_expand_lines_order_matches_legacy():
@@ -37,16 +37,12 @@ def bw(world):
                                full_name="C", settings=store)
     kub = agents.create_agent(db, cavo, username=f"bk{tag}", password=PASSWORD, role=Role.SUB_AGENT,
                               full_name="K", settings=store)
-    player = players.register_online_player(
-        db, kub, username=f"bp{tag}", password=PASSWORD, full_name="P",
-        birth_date=dt.date(1990, 1, 1), gcash_number="09171234567", settings=store, agent_id=kub.id)
-    player.kyc_verified = True
-    load_credit(db, admin, store, player, 1_000_000)
+    fund_user(db, admin, kub, 1_000_000)          # bets come out of the bettor's OWN credit
     loc = locations.create_location(db, admin, name=f"Area {tag}")
     soon = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=2)
     draw = bola.create_draw(db, admin, location_id=loc.id, draw_date=dt.date.today(), slot=1,
                             settings=store, scheduled_at=soon, status=DrawStatus.OPEN)
-    for k, v in dict(master=master, cavo=cavo, kub=kub, player=player, draw=draw).items():
+    for k, v in dict(master=master, cavo=cavo, kub=kub, draw=draw).items():
         setattr(world, k, v)
     yield world
     loc.is_active = False        # an active area makes later sabong fixtures demand a location
@@ -55,8 +51,7 @@ def bw(world):
 
 def _bet(w, numbers, kind, tumbok, sahod):
     return bola.place_bola_bet(w.db, w.kub, draw_id=w.draw.id, kind=kind, numbers=numbers,
-                               tumbok_cents=tumbok, sahod_cents=sahod, player_id=w.player.id,
-                               settings=w.store)
+                               tumbok_cents=tumbok, sahod_cents=sahod, settings=w.store)
 
 
 def test_bet_declare_pays_800x_and_books_balance(bw):
@@ -81,7 +76,7 @@ def test_commissions_written_and_sum_to_pool(bw):
         rows = list(w.db.scalars(select(BolaCommission).where(BolaCommission.draw_id == w.draw.id)))
         pool = 10_000 * int(w.store.get("bola.commission.pool_bps")) // 10_000
         assert rows and sum(r.amount_cents for r in rows) == pool
-        assert {r.tier for r in rows} == {"master", "agent", "sub_agent"}
+        assert {r.tier for r in rows} == {"master", "agent"}       # the bettor (Sub Agent) earns nothing on its own bet
         assert commissions.totals_for(w.db, w.cavo)["earned"] > 0
         assert ledger.verify_integrity(w.db)["ok"]
     finally:
@@ -98,9 +93,9 @@ def test_master_remainder_stays_with_house_by_default(bw):
     rows = list(w.db.scalars(select(BolaCommission).where(BolaCommission.draw_id == w.draw.id)))
     pool = 10_000 * int(w.store.get("bola.commission.pool_bps")) // 10_000
     split = commissions.split_pool(pool, agent_bps=commissions.effective_agent_bps(w.cavo, w.store, "bola"),
-                                   sub_bps=commissions.effective_sub_bps(w.kub, w.cavo, w.store, "bola"))
-    assert {r.tier for r in rows} == {"agent", "sub_agent"}
-    assert sum(r.amount_cents for r in rows) == split.agent + split.sub_agent < pool
+                                   sub_bps=0, has_sub=False)         # the bettor earns nothing on its own bet
+    assert {r.tier for r in rows} == {"agent"}
+    assert sum(r.amount_cents for r in rows) == split.agent < pool
     assert ledger.verify_integrity(w.db)["ok"]
 
 
@@ -122,7 +117,7 @@ def test_per_line_limit_enforced(bw):
 
 # ----------------------------------------------------------------- helpers
 def _wallet(w):
-    return accounts.wallet_for_player(w.db, w.player).balance_cents
+    return accounts.wallet_for_user(w.db, w.kub).balance_cents
 
 
 def _declare(w, a, b):
@@ -178,7 +173,7 @@ def test_disabled_switch_blocks_bets(bw):
 def test_idempotency_key_returns_same_ticket_and_charges_once(bw):
     w = bw
     kw = dict(draw_id=w.draw.id, kind=BolaKind.PAIR, numbers=[1, 2], tumbok_cents=1000,
-              sahod_cents=0, player_id=w.player.id, settings=w.store, idempotency_key="bola-idem-1")
+              sahod_cents=0, settings=w.store, idempotency_key="bola-idem-1")
     t1 = bola.place_bola_bet(w.db, w.kub, **kw)
     mid = _wallet(w)
     t2 = bola.place_bola_bet(w.db, w.kub, **kw)
@@ -208,12 +203,28 @@ def test_sahod_side_counts_toward_reversed_outcome(bw):
         _set(w, "bola.max_liability_per_outcome_cents", 0)
 
 
+def test_only_the_admin_can_cancel_a_number_game_bet(bw):
+    """Placed bets are final for everyone but the Admin: Sub Agent (owner), Agent and Master are all refused,
+    and the stake stays on the ticket."""
+    w = bw
+    t = _bet(w, [3, 8], BolaKind.PAIR, 10_000, 0)
+    for who in (w.kub, w.cavo, w.master):
+        with pytest.raises(Forbidden):
+            bola.cancel_bola_ticket(w.db, who, ticket_id=t.id, reason="trying to cancel it", settings=w.store)
+        assert t.status == TicketStatus.ACTIVE
+    from app.core.rbac import Perm, permissions_for
+    assert [r for r in Role if Perm.BOLA_CANCEL in permissions_for(r)] == [Role.ADMIN]
+
+
 def test_cancel_refunds_and_frees_exposure(bw):
     w = bw
     start = _wallet(w)
     t = _bet(w, [12, 24], BolaKind.PAIR, 10_000, 0)
     assert _wallet(w) == start - 10_000
-    bola.cancel_bola_ticket(w.db, w.kub, ticket_id=t.id, reason="mistake", settings=w.store)
+    with pytest.raises(Forbidden):                                     # undoing a bet is dev-only: not even its owner
+        bola.cancel_bola_ticket(w.db, w.kub, ticket_id=t.id, reason="mistake", settings=w.store)
+    assert t.status == TicketStatus.ACTIVE
+    bola.cancel_bola_ticket(w.db, w.admin, ticket_id=t.id, reason="mistake", settings=w.store)
     assert _wallet(w) == start and t.status == TicketStatus.CANCELED
     row = w.db.scalar(select(BolaExposure).where(BolaExposure.draw_id == w.draw.id,
                                                  BolaExposure.first == 12, BolaExposure.second == 24))
@@ -349,12 +360,12 @@ def test_claim_to_wallet_includes_bola_rows(bw):
     w = bw
     _bet(w, [1, 2], BolaKind.PAIR, 5000, 5000)
     _declare(w, 30, 31)
-    totals = commissions.totals_for(w.db, w.kub)
+    totals = commissions.totals_for(w.db, w.cavo)
     assert totals["unclaimed"] > 0
-    commissions.claim_to_wallet(w.db, w.kub)
-    mine = commissions.list_bola_for(w.db, w.kub)
+    commissions.claim_to_wallet(w.db, w.cavo)
+    mine = commissions.list_bola_for(w.db, w.cavo)
     assert mine and all(r.status == CommissionStatus.CLAIMED for r in mine)
-    assert commissions.totals_for(w.db, w.kub)["unclaimed"] == 0
+    assert commissions.totals_for(w.db, w.cavo)["unclaimed"] == 0
     assert ledger.verify_integrity(w.db)["ok"]
 
 
@@ -399,11 +410,6 @@ def _web_setup():
         store = SettingsStore(db)
         admin = db.scalar(sel(User).where(User.username == "admin"))
         store.set("bola.enabled", "true", admin.id)
-        player = players.register_online_player(
-            db, admin, username=f"wbp{tag}", password=PASSWORD, full_name="Web Player",
-            birth_date=dt.date(1990, 1, 1), gcash_number="09171234567", settings=store)
-        player.kyc_verified = True
-        load_credit(db, admin, store, player, 1_000_000)
         # Web / API bets always use the logged-in account's OWN credit, so the account the tests log in as needs some.
         ledger.post(db, kind="request.in", actor=admin, memo="test load",
                     entries=[(accounts.gcash_clearing(db), +1_000_000), (accounts.wallet_for_user(db, admin), -1_000_000)])
@@ -411,7 +417,7 @@ def _web_setup():
         draw = bola.create_draw(db, admin, location_id=loc.id, draw_date=dt.date.today(), slot=1,
                                 settings=store, status=DrawStatus.OPEN,
                                 scheduled_at=dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=2))
-        return {"player": player.id, "loc": loc.id, "draw": draw.id}
+        return {"loc": loc.id, "draw": draw.id}
 
 
 def _web_teardown(ids):
@@ -436,7 +442,7 @@ def test_bola_pages_and_full_bet_flow_over_http():
 
         token = c.cookies.get("snx_csrf").split(".")[0]
         r = c.post("/bola/bets/place", data={
-            "csrf_token": token, "draw_id": ids["draw"], "player_id": ids["player"], "kind": "pair",
+            "csrf_token": token, "draw_id": ids["draw"], "kind": "pair",
             "n1": "7", "n2": "9", "tumbok": "7", "sahod": "0", "print": "1"})
         assert r.status_code == 303 and "/bola/tickets/" in r.headers["location"]
         page = c.get(r.headers["location"])

@@ -26,6 +26,7 @@ from app.db.models import (
     BolaTicket,
     Player,
     PlayerKind,
+    Role,
     Status,
     Ticket,
     TicketStatus,
@@ -97,7 +98,7 @@ def register_online_player(
     if not GCASH_RE.match(gcash_number):
         raise ValidationError("GCash number must be 11 digits starting with 09.")
     _check_age(birth_date, settings)
-    problems = password_problems(password, username)
+    problems = password_problems(password, username, min_length=int(settings.get("security.password_min_length")))
     if problems:
         raise ValidationError(" ".join(problems))
 
@@ -166,6 +167,28 @@ def staked_today(db: Session, player: Player) -> int:
                BolaTicket.status.in_(live))
     ) or 0)
     return sabong + bola
+
+
+def account_staked_today(db: Session, user: User) -> int:
+    """Today's own-credit stakes of one login account across both games (Meron/Wala + Bola)."""
+    start = dt.datetime.now(dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    live = [TicketStatus.ACTIVE, TicketStatus.SETTLED]
+    total = 0
+    for model in (Ticket, BolaTicket):
+        total += int(db.scalar(
+            select(func.coalesce(func.sum(model.stake_cents), 0))
+            .where(model.user_id == user.id, model.placed_at >= start, model.status.in_(live))) or 0)
+    return total
+
+
+def assert_account_can_bet(db: Session, user: User, stake_cents: int, settings: SettingsStore) -> None:
+    """Daily cap for an account betting for itself (the player-level limit does not apply to it). Admin is exempt."""
+    if user.role == Role.ADMIN:
+        return
+    limit = int(settings.get("account.daily_bet_limit_cents") or 0)
+    if limit and account_staked_today(db, user) + stake_cents > limit:
+        from app.core.money import fmt
+        raise Forbidden(f"Daily betting limit of {fmt(limit)} would be exceeded.")
 
 
 def assert_can_bet(db: Session, player: Player, stake_cents: int, settings: SettingsStore) -> None:

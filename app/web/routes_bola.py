@@ -17,7 +17,7 @@ from app.core.errors import Forbidden, NotFound, StelError, ValidationError
 from app.core.money import to_cents
 from app.core.rbac import Perm, hides_totals
 from app.db.models import BolaKind, TicketStatus
-from app.services import accounts, bola, bola_settlement, locations, players, proofs, reports
+from app.services import accounts, bola, bola_settlement, locations, proofs, reports
 from app.web.paging import paginate
 from app.web.deps import Ctx, flash_redirect, form_data, render, require_ctx
 
@@ -169,7 +169,7 @@ async def bola_draw(draw_id: int, request: Request, ctx: Ctx = Depends(require_c
               "show": bool(ctx.store.get("bola.show_odds_to_players")),
               "max_number": bola.max_number(ctx.store)},
         runs=bola_settlement.runs_for(ctx.db, draw.id), expenses=expenses,
-        can_manage=can_manage, can_declare=ctx.can(Perm.BOLA_DECLARE),
+        can_manage=can_manage, can_open=can_manage or ctx.can(Perm.BOLA_OPEN), can_declare=ctx.can(Perm.BOLA_DECLARE),
         can_redeclare=ctx.can(Perm.BOLA_REDECLARE), can_approve=ctx.can(Perm.BOLA_APPROVE),
         can_place=ctx.can(Perm.BOLA_PLACE), can_cancel=ctx.can(Perm.BOLA_CANCEL),
         can_report=ctx.can(Perm.BOLA_EXPOSURE) and not hide,
@@ -205,7 +205,7 @@ async def bola_place(request: Request, ctx: Ctx = Depends(require_ctx)):
         ctx.db, ctx.user, draw_id=draw_id, kind=kind, numbers=_numbers(data),
         tumbok_cents=to_cents(data.get("tumbok", "0") or "0"),
         sahod_cents=to_cents(data.get("sahod", "0") or "0"),
-        player_id=None, settings=ctx.store,       # always the logged-in account's own credit
+        settings=ctx.store,
         idempotency_key=data.get("idempotency_key") or None,
         note=(data.get("note") or None), ip=ctx.ip)
     if data.get("print") == "1":
@@ -451,16 +451,22 @@ async def bola_generate(request: Request, ctx: Ctx = Depends(require_ctx)):
     return flash_redirect("/bola", f"Created {len(out['created'])} draw(s); {out['skipped']} already existed.")
 
 
+def _need_open_close(ctx: Ctx) -> None:
+    """Opening / closing betting on a draw: the full manager, or a Declarator's narrower open-close right."""
+    if not ctx.can(Perm.BOLA_MANAGE):
+        ctx.need(Perm.BOLA_OPEN)
+
+
 @router.post("/bola/draws/{draw_id}/open")
 async def bola_open(draw_id: int, ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.BOLA_MANAGE)
+    _need_open_close(ctx)
     bola.open_draw(ctx.db, ctx.user, draw_id)
     return flash_redirect(f"/bola/draws/{draw_id}", "Betting is open.")
 
 
 @router.post("/bola/draws/{draw_id}/lock")
 async def bola_lock(draw_id: int, ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.BOLA_MANAGE)
+    _need_open_close(ctx)
     bola.lock_draw(ctx.db, ctx.user, draw_id)
     return flash_redirect(f"/bola/draws/{draw_id}", "Betting is closed.")
 

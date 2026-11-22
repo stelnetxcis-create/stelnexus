@@ -107,10 +107,8 @@ def create_agent(
     if role == Role.TELLER and not re.fullmatch(r"09\d{9}", gcash):
         raise ValidationError("A Teller needs a GCash number (11 digits starting with 09).")
 
-    min_len = int(settings.get("security.password_min_length")) if settings else 12
-    problems = password_problems(password, username)
-    if len(password) < min_len:
-        problems.append(f"Use at least {min_len} characters.")
+    problems = password_problems(
+        password, username, min_length=int(settings.get("security.password_min_length")) if settings else None)
     if problems:
         raise ValidationError(" ".join(dict.fromkeys(problems)))
 
@@ -178,10 +176,9 @@ def update_agent(
 def reset_password(db: Session, actor: User, target_id: int, new_password: str,
                    settings: SettingsStore | None = None) -> User:
     target = assert_user_in_scope(db, actor, target_id)
-    problems = password_problems(new_password, target.username)
-    min_len = int(settings.get("security.password_min_length")) if settings else 12
-    if len(new_password) < min_len:
-        problems.append(f"Use at least {min_len} characters.")
+    problems = password_problems(
+        new_password, target.username,
+        min_length=int(settings.get("security.password_min_length")) if settings else None)
     if problems:
         raise ValidationError(" ".join(dict.fromkeys(problems)))
     target.password_hash = hash_password(new_password)
@@ -210,6 +207,81 @@ def set_pawn_grants(db: Session, actor: User, pawn_id: int, grants) -> User:
                  before={"grants": before, "username": pawn.username},
                  after={"grants": pawn.grants, "username": pawn.username})
     return pawn
+
+
+def set_permission_overrides(db: Session, actor: User, user_id: int, grants, revokes) -> User:
+    """The Admin allows or denies single permissions for one account (any role except the Admin). Audited.
+
+    Deny beats allow, and the keys to this manager (PAWNS_MANAGE) can never be delegated or removed."""
+    from app.core.rbac import Perm, has_perm, normalize_overrides
+    if not has_perm(actor, Perm.PAWNS_MANAGE):
+        raise Forbidden("Only the Admin can change account permissions.")
+    target = db.get(User, user_id)
+    if target is None:
+        raise NotFound("Account not found.")
+    if target.role == Role.ADMIN:
+        raise Forbidden("The Admin's rights cannot be changed.")
+    allow, deny = normalize_overrides(grants, revokes)
+    before = {"allow": list(target.perm_grants or []), "deny": list(target.perm_revokes or [])}
+    target.perm_grants, target.perm_revokes = allow, deny
+    db.flush()
+    audit.record(db, actor, "account.perms", entity_type="user", entity_id=target.id,
+                 before={**before, "username": target.username, "role": target.role.value},
+                 after={"allow": allow, "deny": deny, "username": target.username, "role": target.role.value})
+    return target
+
+
+EDITABLE_DEFAULT_ROLES = ("master", "agent", "sub_agent", "teller", "declarator", "pawn", "player")
+
+
+def set_role_defaults(db: Session, actor: User, role_key: str, wanted) -> bool:
+    """The Admin changes what every account of a role may do by default. Audited. Returns True if anything changed.
+
+    `wanted` is the full set of permission keys the role should have. It is compared with the built-in
+    defaults written in code and stored as a small difference (extra / removed). Rights that cannot be edited
+    (the Pawns & Access manager itself, and Bola while it is dev-only) keep whatever they were."""
+    from sqlalchemy import event
+    from app.core import rbac
+    from app.core.rbac import Perm, has_perm
+    from app.db.models import RolePermOverride
+    if not has_perm(actor, Perm.PAWNS_MANAGE):
+        raise Forbidden("Only the Admin can change role defaults.")
+    if role_key not in EDITABLE_DEFAULT_ROLES:
+        raise ValidationError("That role's rights cannot be changed.")
+    wanted = {str(k) for k in (wanted or [])}
+    builtin = (rbac.builtin_player_perms() if role_key == rbac.PLAYER_ROLE_KEY
+               else rbac.builtin_permissions_for(role_key, gated=False))
+    locked = set(rbac.NON_DELEGABLE) | (set(rbac.BOLA_PERMS) if rbac.bola_dev_only() else set())
+    editable = [p for p in Perm if p not in locked]
+    row = db.get(RolePermOverride, role_key)
+    old_g = {str(k) for k in (row.perm_grants or [])} if row else set()
+    old_r = {str(k) for k in (row.perm_revokes or [])} if row else set()
+    keep_g = {k for k in old_g if k in {p.value for p in locked}}
+    keep_r = {k for k in old_r if k in {p.value for p in locked}}
+    new_g = {p.value for p in editable if p.value in wanted and p not in builtin} | keep_g
+    new_r = {p.value for p in editable if p.value not in wanted and p in builtin} | keep_r
+    order = lambda keys: sorted(keys, key=rbac._PERM_ORDER.__getitem__)  # noqa: E731
+    new_g, new_r = order(new_g), order(new_r)
+    if new_g == order(old_g) and new_r == order(old_r):
+        return False
+    if not new_g and not new_r:
+        if row is not None:
+            db.delete(row)
+    elif row is None:
+        db.add(RolePermOverride(role=role_key, perm_grants=new_g, perm_revokes=new_r, updated_by_id=actor.id))
+    else:
+        row.perm_grants, row.perm_revokes, row.updated_by_id = new_g, new_r, actor.id
+    db.flush()
+    audit.record(db, actor, "role.perms", entity_type="role", entity_id=role_key,
+                 before={"allow": order(old_g), "deny": order(old_r)}, after={"allow": new_g, "deny": new_r})
+    rbac.invalidate_role_overrides()
+    event.listen(db, "after_commit", lambda _s: rbac.invalidate_role_overrides(), once=True)
+    return True
+
+
+def list_permission_accounts(db: Session) -> list[User]:
+    """Every account whose rights the Admin can edit: all staff and agents, never the Admin."""
+    return list(db.scalars(select(User).where(User.role != Role.ADMIN).order_by(User.role, User.username)).all())
 
 
 def list_pawns(db: Session) -> list[User]:

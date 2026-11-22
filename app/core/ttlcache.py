@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 _lock = threading.Lock()
 _store: dict[Hashable, tuple[float, Any]] = {}
 _MAX_ENTRIES = 2000
+_gen = 0     # bumped by every clear(); a value computed across a clear() is returned but never stored
 
 
 def cached(key: Hashable, ttl: float, compute: Callable[[], Any]) -> Any:
@@ -35,8 +36,12 @@ def cached(key: Hashable, ttl: float, compute: Callable[[], Any]) -> Any:
         hit = _store.get(key)
         if hit is not None and now - hit[0] < ttl:
             return copy.deepcopy(hit[1])
+    with _lock:
+        gen = _gen
     value = compute()                       # outside the lock: a slow query must not block other keys
     with _lock:
+        if gen != _gen:                     # a commit cleared the cache while we computed: this may be pre-commit data
+            return value
         if len(_store) >= _MAX_ENTRIES:     # bounded memory: drop everything expired, then the oldest
             for k in [k for k, (t, _) in _store.items() if now - t >= ttl]:
                 _store.pop(k, None)
@@ -48,7 +53,9 @@ def cached(key: Hashable, ttl: float, compute: Callable[[], Any]) -> Any:
 
 def clear(prefix: str | None = None) -> None:
     """Drop everything, or every key whose first element equals ``prefix``."""
+    global _gen
     with _lock:
+        _gen += 1
         if prefix is None:
             _store.clear()
         else:

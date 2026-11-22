@@ -6,6 +6,14 @@
    so this exits early for them. Without IntersectionObserver or getAnimations() it does nothing. */
 (function () {
   'use strict';
+  /* Focus pause: while this window is not the focused one (you clicked into a video / another window that is
+     still visible beside it), every looping animation here is paused (see lite.css). Costs nothing, works in
+     every animation level. */
+  var root = document.documentElement;
+  addEventListener('blur', function () { root.classList.add('is-blurred'); });
+  addEventListener('focus', function () { root.classList.remove('is-blurred'); });
+  if (typeof document.hasFocus === 'function' && !document.hasFocus()) root.classList.add('is-blurred');
+
   if (!('IntersectionObserver' in window) || typeof document.getAnimations !== 'function') return;
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
@@ -32,7 +40,14 @@
   function start() {
     scan();
     if ('MutationObserver' in window) {
-      new MutationObserver(later).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+      /* Only react to NEW nodes, or to class changes on elements not yet watched. Toggling .is-offscreen on a
+         watched element is our own doing and must not queue another scan (it used to re-trigger itself). */
+      new MutationObserver(function (recs) {
+        for (var i = 0; i < recs.length; i++) {
+          var r = recs[i];
+          if (r.type === 'childList' ? r.addedNodes.length : !seen.has(r.target)) { later(); return; }
+        }
+      }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
     }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();

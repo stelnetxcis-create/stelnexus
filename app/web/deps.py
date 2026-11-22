@@ -20,7 +20,7 @@ from app.core.money import fmt, pesos
 from app.core import assets
 from app.core.rbac import Perm, bola_dev_only, permissions_of
 from app.core.settings_registry import SettingsStore
-from app.db.models import Notification, Role, Status, User
+from app.db.models import Notification, Player, Role, Status, User
 from app.db.models import Session as SessionRow
 from app.db.session import get_db
 from app.services import auth
@@ -122,8 +122,24 @@ def optional_ctx(request: Request, db: DbSession = Depends(get_db)) -> Ctx:
     return ctx
 
 
-def make_viewas_cookie_value(admin_id: int, target_id: int) -> str:
+def make_viewas_cookie_value(admin_id: int, target_id: int | None = None, *, player_id: int | None = None) -> str:
+    if player_id is not None:
+        return _viewas_serializer.dumps({"a": admin_id, "p": player_id})
     return _viewas_serializer.dumps({"a": admin_id, "t": target_id})
+
+
+def player_preview_user(player: Player) -> User:
+    """In-memory stand-in for the DEV 'view as a player' (never added to the session, never saved).
+
+    A player is not a User row, so the shared console cannot be swapped to one directly. This object has a
+    negative id (it matches no real account, so no network scope can reach another person's data) and carries
+    the player's id: permissions_of() gives it the Player rights, the ticket lists read only the player's own
+    tickets, and the top bar shows the player's own wallet."""
+    stand_in = User(id=-player.id, username=player.username or player.full_name, full_name=player.full_name,
+                    role=Role.AGENT, status=Status.ACTIVE, password_hash="", ref_code="",
+                    must_change_password=False)
+    stand_in._preview_player_id = player.id
+    return stand_in
 
 
 def _apply_view_as(ctx: Ctx) -> None:
@@ -143,7 +159,13 @@ def _apply_view_as(ctx: Ctx) -> None:
         data = _viewas_serializer.loads(raw, max_age=VIEWAS_MAX_AGE)
         if int(data.get("a", 0)) != user.id:
             return
-        target = ctx.db.get(User, int(data.get("t", 0)))
+        if data.get("p") is not None:
+            player = ctx.db.get(Player, int(data["p"]))
+            if player is None or player.status != Status.ACTIVE:
+                return
+            target = player_preview_user(player)
+        else:
+            target = ctx.db.get(User, int(data.get("t", 0)))
     except (BadSignature, SignatureExpired, TypeError, ValueError, AttributeError):
         return
     if target is None or target.role == Role.ADMIN or target.status != Status.ACTIVE:
@@ -196,7 +218,13 @@ def render(ctx: Ctx, template: str, status_code: int = 200, **extra: Any):
     is_dev = bool(real is not None and real.role == Role.ADMIN)
     my_balance = None
     wallet_pending = 0
-    if ctx.user is not None and ctx.user.has_wallet:
+    preview_pid = ctx.user.preview_player_id if ctx.user is not None else None
+    if preview_pid is not None:                            # DEV preview of a player: their own credit
+        from sqlalchemy import select as _select
+        from app.db.models import Account as _Account
+        my_balance = int(ctx.db.scalar(_select(_Account.balance_cents)
+                                       .where(_Account.code == f"wallet:player:{preview_pid}")) or 0)
+    elif ctx.user is not None and ctx.user.has_wallet:
         from sqlalchemy import select as _select
         from app.db.models import Account as _Account
         _row = ctx.db.scalar(_select(_Account.balance_cents).where(_Account.code == f"wallet:user:{ctx.user.id}"))
@@ -252,10 +280,29 @@ def _dev_context(ctx: Ctx) -> dict:
     players = ctx.db.scalars(_select(_Player).where(_Player.status == Status.ACTIVE)
                              .order_by(_Player.username, _Player.full_name).limit(200)).all()
     players_total = int(ctx.db.scalar(_select(_func.count(_Player.id)).where(_Player.status == Status.ACTIVE)) or 0)
+    notes = None
+    previewed = ctx.user.preview_player_id if (ctx.user is not None and ctx.real_user is not None) else None
+    if previewed is not None:
+        from app.core.errors import Forbidden as _Forbidden
+        from app.services import players as _players
+        person = ctx.db.get(_Player, previewed)
+        if person is not None:
+            try:
+                _players.assert_can_bet(ctx.db, person, 0, ctx.store)
+                block = None
+            except _Forbidden as exc:
+                block = exc.message
+            limit = person.daily_bet_limit_cents
+            if limit is None:
+                limit = int(ctx.store.get("player.daily_bet_limit_cents")) or None
+            notes = {"upline": ctx.who(person.agent), "status": person.status.value,
+                     "kyc": bool(person.kyc_verified), "can_bet": block is None, "block": block,
+                     "staked": _players.staked_today(ctx.db, person), "limit": limit}
     return {
         "groups": groups,
         "players": players,
         "players_total": players_total,
+        "player_notes": notes,
         "perms": sorted(ctx.perms),
         "env": _cfg.ENV,
         "db": ctx.db.get_bind().dialect.name,
@@ -267,6 +314,8 @@ def home_for(user: User | None) -> str:
     access lands there, everyone else of that kind lands on the fights."""
     if user is None:
         return "/login"
+    if user.preview_player_id is not None:
+        return "/events"
     if user.role.value == "declarator":
         return "/change_name"
     if user.role.value == "teller":

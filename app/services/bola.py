@@ -16,15 +16,14 @@ lines, in entry order, exactly like the old teller screen:
 What is deliberately NOT ported
 -------------------------------
 * plaintext passwords, string-built SQL, "credit = cumulative cash collected";
-* anonymous walk-in tickets with a free-text nickname -- a ticket is the logged-in account's own bet or a
-  registered player's;
+* anonymous walk-in tickets with a free-text nickname -- a ticket is always the logged-in account's own bet;
 * the dead ``limit_combination_checker`` (it read undefined variables and always computed 0).
   ``check_limits`` below implements the same intent correctly, plus a liability cap the old
   panel never had;
 * inserting the parent ticket before validating -- everything here is one transaction.
 
 Money is integer centavos and moves only through the double-entry ledger:
-    bet     wallet(account or player) +stake | pool(draw) -stake   kind "bola.stake"
+    bet     wallet(account) +stake | pool(draw) -stake   kind "bola.stake"
     cancel  ledger.reverse(stake txn)                        kind "bola.stake.reversal"
 Settlement and commissions live in ``bola_settlement`` / ``commissions``.
 """
@@ -41,12 +40,11 @@ from app.core.pagination import clamp_limit, clamp_offset
 from app.core import audit
 from app.core.errors import Conflict, Forbidden, InsufficientFunds, LockedState, NotFound, ValidationError
 from app.core.money import fmt, payout_of
-from app.core.rbac import has_global_scope, is_top, scope_ids
+from app.core.rbac import Perm, has_global_scope, is_top, permissions_of, scope_ids
 from app.core.security import random_code
 from app.core.settings_registry import SettingsStore
 from app.db.base import utcnow
 from app.db.models import (
-    NETWORK_ROLES,
     KIND_LINES,
     KIND_NUMBERS,
     BolaDraw,
@@ -58,7 +56,6 @@ from app.db.models import (
     BolaTicket,
     DrawStatus,
     Location,
-    Player,
     Role,
     TicketStatus,
     User,
@@ -700,13 +697,12 @@ def network_names(db: Session, agent_id: int | None) -> tuple[str | None, str | 
 
 
 def _replay(existing: BolaTicket, *, draw_id, kind, numbers, tumbok_cents, sahod_cents,
-            player_id, user_id=None) -> BolaTicket:
+            user_id) -> BolaTicket:
     """An idempotency-key hit is only a "double tap" when it is the same bet. A reused key on a
     different bet must fail loudly: silently returning the old ticket would tell the agent the
     new bet was placed when it was not (and nothing was charged for it)."""
     try:
         same = (existing.draw_id == int(draw_id)
-                and existing.player_id == (int(player_id) if player_id is not None else None)
                 and existing.user_id == user_id
                 and existing.kind == BolaKind(kind)
                 and list(existing.numbers) == [int(n) for n in numbers]
@@ -722,22 +718,19 @@ def _replay(existing: BolaTicket, *, draw_id, kind, numbers, tumbok_cents, sahod
 
 def place_bola_bet(
     db: Session, actor: User, *, draw_id: int, kind: BolaKind | str, numbers,
-    tumbok_cents: int, sahod_cents: int, settings: SettingsStore, player_id: int | None = None,
+    tumbok_cents: int, sahod_cents: int, settings: SettingsStore,
     idempotency_key: str | None = None, note: str | None = None, ip: str | None = None,
 ) -> BolaTicket:
     """One atomic unit: validate -> limits -> ledger -> ticket + lines + exposure, or nothing.
 
-    Mirrors ``betting.place_bet``: with no ``player_id`` the logged-in account bets for itself, from its own
-    credit; with a ``player_id`` the stake comes from that player's credit. Unlike the legacy ``gbet`` there
-    is never a half-created ticket to delete afterwards.
+    The logged-in account always bets for itself, from its own credit (same as the fight game's live bet panel).
+    Unlike the legacy ``gbet`` there is never a half-created ticket to delete afterwards.
     """
-    self_key = actor.id if player_id is None else None
     if idempotency_key:
         existing = db.scalar(select(BolaTicket).where(BolaTicket.idempotency_key == idempotency_key))
         if existing is not None:
             return _replay(existing, draw_id=draw_id, kind=kind, numbers=numbers,
-                           tumbok_cents=tumbok_cents, sahod_cents=sahod_cents, player_id=player_id,
-                           user_id=self_key)
+                           tumbok_cents=tumbok_cents, sahod_cents=sahod_cents, user_id=actor.id)
 
     assert_enabled(settings)
     draw = _lock_draw(db, draw_id)
@@ -747,8 +740,7 @@ def place_bola_bet(
         existing = db.scalar(select(BolaTicket).where(BolaTicket.idempotency_key == idempotency_key))
         if existing is not None:
             return _replay(existing, draw_id=draw_id, kind=kind, numbers=numbers,
-                           tumbok_cents=tumbok_cents, sahod_cents=sahod_cents, player_id=player_id,
-                           user_id=self_key)
+                           tumbok_cents=tumbok_cents, sahod_cents=sahod_cents, user_id=actor.id)
     now = utcnow()
     if draw.status != DrawStatus.OPEN:
         raise LockedState(f"Betting for this draw is {draw.status}.")
@@ -765,21 +757,14 @@ def place_bola_bet(
         raise ValidationError(f"One ticket may not be more than {fmt(ceiling)} "
                               f"(this one is {fmt(stake)}).")
 
-    player = None
-    agent_id: int | None = None
-    if player_id is not None:
-        player = players.get_player(db, actor, int(player_id))
-        players.assert_can_bet(db, player, stake, settings)
-        agent_id = player.agent_id
-    elif not actor.has_wallet:
+    if not actor.has_wallet:
         raise Forbidden(f"A {actor.role_label} account has no balance and cannot place bets.")
 
     check_limits(db, draw, lines, tumbok, sahod, settings)
 
-    # No player chosen: the logged-in account bets for itself, from its own credit (same as the fight game).
-    self_bet = player is None
-    source = accounts.wallet_for_user(db, actor) if self_bet else players.wallet(db, player)
-    if self_bet and source.balance_cents < stake:
+    players.assert_account_can_bet(db, actor, stake, settings)
+    source = accounts.wallet_for_user(db, actor)
+    if source.balance_cents < stake:
         raise InsufficientFunds(f"Not enough credit: this ticket costs {fmt(stake)} and you have "
                                 f"{fmt(source.balance_cents)}.")
     pool = accounts.pool_for_draw(db, draw)
@@ -792,17 +777,12 @@ def place_bola_bet(
         idempotency_key=f"bola-bet:{idempotency_key}" if idempotency_key else None,
     )
 
-    if self_bet:
-        agent_id = actor.id
-    elif agent_id is None and actor.role in NETWORK_ROLES:
-        agent_id = actor.id
-    chain_kubrador, chain_cavo = network_names(db, agent_id)
+    chain_kubrador, chain_cavo = network_names(db, actor.id)
     t_pay, s_pay = line_payouts(tumbok, sahod, settings)
     best = max(t_pay, s_pay)
     payout_cap = int(settings.get("payout.max_payout_cents")) or None
     ticket = BolaTicket(
-        code=code, draw_id=draw.id, player_id=player.id if player else None,
-        user_id=actor.id if self_bet else None, agent_id=agent_id, kind=kind,
+        code=code, draw_id=draw.id, user_id=actor.id, agent_id=actor.id, kind=kind,
         numbers=nums, tumbok_cents=tumbok, sahod_cents=sahod, line_count=len(lines),
         stake_cents=stake, status=TicketStatus.ACTIVE,
         est_max_payout_cents=min(best, payout_cap) if payout_cap else best,
@@ -820,8 +800,7 @@ def place_bola_bet(
     audit.record(db, actor, "bola.bet.place", entity_type="bola_ticket", entity_id=ticket.id,
                  after={"code": code, "draw_id": draw.id, "kind": str(kind), "numbers": nums,
                         "tumbok_cents": tumbok, "sahod_cents": sahod, "stake_cents": stake,
-                        "lines": len(lines), "player_id": player.id if player else None,
-                        "self_bet": self_bet})
+                        "lines": len(lines)})
     return ticket
 
 
@@ -840,6 +819,11 @@ def get_ticket_by_code(db: Session, code: str) -> BolaTicket:
 
 
 def assert_ticket_visible(db: Session, actor: User, ticket: BolaTicket) -> BolaTicket:
+    preview_pid = getattr(actor, "preview_player_id", None)
+    if preview_pid is not None:
+        if ticket.player_id != preview_pid:
+            raise Forbidden("That ticket is not yours.")
+        return ticket
     if has_global_scope(actor):
         return ticket
     if ticket.agent_id is None or ticket.agent_id not in scope_ids(db, actor):
@@ -858,6 +842,9 @@ def cancel_bola_ticket(db: Session, actor: User, *, ticket_id: int, reason: str,
 
     The legacy panel had no working cancel path for this game at all.
     """
+    # Undoing a placed bet is dev-only (the routes check this too; this keeps a future route from forgetting it).
+    if Perm.BOLA_CANCEL not in permissions_of(actor):
+        raise Forbidden("Only the developer account can cancel a placed bet.")
     reason = (reason or "").strip()
     if len(reason) < 3:
         raise ValidationError("A cancellation reason is required (min 3 characters).")
@@ -918,7 +905,10 @@ def list_tickets(db: Session, actor: User, *, draw_id: int | None = None,
         stmt = stmt.where(BolaTicket.id < before_id)
     if with_player:
         stmt = stmt.options(selectinload(BolaTicket.player))
-    if not has_global_scope(actor):
+    preview_pid = getattr(actor, "preview_player_id", None)
+    if preview_pid is not None:                 # DEV preview of a player: their own tickets only
+        stmt = stmt.where(BolaTicket.player_id == preview_pid)
+    elif not has_global_scope(actor):
         stmt = stmt.where(BolaTicket.agent_id.in_(scope_ids(db, actor)))
     if draw_id:
         stmt = stmt.where(BolaTicket.draw_id == draw_id)

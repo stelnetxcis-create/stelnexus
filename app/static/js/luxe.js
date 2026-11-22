@@ -26,8 +26,8 @@
     })(performance.now());
   });
 
-  // Spotlight: one delegated listener, rAF-throttled, fine pointers only.
-  if (!matchMedia('(pointer: fine)').matches) return;
+  // Spotlight: one delegated listener, rAF-throttled, fine pointers only. Not in lite / min.
+  if (document.documentElement.classList.contains('fx-lite') || !matchMedia('(pointer: fine)').matches) return;
   var pending = null, last = null;
   document.addEventListener('pointermove', function (e) {
     var c = e.target.closest && e.target.closest('.card,.stat');
@@ -71,6 +71,9 @@
     cr = requestAnimationFrame(spin);
     document.addEventListener('visibilitychange', function () { if (document.hidden) cancelAnimationFrame(cr); else { last = performance.now(); cr = requestAnimationFrame(spin); } });
   }
+
+  // lite / min: no full-screen canvas running at 60 fps, no tilt (the coin above is login-only and stays)
+  if (document.documentElement.classList.contains('fx-lite')) return;
 
   // 2) gold dust: ~40 particles on one canvas, paused when tab hidden
   var cv = document.createElement('canvas'); cv.id = 'gold-dust'; cv.setAttribute('aria-hidden', 'true');

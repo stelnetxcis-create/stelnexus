@@ -336,7 +336,7 @@ async def bola_place_bet(request: Request, c: ApiCtx = Depends(api_ctx)):
         c.db, c.user, draw_id=draw_id, kind=kind, numbers=numbers,
         tumbok_cents=to_cents(str(data.get("tumbok", "0") or "0")),
         sahod_cents=to_cents(str(data.get("sahod", "0") or "0")),
-        player_id=None, settings=c.store,          # always the account's own credit
+        settings=c.store,
         idempotency_key=data.get("idempotency_key") or request.headers.get("idempotency-key"),
         note=str(data.get("note") or "") or None, ip=c.ip)
     return {"ticket": _bola_ticket(ticket, lines=bola.ticket_lines(c.db, ticket))}

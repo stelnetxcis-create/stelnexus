@@ -87,6 +87,14 @@ def load_credit(db, admin, store, player, cents):
     return req
 
 
+def fund_user(db, admin, user, cents):
+    """Give an account credit the way the platform does (online clearing -> its own wallet).
+    Number-game bets always come out of the logged-in account's own credit."""
+    from app.services import accounts, ledger
+    ledger.post(db, kind="request.in", actor=admin, memo="test load",
+                entries=[(accounts.gcash_clearing(db), +cents), (accounts.wallet_for_user(db, user), -cents)])
+
+
 @pytest.fixture()
 def db():
     with session_scope() as session:
@@ -109,6 +117,7 @@ def world(db):
     # tests of the maximums switch them on themselves.
     store.set("payout.max_llamado_bps", "0", admin.id)
     store.set("payout.max_dehado_bps", "0", admin.id)
+    store.set("payout.platform_cut_bps", "0", admin.id)      # the platform cut has its own tests
     load_credit(db, admin, store, player, 10_000_000)
     event = events.create_event(db, admin, title=f"Event {tag}", event_date=dt.date.today(),
                                 settings=store, fight_count=6)

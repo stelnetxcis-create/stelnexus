@@ -142,16 +142,16 @@ def test_agent_code_creates_sub_agent_and_sub_agent_code_creates_player(chain):
     w = chain
     code = referrals.create_code(w.db, w.cavo, ttl_minutes=60)
     new = referrals.redeem(w.db, code.code, username=f"nk{w.tag}", password=PASSWORD, full_name="NK",
-                           contact=None, settings=w.store)
+                           contact="09171234567", settings=w.store)
     assert new.role == Role.SUB_AGENT and new.parent_id == w.cavo.id
     code = referrals.create_code(w.db, w.kub, ttl_minutes=60)
     p = referrals.redeem(w.db, code.code, username=f"pl{w.tag}", password=PASSWORD, full_name="Pl",
-                         contact=None, settings=w.store, birth_date=dt.date(1995, 5, 5),
+                         contact="09171234567", settings=w.store, birth_date=dt.date(1995, 5, 5),
                          gcash_number="09171234567")
     assert p.agent_id == w.kub.id
     with pytest.raises(ValidationError):                      # single use
         referrals.redeem(w.db, code.code, username="x" + w.tag, password=PASSWORD, full_name="X",
-                         contact=None, settings=w.store, birth_date=dt.date(1995, 5, 5),
+                         contact="09171234567", settings=w.store, birth_date=dt.date(1995, 5, 5),
                          gcash_number="09171234567")
 
 
@@ -169,9 +169,8 @@ def test_role_creation_rules(chain):
     with pytest.raises(Forbidden):                      # an Agent recruits Sub Agents only, not Agents
         agents.create_agent(w.db, w.cavo, username="c" + w.tag, password=PASSWORD, role=Role.AGENT,
                             full_name="C", settings=w.store)
-    with pytest.raises(Forbidden):                      # the retired tiers cannot be created at all
-        agents.create_agent(w.db, w.admin, username="e" + w.tag, password=PASSWORD, role=Role.CAVO,
-                            full_name="E", settings=w.store)
+    with pytest.raises(ValueError):                     # Cavo / Kubrador no longer exist as roles
+        Role("cavo")
 
 
 # ------------------------------------------------------------- hidden layer
@@ -191,6 +190,8 @@ def test_permissions_master_is_admin_minus_admin_panel(monkeypatch):
                   # account tools, IP bans
                   Perm.ACCOUNTS_VIEW, Perm.ACCOUNTS_EDIT, Perm.ACCOUNTS_REMOVE, Perm.IPBANS_MANAGE,
                   Perm.CANCEL_LOG,
+                  # undoing / cancelling a placed bet is dev-only
+                  Perm.BETS_CANCEL, Perm.BOLA_CANCEL,
                   # Staff Panel: each section opens for its own role, the Admin and granted Pawns
                   Perm.STAFF_VIEW, Perm.STAFF_TELLER, Perm.STAFF_DECLARATOR,
                   # Master never enters or changes a result
@@ -346,3 +347,16 @@ def test_admin_name_is_masked_in_chat_and_who(chain):
     a = _login("admin")
     msgs = a.get("/chat/messages?after=0", headers={"Accept": "application/json"}).json()["messages"]
     assert [m for m in msgs if m["body"] == "hello from the hidden one"][0]["user"] == "admin"
+
+
+def test_referral_signup_requires_a_ph_mobile_number_for_every_account_type(chain):
+    w = chain
+    code = referrals.create_code(w.db, w.cavo, ttl_minutes=60)                  # Agent code -> Sub Agent
+    for bad in (None, "", "12345", "08171234567", "0917123456"):
+        with pytest.raises(ValidationError):
+            referrals.redeem(w.db, code.code, username=f"ph{w.tag}", password=PASSWORD, full_name="PH",
+                             contact=bad, settings=w.store)
+    # a refused sign-up must not burn the code
+    ok = referrals.redeem(w.db, code.code, username=f"ph{w.tag}", password=PASSWORD, full_name="PH",
+                          contact="+63 917 123 4567", settings=w.store)
+    assert ok.contact == "09171234567"

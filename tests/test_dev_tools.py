@@ -130,7 +130,7 @@ def test_view_as_specific_account_shows_agent_dashboard(ids, admin_c):
 def test_view_as_is_admin_only_and_cookie_cannot_be_forged(ids, master_c, admin_c):
     c = master_c
     token = csrf(c)
-    c.post("/dev/view-as", data={"csrf_token": token, "role": "cavo"})
+    c.post("/dev/view-as", data={"csrf_token": token, "role": "agent"})
     assert "Previewing as" not in c.get("/dashboard").text
     # a validly signed cookie minted for the Admin means nothing on someone else's session
     c.cookies.set(VIEWAS_COOKIE, make_viewas_cookie_value(ids["admin"], ids["cavo"]))

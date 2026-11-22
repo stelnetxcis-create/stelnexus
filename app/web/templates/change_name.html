@@ -79,8 +79,13 @@
         {# Payout scene IN the video area: live multipliers/pools while betting is open, "up next" for later games,
            the final result once ended. Hidden while the game is on air (the video shows). Driven by fightview.js. #}
         {% set pbs_state = 'open' if (ph == 'open' or (ph == 'onair' and not on_air)) else ('waiting' if ph == 'waiting' else ('ended' if ph == 'ended' else 'hidden')) %}
-        {% set cutv = (snapshot.main * (house_cut_bps or 0) // 10000) if snapshot else 0 %}
-        {% set netv = (snapshot.main - cutv) if snapshot else 0 %}
+        {# What the scene shows: pools AFTER the platform cut, then the house commission and the payout pool #}
+        {% set cutv = figs.house if figs else 0 %}
+        {% set pcv = figs.platform if figs else 0 %}
+        {% set netv = figs.net if figs else 0 %}
+        {% set dm = figs.meron if figs else (snapshot.meron if snapshot else 0) %}
+        {% set dw = figs.wala if figs else (snapshot.wala if snapshot else 0) %}
+        {% set dt = figs.total if figs else (snapshot.main if snapshot else 0) %}
         {% set res = fight.result.value if fight.result else '' %}
         {% set scene_html %}
         <div class="pbs" data-pbs data-state="{{ pbs_state }}" data-money="{{ 0 if hide_totals else 1 }}" data-res="{{ res }}"{% if pbs_state == 'hidden' %} hidden{% endif %}>
@@ -94,23 +99,25 @@
                 <div class="pbs-tag"><span>MERON</span><em data-pb="tm">{{ role_of(fight, 'meron') or '' }}</em></div>
                 <div class="pbs-name" data-pb="nm">{{ fight.entry_name_meron }}</div>
                 <div class="pbs-x" data-m><b data-pbn="mm" data-fmt="x" data-v="{{ multipliers.meron.bps if multipliers else 0 }}">{{ '%.2f' | format((multipliers.meron.bps if multipliers else 0) / 10000) if multipliers and multipliers.meron.bps else '&mdash;' | safe }}</b><small>x</small><span class="pbs-dir" data-pb-dir="meron"></span></div>
-                <div class="pbs-pool" data-m><b data-pbn="pm" data-fmt="peso" data-v="{{ snapshot.meron if snapshot else 0 }}">{{ (snapshot.meron if snapshot else 0) | money }}</b><small data-pbn="cm" data-fmt="tk" data-v="{{ snapshot.counts.meron if snapshot else 0 }}">{{ snapshot.counts.meron if snapshot else 0 }} tickets</small></div>
+                <div class="pbs-pool" data-m><b data-pbn="pm" data-fmt="peso" data-v="{{ dm }}">{{ dm | money }}</b><small data-pbn="cm" data-fmt="tk" data-v="{{ snapshot.counts.meron if snapshot else 0 }}">{{ snapshot.counts.meron if snapshot else 0 }} tickets</small></div>
               </div>
               <div class="pbs-mid" data-m>
                 <div class="pbs-vs">VS</div>
-                <div class="pbs-row"><span>Total bets</span><b data-pbn="tt" data-fmt="peso" data-v="{{ snapshot.main if snapshot else 0 }}">{{ (snapshot.main if snapshot else 0) | money }}</b></div>
+                {% if can_house and platform_cut_bps %}<div class="pbs-row"><span>Gross bets</span><b data-pbn="gt" data-fmt="peso" data-v="{{ snapshot.main if snapshot else 0 }}">{{ (snapshot.main if snapshot else 0) | money }}</b></div>
+                <div class="pbs-row"><span>Platform cut {{ '%g' | format(platform_cut_bps / 100) }}%</span><b data-pbn="pc" data-fmt="peso" data-v="{{ pcv }}">{{ pcv | money }}</b></div>{% endif %}
+                <div class="pbs-row"><span>Total bets</span><b data-pbn="tt" data-fmt="peso" data-v="{{ dt }}">{{ dt | money }}</b></div>
+                <div class="pbs-row"><span>House cut {{ '%g' | format((house_cut_bps or 0) / 100) }}%</span><b data-pbn="cut" data-fmt="peso" data-v="{{ cutv }}">{{ cutv | money }}</b></div>
                 <div class="pbs-row"><span>Payout pool</span><b data-pbn="np" data-fmt="peso" data-v="{{ netv }}">{{ netv | money }}</b></div>
-                <div class="pbs-row"><span>House cut</span><b data-pbn="cut" data-fmt="peso" data-v="{{ cutv }}">{{ cutv | money }}</b></div>
                 <div class="pbs-bar"><i class="m" data-pb-bar-m style="width: {{ ((snapshot.meron / (snapshot.main or 1)) * 100) | round(1) if snapshot and snapshot.main else 50 }}%"></i><i class="w" data-pb-bar-w style="width: {{ ((snapshot.wala / (snapshot.main or 1)) * 100) | round(1) if snapshot and snapshot.main else 50 }}%"></i></div>
               </div>
               <div class="pbs-side wala{% if multipliers and multipliers.wala.capped %} is-max{% endif %}" data-pb-side="wala">
                 <div class="pbs-tag"><span>WALA</span><em data-pb="tw">{{ role_of(fight, 'wala') or '' }}</em></div>
                 <div class="pbs-name" data-pb="nw">{{ fight.entry_name_wala }}</div>
                 <div class="pbs-x" data-m><b data-pbn="mw" data-fmt="x" data-v="{{ multipliers.wala.bps if multipliers else 0 }}">{{ '%.2f' | format((multipliers.wala.bps if multipliers else 0) / 10000) if multipliers and multipliers.wala.bps else '&mdash;' | safe }}</b><small>x</small><span class="pbs-dir" data-pb-dir="wala"></span></div>
-                <div class="pbs-pool" data-m><b data-pbn="pw" data-fmt="peso" data-v="{{ snapshot.wala if snapshot else 0 }}">{{ (snapshot.wala if snapshot else 0) | money }}</b><small data-pbn="cw" data-fmt="tk" data-v="{{ snapshot.counts.wala if snapshot else 0 }}">{{ snapshot.counts.wala if snapshot else 0 }} tickets</small></div>
+                <div class="pbs-pool" data-m><b data-pbn="pw" data-fmt="peso" data-v="{{ dw }}">{{ dw | money }}</b><small data-pbn="cw" data-fmt="tk" data-v="{{ snapshot.counts.wala if snapshot else 0 }}">{{ snapshot.counts.wala if snapshot else 0 }} tickets</small></div>
               </div>
             </div>
-            <p class="pbs-note" data-m>The more bets on a side, the lower it pays, up to a set maximum.</p>
+            <p class="pbs-note" data-m>The more bets on a side, the lower it pays, up to a set maximum.{% if platform_cut_bps %} Pools and totals are shown after the {{ '%g' | format(platform_cut_bps / 100) }}% platform cut, taken from every bet; then the {{ '%g' | format((house_cut_bps or 0) / 100) }}% house cut comes off the total. The multiple is what each ₱1 you bet pays.{% else %} House cut {{ '%g' | format((house_cut_bps or 0) / 100) }}% of the total.{% endif %}</p>
           </div>
 
           <div class="pbs-pane pbs-wait" data-pbs-pane="waiting">
@@ -132,6 +139,7 @@
               <div class="pbs-row"><span>Paid out</span><b data-pbn="fpaid" data-fmt="peso" data-v="0">&mdash;</b></div>
               <div class="pbs-row"><span>Winning tickets</span><b data-pbn="fwin" data-fmt="int" data-v="0">&mdash;</b></div>
               <div class="pbs-row"><span>House cut</span><b data-pbn="fcut" data-fmt="peso" data-v="0">&mdash;</b></div>
+              {% if can_house and platform_cut_bps %}<div class="pbs-row"><span>Platform cut</span><b data-pbn="fpc" data-fmt="peso" data-v="0">&mdash;</b></div>{% endif %}
             </div>
           </div>
           </div>
@@ -140,7 +148,7 @@
         {{ pl.stream_player('fight', 'Game #' ~ fight.number ~ ' · Live match video', fight.entry_name_meron, fight.entry_name_wala, stream_pass, chat_access.reason == 'closed', strip_html, scene_html) }}
         <div class="fc-overlay" data-fc-overlay data-size="m" role="region" aria-label="Livestream chat"{% if ph in ('onair', 'waiting') %} style="display:none"{% endif %}>
       <div class="fc-head">
-        <span class="fc-air"><i></i><span data-fc-air>{{ 'ENDED' if chat_access.reason == 'closed' else 'ON AIR' }}</span></span>
+        <span class="fc-air"><i></i><span data-fc-air>{{ 'ENDED' if chat_access.reason == 'closed' else 'PRE-SHOW' }}</span></span>
         <div class="fc-title" data-fc-grip title="Drag to move · double-click to reset"><b>Livestream chat <span class="fc-unread" data-fc-unread hidden>0</span></b><small>Game #{{ fight.number }} · {{ fight.entry_name_meron }} vs {{ fight.entry_name_wala }}</small></div>
         <span class="fc-conn" data-fc-conn data-state="wait">connecting</span>
         <button type="button" class="fc-toggle fc-cog" data-fc-cog aria-expanded="false" aria-label="Chat display settings" title="Size, transparency &amp; position"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg></button>
@@ -214,33 +222,7 @@
         </div>
         {% endif %}
         {% if snapshot %}
-        <div class="pool">
-          <div class="pool-side meron">
-            <h4>MERON · {{ fight.entry_name_meron }}{% if fight.llamado_side %} <small>({{ role_of(fight, 'meron') }})</small>{% endif %}</h4>
-            <div class="amount">{{ snapshot.meron | money }}</div>
-            <small class="muted">{{ snapshot.counts.meron }} tickets{% if multipliers and multipliers.meron.bps %} · pays <span class="{{ 'odds-low' if multipliers.meron.below_min }}">{{ '%.2fx' | format(multipliers.meron.bps / 10000) }}</span>{% endif %}</small>
-          </div>
-          <div class="pool-side wala">
-            <h4>WALA · {{ fight.entry_name_wala }}{% if fight.llamado_side %} <small>({{ role_of(fight, 'wala') }})</small>{% endif %}</h4>
-            <div class="amount">{{ snapshot.wala | money }}</div>
-            <small class="muted">{{ snapshot.counts.wala }} tickets{% if multipliers and multipliers.wala.bps %} · pays <span class="{{ 'odds-low' if multipliers.wala.below_min }}">{{ '%.2fx' | format(multipliers.wala.bps / 10000) }}</span>{% endif %}</small>
-          </div>
-          {% if settings['fight.draw_bets_enabled'] %}
-          <div class="pool-side pool-draw">
-            <h4>DRAW</h4>
-            <div class="amount">{{ snapshot.draw | money }}</div>
-            <small class="muted">{{ snapshot.counts.draw }} tickets · fixed {{ '%.2fx' | format(settings['payout.draw_odds_bps'] / 10000) }}</small>
-          </div>
-          {% endif %}
-        </div>
-        {% set total = snapshot.main or 1 %}
-        <div class="pool-bar">
-          <i class="m" style="width: {{ (snapshot.meron / total * 100) | round(1) }}%"></i>
-          <i class="w" style="width: {{ (snapshot.wala / total * 100) | round(1) }}%"></i>
-        </div>
-        <p class="small muted">Meron + Wala pool {{ snapshot.main | money }}{% if snapshot.draw %} · Draw stakes {{ snapshot.draw | money }} (separate){% endif %}. Settled tickets are excluded from the live pool.
-          {% if settings['payout.min_odds_bps'] %}Odds below {{ '%.2f' | format(settings['payout.min_odds_bps'] / 10000) }} are cancelled and refunded.{% endif %}</p>
-        {% if figures %}
+        {% if figures and can_house %}
         <div class="figures">
           <div class="figure" title="Stakes still held on active tickets (money in play)."><span>Revolving amount</span><strong>{{ figures.revolving | money }}</strong><small>on open tickets</small></div>
           {% if 'hidden.view' in perms %}
@@ -471,4 +453,4 @@
 {% endif %}
 {% endif %}
 {% endblock %}
-{% block scripts %}{% if fight %}{{ js('fightchat') }}{{ js('stream') }}{{ js('fightview') }}{% endif %}{% endblock %}
+{% block scripts %}{% if fight %}{{ js('fightchat') }}{{ js('stream') }}{{ js('dock') }}{{ js('fightview') }}{% endif %}{% endblock %}

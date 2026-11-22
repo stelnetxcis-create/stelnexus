@@ -59,10 +59,17 @@ COMMON_PASSWORDS = {
 }
 
 
-def password_problems(password: str, username: str = "") -> list[str]:
+def password_problems(password: str, username: str = "", *, min_length: int | None = None) -> list[str]:
+    """What is wrong with ``password`` (empty list = fine).
+
+    ``min_length`` is the live "Minimum password length" setting (Admin > Settings > Security). Always pass it
+    where a settings store is at hand. Without it the PASSWORD_MIN_LENGTH config default applies; that used to be
+    enforced even when the setting said less, so lowering the setting to 8 still demanded 12.
+    """
+    minimum = _settings.PASSWORD_MIN_LENGTH if min_length is None else int(min_length)
     problems: list[str] = []
-    if len(password) < _settings.PASSWORD_MIN_LENGTH:
-        problems.append(f"Use at least {_settings.PASSWORD_MIN_LENGTH} characters.")
+    if len(password) < minimum:
+        problems.append(f"Use at least {minimum} characters.")
     if len(password) > 256:
         problems.append("Password is too long.")
     if password.lower() in COMMON_PASSWORDS:

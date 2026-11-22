@@ -94,15 +94,23 @@ def create_app() -> FastAPI:
     @app.get("/manifest.webmanifest", include_in_schema=False)
     async def manifest():
         from fastapi.responses import FileResponse
+        # Public and the same for everyone: the browser may keep it for an hour instead of asking on every page.
         return FileResponse(static_dir / "manifest.webmanifest",
-                            media_type="application/manifest+json")
+                            media_type="application/manifest+json",
+                            headers={"Cache-Control": "public, max-age=3600"})
 
     @app.get("/sw.js", include_in_schema=False)
-    async def service_worker():
-        from fastapi.responses import FileResponse
+    async def service_worker(request: Request):
+        # Always revalidated (a new release must be seen at once) but answered 304 with no body while unchanged.
+        from fastapi.responses import Response
         from app.core.assets import service_worker_file
-        return FileResponse(service_worker_file(), media_type="application/javascript",
-                            headers={"Service-Worker-Allowed": "/", "Cache-Control": "no-cache"})
+        from app.web.conditional import etag_matches, make_etag
+        body = Path(service_worker_file()).read_bytes()
+        etag = make_etag(body)
+        headers = {"Service-Worker-Allowed": "/", "Cache-Control": "no-cache", "ETag": etag}
+        if etag_matches(request, etag):
+            return Response(status_code=304, headers=headers)
+        return Response(body, media_type="application/javascript", headers=headers)
 
     return app
 

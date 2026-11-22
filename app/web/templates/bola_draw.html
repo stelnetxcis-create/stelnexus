@@ -100,14 +100,14 @@
 {% endif %}
 
 {# ----------------------------------------------------------- operations #}
-{% if can_manage or can_declare or can_redeclare %}
+{% if can_manage or can_open or can_declare or can_redeclare %}
 <div class="card">
   <div class="card-head"><h2>Operations</h2></div>
   <div class="card-body">
-    {% if can_manage and draw.status.value in ('scheduled', 'locked') %}
+    {% if can_open and draw.status.value in ('scheduled', 'locked') %}
     <form method="post" action="/bola/draws/{{ draw.id }}/open" style="display:inline">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm">Open betting</button></form>
     {% endif %}
-    {% if can_manage and draw.status.value == 'open' %}
+    {% if can_open and draw.status.value == 'open' %}
     <form method="post" action="/bola/draws/{{ draw.id }}/lock" style="display:inline">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm">Close betting</button></form>
     {% endif %}
 

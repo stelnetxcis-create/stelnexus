@@ -60,7 +60,12 @@ def invite_roles(actor: User) -> list[str]:
 
 
 def role_label(role: str) -> str:
-    return "Player" if role == "player" else Role(role).label
+    if role == "player":
+        return "Player"
+    try:
+        return Role(role).label
+    except ValueError:      # an unknown or retired role name (Cavo / Kubrador): shown as typed, never invitable
+        return str(role)
 
 
 def _pick_upline(db: Session, role: str, parent_id: int | None) -> int | None:

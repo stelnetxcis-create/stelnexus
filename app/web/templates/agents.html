@@ -30,7 +30,7 @@
         <tr>
           <td>{{ row.full_name }}</td>
           <td class="mono">{{ row.username }}</td>
-          <td>{{ ui.badge(row.role_label, 'blue' if row.role.value=='master' else ('green' if row.role.value in ('agent','sub_agent') else ('amber' if row.role.value in ('cavo','kubrador') else ('purple' if row.role.value in ('pawn','declarator') else 'slate')))) }}</td>
+          <td>{{ ui.badge(row.role_label, 'blue' if row.role.value=='master' else ('green' if row.role.value in ('agent','sub_agent') else ('purple' if row.role.value in ('pawn','declarator') else 'slate'))) }}</td>
           <td class="small">{{ row.contact or '—' }}</td>
           <td class="right num" data-sort="{{ wallets[row.id] or 0 }}">{{ (wallets[row.id] | money) if wallets[row.id] is not none else '—' }}</td>
           <td class="right num" data-sort="{{ commissions[row.id] or 0 }}">{{ (commissions[row.id] | money) if commissions[row.id] is not none else '—' }}</td>

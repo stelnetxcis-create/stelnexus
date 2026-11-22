@@ -21,7 +21,7 @@ from app.core import audit
 from app.core import ttlcache
 from app.core.errors import Conflict, Forbidden, LockedState, NotFound, ValidationError
 from app.core.money import bps_of, fmt, odds_of
-from app.core.rbac import is_top, scope_ids
+from app.core.rbac import Perm, is_top, permissions_of, scope_ids
 from app.core.security import random_code
 from app.core.settings_registry import SettingsStore
 from app.db.models import (
@@ -95,6 +95,24 @@ def max_odds_bps(settings: SettingsStore, side: str, snapshot: dict, llamado: st
     return int(settings.get(key))
 
 
+def pool_figures(meron: int, wala: int, house_bps: int, platform_bps: int) -> dict:
+    """The pool as the payout screen shows it. The platform cut comes off every stake first (so the pools and
+    the total on screen are already after it), then the house commission comes off that total.
+    gross = what was staked; platform = the platform cut; total / meron / wala = after the platform cut;
+    house = commission on the total; net = what the winners share."""
+    main = meron + wala
+    net = main - bps_of(main, combined_bps(house_bps, platform_bps))
+    platform = bps_of(main, platform_bps)
+    total = main - platform
+    meron_net = meron - bps_of(meron, platform_bps)
+    return {"gross": main, "platform": platform, "total": total, "meron": meron_net, "wala": total - meron_net,
+            "house": total - net, "net": net}
+
+
+def combined_bps(house_bps: int, platform_bps: int) -> int:
+    return 10000 - (10000 - platform_bps) * (10000 - house_bps) // 10000
+
+
 def side_multipliers(snapshot: dict, cut_bps: int, settings: SettingsStore, llamado: str | None = None) -> dict:
     """Current pool multiple (bps) per side, capped at the Llamado / Dehado maximum, plus whether the minimum-odds
     rule would cancel the fight if that side won. Informational; settlement recomputes."""
@@ -124,7 +142,7 @@ def estimate_payout(db: Session, fight: Fight, side: Side, stake_cents: int,
         return odds_of(stake_cents, odds)
     snap = pool_snapshot(db, fight)
     main = snap["main"] + stake_cents
-    cut = bps_of(main, events.house_cut_for(db, event, settings))
+    cut = bps_of(main, events.pool_cut_for(db, event, settings))
     net = main - cut
     side_pool = snap[side.value] + stake_cents
     after = dict(snap, main=main, **{side.value: side_pool})
@@ -240,6 +258,7 @@ def place_bet(
     if self_bet:
         if not actor.has_wallet:
             raise Forbidden(f"A {actor.role_label} account has no balance and cannot place bets.")
+        players.assert_account_can_bet(db, actor, stake_cents, settings)
         source = accounts.wallet_for_user(db, actor)
         agent_id = actor.id
     else:
@@ -291,6 +310,11 @@ def get_ticket_by_code(db: Session, code: str) -> Ticket:
 
 
 def assert_ticket_visible(db: Session, actor: User, ticket: Ticket) -> Ticket:
+    preview_pid = getattr(actor, "preview_player_id", None)
+    if preview_pid is not None:
+        if ticket.player_id != preview_pid:
+            raise Forbidden("That ticket is not yours.")
+        return ticket
     if is_top(actor):
         return ticket
     if ticket.agent_id not in scope_ids(db, actor):
@@ -300,6 +324,10 @@ def assert_ticket_visible(db: Session, actor: User, ticket: Ticket) -> Ticket:
 
 def cancel_ticket(db: Session, actor: User, *, ticket_id: int, reason: str,
                   settings: SettingsStore) -> Ticket:
+    # Undoing a placed bet is dev-only. The routes check this too; checking it here as well means a route added
+    # later (or a script) that forgets the permission still cannot cancel a bet for a player, agent or Master.
+    if Perm.BETS_CANCEL not in permissions_of(actor):
+        raise Forbidden("Only the developer account can cancel a placed bet.")
     ttlcache.invalidate_after_commit(db)   # dashboard KPIs changed
     reason = (reason or "").strip()
     if len(reason) < 3:
@@ -341,7 +369,10 @@ def list_tickets(
     canceled_only: bool = False, limit: int = 100, offset: int = 0,
 ) -> list[Ticket]:
     stmt = select(Ticket)
-    if not is_top(actor):
+    preview_pid = getattr(actor, "preview_player_id", None)
+    if preview_pid is not None:                 # DEV preview of a player: their own bets only
+        stmt = stmt.where(Ticket.player_id == preview_pid)
+    elif not is_top(actor):
         stmt = stmt.where(Ticket.agent_id.in_(scope_ids(db, actor)))
     if event_id:
         stmt = stmt.where(Ticket.event_id == event_id)

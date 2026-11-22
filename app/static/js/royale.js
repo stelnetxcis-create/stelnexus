@@ -161,6 +161,7 @@
      - no timer runs while the tab is hidden; coming back polls at once.
      - `owner` (optional): when that element leaves the page (a region was swapped) this loop ends by itself.
      - errors slow the loop down (up to 6x) instead of hammering a struggling server. */
+  // `every` may be a number (ms) or a function returning one, so a page can poll faster while betting is open.
   function poller(url, onData, every = 5000, owner = null) {
     let etag = "", failures = 0, timer = 0, stopped = false, first = true;
     async function tick() {
@@ -171,6 +172,7 @@
       try {
         const headers = { Accept: "application/json" };
         if (etag) headers["If-None-Match"] = etag;
+        const sentAt = performance.now();                   // lets a page ignore an answer that was asked for before its own bet landed
         const r = await fetch(url, { headers, credentials: "same-origin", cache: "no-store" });
         if (r.redirected || r.status === 401 || r.status === 403) { stop(); return; }
         if (r.status === 304) { failures = 0; setLive(true); }
@@ -179,10 +181,10 @@
           const d = await r.json();
           failures = 0; setLive(true);
           etag = r.headers.get("ETag") || "";
-          if (!d.same) { onData(d, first); first = false; }
+          if (!d.same) { onData(d, first, sentAt); first = false; }
         }
       } catch (err) { failures++; if (failures > 1) setLive(false); }
-      if (!stopped && !document.hidden) timer = setTimeout(tick, every * Math.min(1 + failures, 6));
+      if (!stopped && !document.hidden) timer = setTimeout(tick, (typeof every === "function" ? every() : every) * Math.min(1 + failures, 6));
     }
     const onVisible = () => { if (!document.hidden) tick(); };
     function stop() { stopped = true; clearTimeout(timer); document.removeEventListener("visibilitychange", onVisible); }

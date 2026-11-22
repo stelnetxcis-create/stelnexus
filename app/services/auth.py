@@ -187,10 +187,7 @@ def change_password(db: Session, user: User, *, current: str, new: str,
                     settings: SettingsStore) -> None:
     if not verify_password(current, user.password_hash):
         raise ValidationError("Your current password is incorrect.")
-    problems = password_problems(new, user.username)
-    minimum = int(settings.get("security.password_min_length"))
-    if len(new) < minimum:
-        problems.append(f"Use at least {minimum} characters.")
+    problems = password_problems(new, user.username, min_length=int(settings.get("security.password_min_length")))
     if verify_password(new, user.password_hash):
         problems.append("Choose a password you have not used here before.")
     if problems:

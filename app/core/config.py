@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     # Seconds the dashboard KPIs (open fights, events, downline, cashflow card) may be served from
     # memory. 0 = always live. Staff actions that change them clear the cache immediately.
     DASHBOARD_CACHE_SECONDS: int = Field(default=10, ge=0, le=300)
+    # The livestream poll (/_live/event/<id>: pools, live multiples) is built once and shared by every viewer
+    # for at most this many seconds. Any commit that touches a ticket, game, event or setting clears it at
+    # once, so this is only the safety net for changes made by another process (timers, the CLI). 0 = off.
+    LIVE_CACHE_SECONDS: float = Field(default=2.0, ge=0, le=30)
     # Precomputed report figures (flows, top agents) older than this are recomputed inline, so a
     # stopped `refresh-reports` timer degrades to the old behaviour instead of serving stale numbers.
     REPORT_SNAPSHOT_MAX_AGE_SECONDS: int = Field(default=900, ge=0)

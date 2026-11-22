@@ -29,8 +29,7 @@ router = APIRouter()
 
 CHAT_LIMIT = 100          # messages returned per poll
 HISTORY = 80              # messages shown when the room is first opened
-ROLE_TONE = {"admin": "gold", "master": "purple", "pawn": "blue", "declarator": "green",
-             "cavo": "amber", "kubrador": "amber"}  # retired tiers: old chat rows only
+ROLE_TONE = {"admin": "gold", "master": "purple", "pawn": "blue", "declarator": "green"}
 
 
 def _wants_json(request: Request) -> bool:

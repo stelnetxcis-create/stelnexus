@@ -693,7 +693,7 @@ def live_board(db: Session, settings) -> dict:
     board["recent"] = [f for f in reversed(fights) if f.status == FightStatus.SETTLED][:6]
     if current is not None:
         snap = betting.pool_snapshot(db, current)
-        cut = events.house_cut_for(db, event, settings)
+        cut = events.pool_cut_for(db, event, settings)
         board.update(fight=current, snapshot=snap,
                      multipliers=betting.side_multipliers(snap, cut, settings, current.llamado_side),
                      draw_enabled=bool(settings.get("fight.draw_bets_enabled")))

@@ -8,8 +8,8 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.errors import Forbidden
 from app.db.models import BolaKind, CommissionStatus, DrawStatus, Role
-from app.services import accounts, agents, bola, commissions, locations, players, reports, wallet
-from tests.conftest import PASSWORD, load_credit
+from app.services import accounts, agents, bola, commissions, locations, reports, wallet
+from tests.conftest import PASSWORD, fund_user
 from tests.test_bola import _bet, _declare, bw  # noqa: F401  (bw is a fixture)
 from tests.test_web import app, login
 
@@ -38,7 +38,7 @@ def test_a_bola_day_reads_in_plain_words_in_the_ledger(bw):  # noqa: F811
 def _ledger_labels_for_player(w) -> set[str]:
     """Labels of every movement on the player's wallet, as the money history shows them."""
     from app.db.models import LedgerEntry, LedgerTxn
-    acct = accounts.wallet_for_player(w.db, w.player)
+    acct = accounts.wallet_for_user(w.db, w.kub)
     kinds = w.db.scalars(select(LedgerTxn.kind).join(LedgerEntry, LedgerTxn.id == LedgerEntry.txn_id)
                          .where(LedgerEntry.account_id == acct.id)).all()
     return {wallet.label_for(k) for k in kinds}
@@ -60,7 +60,7 @@ def test_agent_statement_counts_sales_cancels_and_commission(bw):  # noqa: F811
     assert (kub["tickets"], kub["staked"]) == (2, 10_700)
     assert (kub["canceled"], kub["canceled_cents"]) == (1, 2_500)
     assert (kub["winners"], kub["paid"]) == (0, 0)
-    assert kub["commission"] > 0 and kub["unclaimed"] == kub["commission"]
+    assert kub["commission"] == 0                                  # a bettor earns nothing on its own bet
     assert w.cavo.username in by_name and by_name[w.cavo.username]["commission"] > 0
     assert w.master.username not in by_name                        # D4 default: no Master line
     assert stmt["totals"]["staked"] == sum(r["staked"] for r in stmt["rows"])
@@ -148,18 +148,14 @@ def net(monkeypatch):
         decl = mk(admin, "nd", Role.DECLARATOR)
         for u in (master, cavo, rival, kub, decl):
             u.must_change_password = False
-        player = players.register_online_player(
-            db, kub, username=f"np{tag}", password=PASSWORD, full_name="Net Player",
-            birth_date=dt.date(1990, 1, 1), gcash_number="09171234567", settings=store, agent_id=kub.id)
-        player.kyc_verified = True
-        load_credit(db, admin, store, player, 1_000_000)
+        fund_user(db, admin, kub, 1_000_000)
         loc = locations.create_location(db, admin, name=f"Net Area {tag}")
         draw = bola.create_draw(db, admin, location_id=loc.id, draw_date=dt.date.today(), slot=1,
                                 settings=store, status=DrawStatus.OPEN,
                                 scheduled_at=dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=2))
         place = lambda n, t: bola.place_bola_bet(                       # noqa: E731
             db, kub, draw_id=draw.id, kind=BolaKind.PAIR, numbers=n, tumbok_cents=t, sahod_cents=0,
-            player_id=player.id, settings=store)
+            settings=store)
         place([1, 2], 5000)
         gone = place([3, 4], 2500)
         bola.cancel_bola_ticket(db, admin, ticket_id=gone.id, reason="typo at the desk", settings=store)

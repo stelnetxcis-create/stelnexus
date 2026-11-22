@@ -110,7 +110,7 @@ def test_reused_idempotency_key_on_a_different_bet_is_refused(bw):
     from app.core.errors import Conflict
     w = bw
     base = dict(draw_id=w.draw.id, kind=BolaKind.PAIR, tumbok_cents=1000, sahod_cents=0,
-                player_id=w.player.id, settings=w.store, idempotency_key=f"reuse-{w.tag}")
+                settings=w.store, idempotency_key=f"reuse-{w.tag}")
     first = bola.place_bola_bet(w.db, w.kub, numbers=[1, 2], **base)
     again = bola.place_bola_bet(w.db, w.kub, numbers=["1", "2"], **base)       # same bet, form strings
     assert again.id == first.id
@@ -139,7 +139,7 @@ def test_cancel_takes_the_draw_lock_before_the_ticket_lock(bw):
             locked.append(state.bind_mapper.class_.__name__ if state.bind_mapper else "?")
 
     try:
-        bola.cancel_bola_ticket(w.db, w.kub, ticket_id=ticket.id, reason="test", settings=w.store)
+        bola.cancel_bola_ticket(w.db, w.admin, ticket_id=ticket.id, reason="test", settings=w.store)
     finally:
         event.remove(Session, "do_orm_execute", spy)
     assert locked[:2] == ["BolaDraw", "BolaTicket"], locked

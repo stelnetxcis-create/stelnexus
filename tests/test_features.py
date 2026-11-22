@@ -126,10 +126,10 @@ def test_teller_is_a_gcash_wallet_desk_under_the_admin(world):
     assert teller in agents.list_agents(world.db, world.admin)
 
 
-def test_declarator_may_open_but_not_close_an_event(world):
+def test_declarator_may_open_and_close_an_event_but_not_manage_it(world):
     from app.core.rbac import Perm, permissions_for
-    assert Perm.EVENTS_OPEN in permissions_for(Role.DECLARATOR)
-    assert Perm.EVENTS_MANAGE not in permissions_for(Role.DECLARATOR)
+    assert Perm.EVENTS_OPEN in permissions_for(Role.DECLARATOR)          # open or close
+    assert Perm.EVENTS_MANAGE not in permissions_for(Role.DECLARATOR)    # not cancel, draft, odds or expenses
 
 
 def test_cancel_event_refunds_and_blocks_reopen(world):
@@ -199,6 +199,7 @@ def test_settlement_applies_llamado_and_dehado_maximums(world):
     """Pool model: Meron (more bets) pays at most 1.50x, Wala at most 2.50x; the capped-off part is house take."""
     world.store.set("payout.max_llamado_bps", "15000", world.admin.id)
     world.store.set("payout.max_dehado_bps", "25000", world.admin.id)
+    world.store.set("payout.min_odds_bps", "14000", world.admin.id)   # the 1.50x default floor would refund 66/34
     g = world.games[0]
     sell(world, g, Side.MERON, 66000); sell(world, g, Side.WALA, 34000)
     run = declare(world, g, Result.MERON)           # natural 1.439x is under the 1.50x maximum: unchanged
@@ -213,3 +214,23 @@ def test_settlement_applies_llamado_and_dehado_maximums(world):
     sell(world, g3, Side.MERON, 60000); sell(world, g3, Side.WALA, 40000)
     t3 = declare(world, g3, Result.MERON).totals   # natural 1.583x -> 1.50x
     assert t3["payout_total"] == 90000
+
+
+def test_platform_cut_comes_out_of_every_bet_first_then_the_house_cut(world):
+    """5% platform cut off every stake first, then the 5% house cut off what is left (5,000 + 10,000 staked ->
+    4,750 + 9,500 = 14,250; cut 712.50; pool 13,537.50). Recorded separately; the payout comes from the pool."""
+    world.store.set("payout.platform_cut_bps", "500", world.admin.id)
+    world.store.set("payout.house_cut_bps", "500", world.admin.id)
+    world.store.set("payout.min_odds_bps", "0", world.admin.id)
+    g = world.games[0]
+    sell(world, g, Side.MERON, 500000); sell(world, g, Side.WALA, 1000000)
+    t = declare(world, g, Result.MERON).totals
+    assert t["platform_cut"] == 75000 and t["house_cut"] == 71250 and t["net_pool"] == 1353750
+    assert t["payout_total"] == 1353750 and t["house_take"] == 1500000 - 1353750
+
+
+def test_pool_figures_match_the_worked_example():
+    from app.services import betting
+    f = betting.pool_figures(500000, 1000000, 500, 500)
+    assert f == {"gross": 1500000, "platform": 75000, "total": 1425000, "meron": 475000, "wala": 950000,
+                 "house": 71250, "net": 1353750}

@@ -7,6 +7,9 @@ passes through a downline scope check. UI hiding is cosmetic only.
 """
 from __future__ import annotations
 
+import logging
+import threading
+import time
 from dataclasses import dataclass
 from enum import Enum
 
@@ -33,7 +36,7 @@ class Perm(str, Enum):
     EVENTS_VIEW = "events.view"
     EVENTS_CREATE = "events.create"        # creating an event: Master, Agent, Sub Agent and Admin (hosting)
     EVENTS_MANAGE = "events.manage"
-    EVENTS_OPEN = "events.open"            # set an event to OPEN only (Declarators)
+    EVENTS_OPEN = "events.open"            # open or close an event (Declarators); drafting / cancelling stays EVENTS_MANAGE
     # Locations (venues). Master/Admin may register one while creating an event; editing,
     # archiving and deleting is the Admin Panel's job.
     LOCATIONS_CREATE = "locations.create"
@@ -56,6 +59,7 @@ class Perm(str, Enum):
     BOLA_PLACE = "bola.place"            # place a bet for a player in your network
     BOLA_CANCEL = "bola.cancel"          # cancel a ticket inside the window
     BOLA_MANAGE = "bola.manage"          # create / open / lock / void draws, edit schedules
+    BOLA_OPEN = "bola.open"              # open / close betting on a draw (Declarators); no create, void or schedules
     BOLA_DECLARE = "bola.declare"        # enter the two balls
     BOLA_REDECLARE = "bola.redeclare"    # request a correction
     BOLA_APPROVE = "bola.approve"        # approve a correction (never your own)
@@ -125,8 +129,8 @@ _WALLET_PERMS = {Perm.WALLET_VIEW, Perm.WALLET_TRANSFER, Perm.REQUESTS_VIEW, Per
 # page, no Players page.
 _AGENT_PERMS = {
     Perm.DASHBOARD,
-    Perm.EVENTS_VIEW, Perm.FIGHTS_VIEW, Perm.BETS_VIEW, Perm.BETS_PLACE, Perm.BETS_CANCEL,
-    Perm.BOLA_VIEW, Perm.BOLA_PLACE, Perm.BOLA_CANCEL,
+    Perm.EVENTS_VIEW, Perm.FIGHTS_VIEW, Perm.BETS_VIEW, Perm.BETS_PLACE,   # no BETS_CANCEL: undoing a bet is dev-only
+    Perm.BOLA_VIEW, Perm.BOLA_PLACE,        # no BOLA_CANCEL: undoing a number-game bet is dev-only too
     Perm.COMMISSIONS_VIEW, Perm.COMMISSIONS_CLAIM,
     # Hosting: an Agent / Sub Agent may create an event (and register its venue). Running it (lock, odds,
     # cancel, expenses) stays with Master / Admin: EVENTS_MANAGE is not scoped to the event's creator.
@@ -142,6 +146,9 @@ _ADMIN_ONLY = {
     Perm.ONLINE_VIEW, Perm.PANEL_VIEW, Perm.PAWNS_MANAGE,
     Perm.ACCOUNTS_VIEW, Perm.ACCOUNTS_EDIT, Perm.ACCOUNTS_REMOVE, Perm.IPBANS_MANAGE,
     Perm.CANCEL_LOG,
+    # Undoing / cancelling a placed bet (livestream Undo, ticket page, API) is dev-only: once a bet is in, players,
+    # agents and Master cannot take it back. Only the Admin (or a Pawn it was explicitly granted to) can.
+    Perm.BETS_CANCEL, Perm.BOLA_CANCEL,
     Perm.STAFF_VIEW, Perm.STAFF_TELLER, Perm.STAFF_DECLARATOR,
     Perm.LOCATIONS_VIEW, Perm.LOCATIONS_MANAGE, Perm.TEAMS_VIEW, Perm.TEAMS_MANAGE,
     # House money is dev-only: the cashflow page, house totals on the dashboard, event P&L and the
@@ -176,10 +183,8 @@ ROLE_PERMS: dict[Role, set[Perm]] = {
     Role.AGENT: _AGENT_PERMS | {Perm.REFERRALS_MANAGE},
     Role.SUB_AGENT: _AGENT_PERMS | {Perm.REFERRALS_MANAGE},
     # Retired tiers (merged into Agent / Sub Agent by the migration): no permissions.
-    Role.CAVO: set(),
-    Role.KUBRADOR: set(),
     Role.TELLER: set(_TELLER_PERMS),
-    Role.DECLARATOR: set(_DECLARATOR_PERMS) | {Perm.EVENTS_OPEN, Perm.STAFF_VIEW, Perm.STAFF_DECLARATOR},
+    Role.DECLARATOR: set(_DECLARATOR_PERMS) | {Perm.EVENTS_OPEN, Perm.BOLA_OPEN, Perm.STAFF_VIEW, Perm.STAFF_DECLARATOR},
     # Pawn: a declarator-style spectator. Everything beyond that is granted per account by the Admin.
     Role.PAWN: set(_DECLARATOR_PERMS),
 }
@@ -194,10 +199,92 @@ PLAYER_PERMS: frozenset[Perm] = frozenset({
 })
 
 
+def builtin_player_perms() -> set[Perm]:
+    """The Player rights written in code, before any change from the Admin."""
+    return set(PLAYER_PERMS)
+
+
 def player_perms() -> set[Perm]:
-    """What a player may do right now (the number game stays hidden while it is dev-only)."""
-    perms = set(PLAYER_PERMS)
+    """What a player may do right now (Admin changes applied; the number game stays hidden while it is dev-only)."""
+    perms = _apply_role_override(builtin_player_perms(), PLAYER_ROLE_KEY)
     if bola_dev_only():
+        perms -= BOLA_PERMS
+    return perms
+
+
+# ---------------------------------------------------------------------------
+# Role defaults the Admin can change (stored in role_perm_overrides, read through a short cache)
+# ---------------------------------------------------------------------------
+log = logging.getLogger("stelnexus.rbac")
+
+PLAYER_ROLE_KEY = "player"
+_ROLE_CACHE_TTL = 5.0            # seconds; other workers pick a change up within this time
+_role_cache: tuple[float, dict[str, tuple[set[Perm], set[Perm]]]] | None = None
+_role_cache_lock = threading.Lock()
+
+
+def _parse_perm_keys(raw) -> set[Perm]:
+    """Known, delegable permission keys only. NON_DELEGABLE and unknown keys are dropped, so even a tampered
+    row can never hand out the keys to the Pawns & Access manager."""
+    out: set[Perm] = set()
+    for key in (raw or []):
+        try:
+            perm = Perm(str(key))
+        except ValueError:
+            continue
+        if perm not in NON_DELEGABLE:
+            out.add(perm)
+    return out
+
+
+def _load_role_overrides() -> dict[str, tuple[set[Perm], set[Perm]]]:
+    from app.db.models import RolePermOverride
+    from app.db.session import SessionLocal
+    session = SessionLocal()
+    try:
+        rows = session.scalars(select(RolePermOverride)).all()
+        return {row.role: (_parse_perm_keys(row.perm_grants), _parse_perm_keys(row.perm_revokes)) for row in rows}
+    finally:
+        session.close()
+
+
+def role_overrides() -> dict[str, tuple[set[Perm], set[Perm]]]:
+    """{role: (extra, removed)} from the database, cached for a few seconds. On any database error the
+    built-in defaults apply (logged), so a hiccup never locks anybody out or opens anything up."""
+    global _role_cache
+    now = time.monotonic()
+    cached = _role_cache
+    if cached is not None and now - cached[0] < _ROLE_CACHE_TTL:
+        return cached[1]
+    with _role_cache_lock:
+        cached = _role_cache
+        if cached is not None and time.monotonic() - cached[0] < _ROLE_CACHE_TTL:
+            return cached[1]
+        try:
+            data = _load_role_overrides()
+        except Exception:                                    # noqa: BLE001 - never break authorization on a read error
+            log.exception("Could not read role_perm_overrides; using built-in role defaults")
+            data = cached[1] if cached is not None else {}
+        _role_cache = (time.monotonic(), data)
+        return data
+
+
+def invalidate_role_overrides() -> None:
+    global _role_cache
+    with _role_cache_lock:
+        _role_cache = None
+
+
+def _apply_role_override(perms: set[Perm], role_key: str) -> set[Perm]:
+    extra, removed = role_overrides().get(role_key, (set(), set()))
+    return (perms | extra) - removed
+
+
+def builtin_permissions_for(role: Role | str, *, gated: bool = True) -> set[Perm]:
+    """A role's rights as written in code, before any change from the Admin."""
+    role = Role(role)
+    perms = set(ROLE_PERMS.get(role, set()))
+    if gated and bola_dev_only() and role != Role.ADMIN:
         perms -= BOLA_PERMS
     return perms
 
@@ -272,6 +359,9 @@ def _build_grants() -> tuple[Grant, ...]:
               "Enter the two balls and request a correction. Never approves their own.", "Bola",
               frozenset({Perm.BOLA_VIEW, Perm.BOLA_DECLARE, Perm.BOLA_REDECLARE}),
               implies=("bola:view",)),
+        Grant("bola:open", "Open and close number-game betting",
+              "Open or close betting on a draw. Cannot create, void or reschedule draws.", "Bola",
+              frozenset({Perm.BOLA_VIEW, Perm.BOLA_OPEN}), implies=("bola:view",)),
         Grant("bola:totals", "See number-game stakes and exposure",
               "Implies 'See stakes, pools and payouts', so the account stops being totals-blind.",
               "Bola", frozenset({Perm.BOLA_EXPOSURE}), implies=("bola:view", "totals:view")),
@@ -304,16 +394,102 @@ def normalize_grants(keys) -> list[str]:
 
 
 def permissions_for(role: Role | str) -> set[Perm]:
-    """The role's base permissions (a Pawn's per-account grants are added by permissions_of)."""
+    """The role's base permissions: the built-in defaults with the Admin's role-level changes applied (a Pawn's
+    per-account grants are added by permissions_of). The Admin role is never changed."""
     role = Role(role)
-    perms = set(ROLE_PERMS.get(role, set()))
+    perms = builtin_permissions_for(role, gated=False)
+    if role != Role.ADMIN:
+        perms = _apply_role_override(perms, role.value)
     if bola_dev_only() and role != Role.ADMIN:
         perms -= BOLA_PERMS
     return perms
 
 
-def permissions_of(user: User) -> set[Perm]:
-    """Everything this account may do: its role plus, for a Pawn, the grants the Admin switched on."""
+# ---------------------------------------------------------------------------
+# Per-account overrides: the Admin can allow or deny single permissions for any account
+# ---------------------------------------------------------------------------
+
+# Never delegable and never removable by an override: the keys to this very manager. Only the Admin holds it
+# (the Admin's own rights are not editable either), so nobody can grant themselves or a friend the power to
+# change permissions.
+NON_DELEGABLE: frozenset[Perm] = frozenset({Perm.PAWNS_MANAGE})
+
+# (category, ((perm, plain-language label), ...)) -- drives the rights chart and the per-account editor.
+PERM_CATALOG: tuple[tuple[str, tuple[tuple[Perm, str], ...]], ...] = (
+    ("Dashboard & people", (
+        (Perm.DASHBOARD, "See the dashboard"), (Perm.AGENTS_VIEW, "See the Users (agents) list"),
+        (Perm.AGENTS_CREATE, "Create Agent / Sub Agent accounts"), (Perm.AGENTS_EDIT, "Edit agents"),
+        (Perm.PLAYERS_VIEW, "See the Players page"), (Perm.PLAYERS_CREATE, "Register players"),
+        (Perm.PLAYERS_EDIT, "Edit players"), (Perm.ONLINE_VIEW, "See who is online"))),
+    ("Wallet & requests", (
+        (Perm.WALLET_VIEW, "Wallet hub (balance, history)"), (Perm.WALLET_TRANSFER, "Transfer credit"),
+        (Perm.REQUESTS_VIEW, "See load / cash-out requests"), (Perm.REQUESTS_CREATE, "Create load / cash-out requests"),
+        (Perm.REQUESTS_REVIEW, "Approve / reject requests (Teller desk)"),
+        (Perm.WITHDRAWALS_SWITCH, "Emergency stop on withdrawals"))),
+    ("Events, venues & teams", (
+        (Perm.EVENTS_VIEW, "See events"), (Perm.EVENTS_CREATE, "Create / host an event"),
+        (Perm.EVENTS_MANAGE, "Run events (draft, odds, cancel, expenses)"), (Perm.EVENTS_OPEN, "Open / close an event"),
+        (Perm.LOCATIONS_CREATE, "Register a venue"), (Perm.LOCATIONS_VIEW, "See locations"),
+        (Perm.LOCATIONS_MANAGE, "Edit / archive / delete locations"), (Perm.TEAMS_VIEW, "See sports team catalog"),
+        (Perm.TEAMS_MANAGE, "Switch teams on / off"))),
+    ("Fights & bets (sabong)", (
+        (Perm.FIGHTS_VIEW, "See fights"), (Perm.FIGHTS_RENAME, "Rename fights"), (Perm.FIGHTS_LOCK, "Lock fights"),
+        (Perm.FIGHTS_DECLARE, "Declare results"), (Perm.FIGHTS_REDECLARE, "Request result correction"),
+        (Perm.FIGHTS_APPROVE, "Approve result correction"), (Perm.BETS_VIEW, "See bets"),
+        (Perm.BETS_PLACE, "Place bets"), (Perm.BETS_CANCEL, "Cancel / undo a bet"))),
+    ("Bola (number game)", (
+        (Perm.BOLA_VIEW, "See draws, results, own tickets"), (Perm.BOLA_PLACE, "Place a Bola bet"),
+        (Perm.BOLA_CANCEL, "Cancel a Bola ticket"), (Perm.BOLA_MANAGE, "Create / open / lock / void draws, schedules"),
+        (Perm.BOLA_OPEN, "Open / close betting on a draw"), (Perm.BOLA_DECLARE, "Enter the two balls"),
+        (Perm.BOLA_REDECLARE, "Request correction"), (Perm.BOLA_APPROVE, "Approve correction"),
+        (Perm.BOLA_EXPOSURE, "Stakes, exposure, draw totals"))),
+    ("Money, cuts & reports", (
+        (Perm.COMMISSIONS_VIEW, "See commissions"), (Perm.COMMISSIONS_CLAIM, "Claim commissions"),
+        (Perm.REFERRALS_MANAGE, "Manage referral codes"), (Perm.CUTS_VIEW, "See Volume % / SOP % cuts"),
+        (Perm.CUTS_MANAGE, "Change cuts"), (Perm.CASHFLOW_VIEW, "House cashflow"),
+        (Perm.REPORTS_VIEW, "Report archives"), (Perm.HIDDEN_VIEW, "Hidden layer (house revenue, formula audit)"))),
+    ("Admin Panel & security", (
+        (Perm.PANEL_VIEW, "Open the Admin Panel"), (Perm.PAWNS_MANAGE, "Pawns & Access manager (Admin only)"),
+        (Perm.SETTINGS_VIEW, "See variables"), (Perm.SETTINGS_MANAGE, "Change variables"),
+        (Perm.ACCOUNTS_VIEW, "Accounts page"), (Perm.ACCOUNTS_EDIT, "Edit account details"),
+        (Perm.ACCOUNTS_REMOVE, "Close accounts"), (Perm.IPBANS_MANAGE, "Ban / unban IPs"),
+        (Perm.AUDIT_VIEW, "Audit trail"), (Perm.TOKENS_MANAGE, "Manage tokens"),
+        (Perm.CANCEL_LOG, "Cancel Ticket / Bola Cancelled pages"), (Perm.CHAT_USE, "Livestream chat"))),
+    ("Staff Panel", (
+        (Perm.STAFF_VIEW, "Staff Panel"), (Perm.STAFF_TELLER, "Staff \u2192 Teller section"),
+        (Perm.STAFF_DECLARATOR, "Staff \u2192 Declarator section"))),
+)
+
+_PERM_ORDER = {p.value: i for i, p in enumerate(Perm)}
+
+
+def _override_sets(user: User) -> tuple[set[Perm], set[Perm]]:
+    """(extra, removed) permissions the Admin set on this account (see _parse_perm_keys for what is ignored)."""
+    return _parse_perm_keys(getattr(user, "perm_grants", None)), _parse_perm_keys(getattr(user, "perm_revokes", None))
+
+
+def normalize_overrides(grants, revokes) -> tuple[list[str], list[str]]:
+    """Clean what the editor posted: known, delegable keys only, stable order. Deny beats allow."""
+    def clean(raw) -> set[str]:
+        keys = set()
+        for key in (raw or []):
+            try:
+                perm = Perm(str(key))
+            except ValueError:
+                continue
+            if perm not in NON_DELEGABLE:
+                keys.add(perm.value)
+        return keys
+    deny = clean(revokes)
+    allow = clean(grants) - deny
+    order = lambda keys: sorted(keys, key=_PERM_ORDER.__getitem__)  # noqa: E731
+    return order(allow), order(deny)
+
+
+def base_permissions_of(user: User) -> set[Perm]:
+    """The account's role plus, for a Pawn, the grants the Admin switched on -- before per-account overrides."""
+    if getattr(user, "preview_player_id", None) is not None:      # the DEV 'view as a player' stand-in
+        return player_perms()
     perms = permissions_for(user.role)
     for key in user.grant_set:
         grant = GRANT_BY_KEY.get(key)
@@ -321,6 +497,19 @@ def permissions_of(user: User) -> set[Perm]:
             perms |= set(grant.perms)
     if bola_dev_only() and user.role != Role.ADMIN:
         perms -= BOLA_PERMS   # no role or Pawn grant can lift the gate
+    return perms
+
+
+def permissions_of(user: User) -> set[Perm]:
+    """Everything this account may do: its role, a Pawn's grants, then the Admin's per-account overrides
+    (denied beats allowed). The Admin and the DEV player preview are never overridden."""
+    perms = base_permissions_of(user)
+    if user.role == Role.ADMIN or getattr(user, "preview_player_id", None) is not None:
+        return perms
+    extra, removed = _override_sets(user)
+    perms = (perms | extra) - removed
+    if bola_dev_only():
+        perms -= BOLA_PERMS   # overrides cannot lift the gate either
     return perms
 
 
@@ -361,6 +550,15 @@ def hides_totals(user: User) -> bool:
     if user.role == Role.DECLARATOR:
         return True
     return user.role == Role.PAWN and "totals:view" not in user.grant_set
+
+
+def sees_house(user: User) -> bool:
+    """May this account see the House cut and the Payout pool (what is left after the cut)? The Admin always;
+    a Pawn (view-only staff) once the Admin switches on 'totals:view'. Everyone else, players included, sees
+    only each side's multiple and the total bets."""
+    if user.role == Role.ADMIN:
+        return True
+    return user.role == Role.PAWN and "totals:view" in user.grant_set
 
 
 def has_perm(user: User, perm: Perm) -> bool:

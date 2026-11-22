@@ -19,7 +19,7 @@ def _csrf(c):
 
 def _place(c, ids, n1, n2, tumbok="7", sahod="0"):
     r = c.post("/bola/bets/place", data={
-        "csrf_token": _csrf(c), "draw_id": ids["draw"], "player_id": ids["player"], "kind": "pair",
+        "csrf_token": _csrf(c), "draw_id": ids["draw"], "kind": "pair",
         "n1": n1, "n2": n2, "tumbok": tumbok, "sahod": sahod, "print": "1"})
     assert r.status_code == 303, r.text[:300]
     return int(r.headers["location"].rsplit("/", 1)[1])
@@ -186,7 +186,7 @@ def test_api_draws_bet_idempotency_cancel_and_results():
         assert any(x["id"] == ids["draw"] for x in draws["draws"]) and draws["odds"]["max_number"] == 40
 
         body = {"draw_id": ids["draw"], "kind": "pair", "numbers": [3, 4], "tumbok": "5",
-                "player_id": ids["player"], "idempotency_key": "api-test-key-0001"}
+                "idempotency_key": "api-test-key-0001"}
         t1 = c.post("/api/v1/bola/bets", json=body, headers=h).json()["ticket"]
         t2 = c.post("/api/v1/bola/bets", json=body, headers=h).json()["ticket"]
         assert t1["id"] == t2["id"] and t1["stake_cents"] == 500
@@ -219,7 +219,7 @@ def test_sale_without_print_lands_on_the_draw_page_with_the_ticket_reveal():
     try:
         c, _ = login("admin")
         r = c.post("/bola/bets/place", data={
-            "csrf_token": _csrf(c), "draw_id": ids["draw"], "player_id": ids["player"], "kind": "pair",
+            "csrf_token": _csrf(c), "draw_id": ids["draw"], "kind": "pair",
             "n1": "3", "n2": "4", "tumbok": "5", "sahod": "0"})
         assert r.status_code == 303 and r.headers["location"].endswith(f"/bola/draws/{ids['draw']}?sold={_tid(c, ids)}")
         page = c.get(r.headers["location"]).text

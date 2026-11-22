@@ -35,6 +35,7 @@
   const phaseOf = (f) => (f && f.ph) || 'open';
   const numOf = (id) => { const g = fights.find((x) => x.id === id); return g ? g.n : ''; };
   function expandPanels() {
+    if (stage.classList.contains('dk-on') && window.snx && snx.dockOpen) { snx.dockOpen('bet'); return; }   // dock: just the bet slip
     // chat first, bet panel last: on a narrow phone only one panel fits, and the bet panel is the one that matters
     const els = [...stage.querySelectorAll('.fc-overlay.is-collapsed, .bp.is-collapsed')]
       .filter((o, i, all) => all.indexOf(o) === i && !o.hidden && getComputedStyle(o).display !== 'none');
@@ -131,7 +132,7 @@
     scene.dataset.res = d.res || '';
     if (d.hide) return;
     setNum('fx', win ? d.mult : 0, false, true); setNum('ftt', d.tt || 0, false, true);
-    setNum('fpaid', d.paid || 0, false, true); setNum('fwin', d.winners || 0, false, true); setNum('fcut', d.cut || 0, false, true);
+    setNum('fpaid', d.paid || 0, false, true); setNum('fwin', d.winners || 0, false, true); setNum('fcut', d.cut || 0, false, true); setNum('fpc', d.pc || 0, false, true);
   }
   async function loadFinal(f) {
     const k = f.id + ':' + (f.at || '');
@@ -156,6 +157,28 @@
     fitQ = 0;
     if (!scene || scene.hidden) return;
     const sr = scene.getBoundingClientRect(); if (!sr.width) return;
+    if (stage.classList.contains('dk-on')) {
+      // dock mode: panels slide OVER the scene, so the scene never reflows; it only keeps clear of the dock bar
+      scene.style.setProperty('--pbs-l', '14px'); scene.style.setProperty('--pbs-r', '14px');
+      // Measure instead of trusting CSS: clamp the scene to what is really on screen (mobile browsers can make the
+      // fullscreen box taller than the visible area), keep clear of the dock bar, and shrink the content to fit.
+      const vv = window.visualViewport, vh = vv ? vv.height : window.innerHeight;
+      const bar = stage.querySelector('.dk-bar'), br = bar ? bar.getBoundingClientRect() : null;
+      const barH = br && br.height ? br.height : 52;
+      const off = Math.max(0, sr.bottom - vh);
+      const T = 8, Bm = Math.round(barH + 8 + off);
+      scene.style.setProperty('--pbs-t', T + 'px'); scene.style.setProperty('--pbs-b', Bm + 'px');
+      const live = Array.from(scene.querySelectorAll('.pbs-pane')).find((e) => getComputedStyle(e).display !== 'none');
+      const box = scene.querySelector('.pbs-stage');
+      if (live && box) {
+        box.style.transform = ''; box.style.transformOrigin = '50% 0';
+        const room = sr.height - T - Bm - 4, need = live.scrollHeight;
+        const k = need > room && room > 60 ? Math.max(0.55, room / need) : 1;
+        if (k < 1) box.style.transform = 'scale(' + k.toFixed(3) + ')';
+        box.style.alignSelf = k < 1 ? 'start' : '';
+      }
+      return;
+    }
     const boxes = [];
     stage.querySelectorAll('.fc-overlay').forEach((o) => {
       if (o.hidden || getComputedStyle(o).display === 'none') return;
@@ -177,15 +200,29 @@
     scene.style.setProperty('--pbs-b', Math.round(sr.height - B + 6) + 'px');
   }
   const queueFit = () => { if (!fitQ) fitQ = requestAnimationFrame(fit); };
+  window.snx = window.snx || {}; window.snx.fitScene = () => queueFit();
   if (scene) {
     if (window.ResizeObserver) { const ro = new ResizeObserver(queueFit); ro.observe(scene); stage.querySelectorAll('.fc-overlay').forEach((o) => ro.observe(o)); }
     if (window.MutationObserver) { const mo = new MutationObserver(queueFit); stage.querySelectorAll('.fc-overlay').forEach((o) => mo.observe(o, { attributes: true, attributeFilter: ['class', 'style', 'hidden'] })); }
-    window.addEventListener('resize', queueFit); document.addEventListener('pointerup', () => setTimeout(queueFit, 60));
+    window.addEventListener('resize', queueFit); if (window.visualViewport) window.visualViewport.addEventListener('resize', queueFit); document.addEventListener('fullscreenchange', () => setTimeout(queueFit, 120)); document.addEventListener('pointerup', () => setTimeout(queueFit, 60));
     queueFit();
   }
 
+  // the bet slip shows each side's live multiple (and MAX), so the payout is visible even while the slip covers the scene
+  const slip = document.querySelector('[data-bp]');
+  function paintSlip(f) {
+    if (!slip || !f) return;
+    [['meron', f.mm, f.xm], ['wala', f.mw, f.xw]].forEach(([side, bps, capped]) => {
+      const e = slip.querySelector('[data-bp-x="' + side + '"]'); if (!e) return;
+      e.textContent = bps ? (bps / 10000).toFixed(2) + 'x' + (capped ? ' MAX' : '') : '';
+      e.classList.toggle('is-max', !!capped);
+      slip.dataset['x' + side] = bps || 0;
+    });
+    slip.dispatchEvent(new CustomEvent('snx:odds'));
+  }
   function paintScene(f) {
     if (!scene || !f) return;
+    paintSlip(f);
     const ph = phaseOf(f);
     const st = ph === 'open' ? 'open' : ph === 'onair' ? (f.sd ? 'hidden' : 'open') : ph === 'waiting' ? 'waiting' : 'ended';
     scene.hidden = st === 'hidden';
@@ -200,7 +237,7 @@
         const dm = setNum('pm', f.pm, fresh), dw = setNum('pw', f.pw, fresh);
         const xm = setNum('mm', f.mm, fresh), xw = setNum('mw', f.mw, fresh);
         setNum('cm', f.cm, fresh); setNum('cw', f.cw, fresh); setNum('tt', f.tt, fresh);
-        setNum('np', f.fx ? 0 : f.np, fresh); setNum('cut', f.fx ? 0 : f.cut, fresh);
+        setNum('np', f.fx ? 0 : (f.np || 0), fresh); setNum('cut', f.fx ? 0 : (f.cut || 0), fresh); setNum('pc', f.fx ? 0 : (f.pc || 0), fresh); setNum('gt', f.fx ? 0 : (f.gt || 0), fresh);
         if (!fresh) { pulse('meron', dm, xm); pulse('wala', dw, xw); }
         const tot = (f.pm + f.pw) || 1;
         q1('[data-pb-bar-m]').style.width = (f.pm / tot * 100).toFixed(1) + '%';
@@ -343,7 +380,22 @@
     if (id && id !== activeId && fights.some((x) => x.id === id)) go(id, false); else if (id !== activeId) location.reload();
   });
 
-  function onData(d) {
+  // A bet or undo answers with that game's fresh pools and live multiples (`row`, same shape as a poll row), so the
+  // payout moves with the reply instead of waiting for the next poll. A poll that was ASKED FOR before that reply
+  // landed may still carry the old pools, so onData drops it (the next poll, a couple of seconds later, is current).
+  let rowAt = 0;
+  document.addEventListener('snx:live-row', (e) => {
+    const row = e.detail;
+    if (!row || !fights.some((x) => x.id === row.id)) return;
+    fights = fights.map((x) => (x.id === row.id ? Object.assign({}, x, row) : x));
+    rowAt = performance.now();
+    renderStrip();
+    { const a = activeFight(); if (a) { setPhase(phaseOf(a), a); paintScene(a); } }
+    if (bp) bp.setFights(fights, hide);
+  });
+
+  function onData(d, _isFirst, sentAt) {
+    if (sentAt !== undefined && sentAt < rowAt) return;
     hide = !!d.hide; fights = d.fights;
     const prevCur = curId;
     curId = d.event ? d.event.cur : null;
@@ -374,5 +426,7 @@
     if (first) { centerActive(); first = false; }
   }
 
-  if (snx.poller) snx.poller('/_live/event/' + eventId, (d) => onData(d), 3000, strip);
+  // 2 s while the game on screen still takes bets (the server shares one build per change, so this is cheap), 3 s otherwise
+  const pollEvery = () => { const a = activeFight(); return a && a.st === 'open' && phaseOf(a) === 'open' ? 2000 : 3000; };
+  if (snx.poller) snx.poller('/_live/event/' + eventId, (d, isFirst, sentAt) => onData(d, isFirst, sentAt), pollEvery, strip);
 })();

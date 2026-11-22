@@ -172,12 +172,16 @@ class SecurityHeadersMiddleware:
                 ])
                 if _cfg.ENV == "prod":
                     headers.append((b"strict-transport-security", b"max-age=31536000; includeSubDomains"))
-                if is_hashed:
-                    headers.append((b"cache-control", b"public, max-age=31536000, immutable"))
-                elif is_static:
-                    headers.append((b"cache-control", b"public, max-age=3600"))
-                else:
-                    headers.append((b"cache-control", b"no-store"))
+                # A route that chose its own Cache-Control keeps it (this used to append "no-store" next to it, which
+                # won, so /manifest.webmanifest and /sw.js could never be cached or revalidated). Every other
+                # response still gets the same defaults as before.
+                if not any(name.lower() == b"cache-control" for name, _ in headers):
+                    if is_hashed:
+                        headers.append((b"cache-control", b"public, max-age=31536000, immutable"))
+                    elif is_static:
+                        headers.append((b"cache-control", b"public, max-age=3600"))
+                    else:
+                        headers.append((b"cache-control", b"no-store"))
             await send(message)
 
         await self.app(scope, receive, send_wrapper)

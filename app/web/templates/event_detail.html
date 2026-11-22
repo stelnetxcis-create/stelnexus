@@ -19,6 +19,12 @@
   <input type="hidden" name="status" value="open">
   <button class="btn btn-sm btn-primary">Open event</button>
 </form>
+{% elif 'events.open' in perms and event.status.value == 'open' %}
+<form method="post" action="/events/{{ event.id }}/status" class="inline-form" data-confirm="Close this event? Every game with bets must be declared first.">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="status" value="closed">
+  <button class="btn btn-sm">Close event</button>
+</form>
 {% endif %}
 {% endblock %}
 {% block content %}

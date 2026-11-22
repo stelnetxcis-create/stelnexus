@@ -82,6 +82,7 @@ class Plan:
     total: int = 0
     auto_cancel: bool = False
     house_cut: int = 0
+    platform_cut: int = 0
     net_pool: int = 0
     payout_total: int = 0
     refund_total: int = 0
@@ -93,7 +94,7 @@ class Plan:
     def as_dict(self) -> dict:
         return {
             "result": str(self.result), "model": self.model, "meron": self.meron, "wala": self.wala,
-            "draw": self.draw, "auto_cancel": self.auto_cancel, "total": self.total, "house_cut": self.house_cut, "net_pool": self.net_pool,
+            "draw": self.draw, "auto_cancel": self.auto_cancel, "total": self.total, "house_cut": self.house_cut, "platform_cut": self.platform_cut, "net_pool": self.net_pool,
             "payout_total": self.payout_total, "refund_total": self.refund_total,
             "remainder": self.remainder, "capped_surplus": self.capped_surplus, "house_take": self.house_take,
             "tickets": len(self.lines),
@@ -110,7 +111,7 @@ def _refund_all(plan: Plan, tickets: list[Ticket]) -> Plan:
     for ticket in tickets:
         plan.lines.append(PayoutLine(ticket, ticket.stake_cents, "refund"))
     plan.refund_total = sum(t.stake_cents for t in tickets)
-    plan.house_cut = plan.net_pool = plan.house_take = plan.payout_total = plan.remainder = 0
+    plan.house_cut = plan.platform_cut = plan.net_pool = plan.house_take = plan.payout_total = plan.remainder = 0
     return plan
 
 
@@ -173,8 +174,8 @@ def build_plan(db: Session, fight: Fight, result: Result, settings: SettingsStor
     # pool / pari-mutuel on Meron + Wala only
     main_total = snap["main"]
     cut_bps = events.house_cut_for(db, event, settings)
-    plan.house_cut = bps_of(main_total, cut_bps)
-    plan.net_pool = main_total - plan.house_cut
+    fig = betting.pool_figures(plan.meron, plan.wala, cut_bps, events.platform_cut_for(settings))
+    plan.platform_cut, plan.house_cut, plan.net_pool = fig["platform"], fig["house"], fig["net"]
     winning_pool = plan.meron if result == Result.MERON else plan.wala
 
     # Minimum-odds rule: a winner that would pay under the floor cancels the fight.
@@ -188,7 +189,7 @@ def build_plan(db: Session, fight: Fight, result: Result, settings: SettingsStor
             for ticket in main_tickets:
                 plan.lines.append(PayoutLine(ticket, ticket.stake_cents, "refund"))
             plan.lines.extend(draw_lines)
-            plan.house_cut = plan.net_pool = 0
+            plan.house_cut = plan.platform_cut = plan.net_pool = 0
             return finish()
         for ticket in main_tickets:
             plan.lines.append(PayoutLine(ticket, 0, "lose"))

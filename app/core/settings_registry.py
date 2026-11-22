@@ -77,12 +77,17 @@ DEFS: tuple[SettingDef, ...] = (
     SettingDef("payout.max_payout_cents", "Maximum payout per ticket", "money", 0, "Payout", "0 = no cap.", 0, 10**11),
     SettingDef("payout.draw_odds_bps", "Draw payout multiplier", "bps", 80000, "Payout",
                "Draw is its own side bet, always paid at this fixed multiplier. 80000 = 8.00x.", 10000, 1000000),
-    SettingDef("payout.min_odds_bps", "Minimum odds (pool model)", "bps", 14000, "Payout",
-               "If the winning side would pay less than this multiple, the fight is cancelled and every "
-               "stake refunded. 14000 = 1.40x. 0 = rule off.", 0, 100000),
-    SettingDef("payout.max_llamado_bps", "Maximum payout, Llamado side (pool model)", "bps", 15000, "Payout",
+    SettingDef("payout.min_odds_bps", "Minimum odds (pool model)", "bps", 15000, "Payout",
+               "The minimum payout: if the winning side would pay less than this multiple, the fight is cancelled and every "
+               "stake refunded. 15000 = 1.50x. 0 = rule off.", 0, 100000),
+    SettingDef("payout.platform_cut_bps", "Platform cut (pool model)", "bps", 500, "Payout",
+               "StelNexus's own cut, taken from the Meron + Wala pool on top of the house commission and shown to "
+               "players as a rate (e.g. 'Platform cut 5%'). Only the Admin and a Pawn with 'totals:view' see the "
+               "amounts. 500 = 5.00%. 0 = none.", 0, 5000),
+    SettingDef("payout.max_llamado_bps", "Maximum payout, Llamado side (pool model)", "bps", 25000, "Payout",
                "The favourite side (the one marked Llamado, else the side with more bets) never pays more than this "
-               "multiple, however small its pool share. 15000 = 1.50x. 0 = no maximum.", 0, 1000000),
+               "multiple. 25000 = 2.50x. Together with the minimum odds, every payout sits between 1.50x and 2.50x. "
+               "0 = no maximum.", 0, 1000000),
     SettingDef("payout.max_dehado_bps", "Maximum payout, Dehado side (pool model)", "bps", 25000, "Payout",
                "The other side (fewer bets) never pays more than this multiple. 25000 = 2.50x. 0 = no maximum.",
                0, 1000000),
@@ -158,8 +163,8 @@ DEFS: tuple[SettingDef, ...] = (
     SettingDef("bola.open_hours_before", "Open betting this long before the draw", "int", 12, "Bola",
                "Used by bola-tick / Generate draws to flip a scheduled draw to OPEN.", 0, 168),
     SettingDef("bola.cancel_window_seconds", "Bola ticket cancel window (seconds)", "int", 300, "Bola",
-               "Agents may cancel within this window and only before the cut-off. Master/Admin any "
-               "time before the cut-off.", 0, 86400),
+               "Placed bets are final: only the Admin can cancel a number-game ticket (any time before the "
+               "cut-off), so this window no longer applies to anyone else.", 0, 86400),
     SettingDef("bola.commission.basis", "Bola commission basis", "choice", "turnover", "Bola",
                "turnover = a share of every settled stake (recommended for a fixed-multiplier game). "
                "netwin = a share of the house's net take on the draw, apportioned by stake.",
@@ -238,6 +243,9 @@ DEFS: tuple[SettingDef, ...] = (
     SettingDef("player.min_age", "Minimum player age", "int", 21, "Players", "Enforced at registration.", 18, 99),
     SettingDef("player.daily_bet_limit_cents", "Default daily bet limit", "money", 0, "Players",
                "0 = unlimited. Per-player limits override this.", 0, 10**11),
+    SettingDef("account.daily_bet_limit_cents", "Daily bet limit for accounts betting for themselves", "money", 0,
+               "Players", "Agents, Sub Agents and Masters betting from their own credit, both games combined. "
+                          "0 = unlimited. The Admin is never limited.", 0, 10**11),
     SettingDef("player.require_kyc_for_online", "Require KYC for online players", "bool", True, "Players"),
     SettingDef("player.self_exclusion_days", "Self-exclusion period (days)", "int", 30, "Players", "", 1, 3650),
     # ---- events / fights --------------------------------------------------
@@ -248,7 +256,7 @@ DEFS: tuple[SettingDef, ...] = (
     SettingDef("fight.redeclare_requires_approval", "Redeclare needs a second approver", "bool", True, "Events",
                "Maker-checker: the requester cannot approve their own correction."),
     SettingDef("fight.cancel_window_seconds", "Ticket cancel window (seconds)", "int", 300, "Events",
-               "Agents may cancel a ticket within this window, and only before the fight locks.", 0, 86400),
+               "Placed bets are final: only the Admin can cancel one (and only before the fight locks), so this window no longer applies to anyone else.", 0, 86400),
     SettingDef("live.board_enabled", "Public live board (/live)", "bool", True, "Events",
                "Shows fight number, betting open/closed, totals and odds to anyone with the link."),
     SettingDef("live.show_bola", "Show the number game on the live board", "bool", True, "Events",

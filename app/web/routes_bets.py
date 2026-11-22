@@ -11,6 +11,7 @@ from app.core.rbac import Perm, hides_totals
 from app.db.models import Side, TicketStatus
 from app.services import accounts, betting, events
 from app.web.paging import paginate
+from app.web.routes_live import live_row
 from app.web.deps import Ctx, form_data, flash_redirect, render, require_ctx
 
 router = APIRouter()
@@ -111,7 +112,7 @@ def _qr_svg(payload: str) -> str:
 
 
 # ---- early bets from the livestream page (JSON, used by the floating Bet panel) ----------------------------------
-@router.post("/bets/early/place")
+@router.post("/bets/live/place")
 async def early_place(request: Request, ctx: Ctx = Depends(require_ctx)):
     """The livestream Bet panel: the logged-in account bets for itself. Same rules as /bets/place (all of
     betting.place_bet), plus: refused once the game is on air."""
@@ -131,14 +132,17 @@ async def early_place(request: Request, ctx: Ctx = Depends(require_ctx)):
     return JSONResponse({"ok": True, "ticket": {
         "id": ticket.id, "code": ticket.code, "side": side.value, "stake": int(ticket.stake_cents),
         "fight": fight.number, "fight_id": fight.id},
-        "balance": int(accounts.wallet_for_user(ctx.db, ctx.user).balance_cents)})
+        "balance": int(accounts.wallet_for_user(ctx.db, ctx.user).balance_cents),
+        # the game's fresh pools and live multiples, so the payout on screen moves with this reply
+        "row": live_row(ctx.db, ctx.store, ctx.user, fight)})
 
 
-@router.post("/bets/early/undo/{ticket_id}")
+@router.post("/bets/live/undo/{ticket_id}")
 async def early_undo(ticket_id: int, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.BETS_CANCEL)
     ticket = betting.cancel_ticket(ctx.db, ctx.user, ticket_id=ticket_id,
                                    reason="Undone from the livestream page", settings=ctx.store)
     return JSONResponse({"ok": True, "code": ticket.code,
                          "balance": int(accounts.wallet_for_user(ctx.db, ctx.user).balance_cents)
-                         if ctx.user.has_wallet else None})
+                         if ctx.user.has_wallet else None,
+                         "row": live_row(ctx.db, ctx.store, ctx.user, events.get_fight(ctx.db, ticket.fight_id))})

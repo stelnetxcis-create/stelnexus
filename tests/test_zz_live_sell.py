@@ -27,6 +27,7 @@ def _setup():
             birth_date=dt.date(1990, 1, 1), gcash_number="09171234567", settings=store)
         player.kyc_verified = True
         db.flush()
+        store.set("payout.platform_cut_bps", "0", admin.id)       # the platform cut has its own tests
         load_credit(db, admin, store, player, 50_000_00)
         # the livestream panel bets as the logged-in account, so the admin account needs credit of its own
         from app.services import accounts, ledger
@@ -90,8 +91,8 @@ def test_fight_view_has_strip_early_bet_panel_and_no_seller_panel():
     html = c.get(f"/change_name?event_id={ev_id}&fight_id={fight_id}").text
     assert "data-fv-strip" in html and 'class="fv-chip' in html and "data-vp-orient" in html
     assert "game-tile" not in html
-    # the panel posts to /bets/early/*; there is no Seller Desk
-    assert "data-bp" in html and 'data-place-url="/bets/early/place"' in html
+    # the panel posts to /bets/live/*; there is no Seller Desk
+    assert "data-bp" in html and 'data-place-url="/bets/live/place"' in html
     assert "/sell/place" not in html and "Sell tickets" not in html
     assert 'data-self="1"' in html and 'data-sl="player"' not in html   # bets as the logged-in account, no picker
     assert "Start game" in html and "pre-show" in html
@@ -108,7 +109,7 @@ def test_early_bet_follows_the_game_order():
 
     def early(fid, key):
         t = _csrf(c)
-        return c.post("/bets/early/place", data={"fight_id": fid, "side": "meron", "amount": "100",
+        return c.post("/bets/live/place", data={"fight_id": fid, "side": "meron", "amount": "100",
                                                  "idempotency_key": key, "csrf_token": t},
                       headers={"Accept": "application/json", "X-CSRF-Token": t})
 
@@ -155,7 +156,7 @@ def test_payout_scene_live_and_final():
     try:
         c, _ = login("admin")
         tok = _csrf(c)
-        r = c.post("/bets/early/place", data={"fight_id": fight_id, "side": "meron", "amount": "100",
+        r = c.post("/bets/live/place", data={"fight_id": fight_id, "side": "meron", "amount": "100",
                                               "idempotency_key": "sc-1", "csrf_token": tok},
                    headers={"Accept": "application/json", "X-CSRF-Token": tok})
         assert r.status_code == 200, r.text
@@ -195,7 +196,7 @@ def test_payout_max_llamado_and_dehado():
 
 
 def test_account_bets_as_itself_from_its_own_credit():
-    """No player picker: an Agent / Master bets from their OWN wallet; the stake, undo refund and payout all use it,
+    """No player picker: an Agent / Master bets from their OWN wallet; the stake and payout use it (undo is dev-only),
     and the bettor earns no commission on their own bet."""
     from app.db.models import Role as R
     from app.services import accounts, agents, betting, ledger
@@ -222,12 +223,12 @@ def test_account_bets_as_itself_from_its_own_credit():
         assert 'data-self="1"' in page and 'data-sl="player"' not in page and "Your credit" in page
         tok = _csrf(c)
         hdr = {"Accept": "application/json", "X-CSRF-Token": tok}
-        put = c.post("/bets/early/place", headers=hdr, data={"fight_id": fight_id, "side": "meron", "amount": "100",
+        put = c.post("/bets/live/place", headers=hdr, data={"fight_id": fight_id, "side": "meron", "amount": "100",
                                                              "idempotency_key": "self-1", "csrf_token": tok})
         assert put.status_code == 200, put.text
         body = put.json()
         assert body["balance"] == 50_000 - 10_000
-        again = c.post("/bets/early/place", headers=hdr, data={"fight_id": fight_id, "side": "meron", "amount": "100",
+        again = c.post("/bets/live/place", headers=hdr, data={"fight_id": fight_id, "side": "meron", "amount": "100",
                                                                "idempotency_key": "self-1", "csrf_token": tok})
         assert again.json()["ticket"]["id"] == body["ticket"]["id"]          # a double tap never bets twice
         with session_scope() as db:
@@ -236,11 +237,72 @@ def test_account_bets_as_itself_from_its_own_credit():
             assert accounts.wallet_for_user(db, db.get(User, uid)).balance_cents == 40_000
             # a win or a refund lands in the bettor's own wallet, not the central account
             assert betting.beneficiary_account(db, tk).id == accounts.wallet_for_user(db, db.get(User, uid)).id
-        undo = c.post(f"/bets/early/undo/{body['ticket']['id']}", headers=hdr)
-        assert undo.status_code == 200 and undo.json()["balance"] == 50_000   # refunded to the same wallet
+        # undoing a placed bet is dev-only: an Agent cannot take it back, so the stake stays on the bet
+        undo = c.post(f"/bets/live/undo/{body['ticket']['id']}", headers=hdr)
+        assert undo.status_code == 403
+        with session_scope() as db:
+            assert accounts.wallet_for_user(db, db.get(User, uid)).balance_cents == 40_000
         # a bet that is bigger than the credit is refused, not silently charged to someone else
-        big = c.post("/bets/early/place", headers=hdr, data={"fight_id": fight_id, "side": "wala", "amount": "9999",
+        big = c.post("/bets/live/place", headers=hdr, data={"fight_id": fight_id, "side": "wala", "amount": "9999",
                                                              "idempotency_key": "self-2", "csrf_token": tok})
         assert big.status_code >= 400
     finally:
         _cleanup(ev_id)
+
+
+def test_account_daily_limit_caps_an_agent_betting_for_itself():
+    """account.daily_bet_limit_cents caps own-credit bets (both games); 0 = unlimited; the Admin is never capped."""
+    from app.db.models import Role as R
+    from app.services import accounts, agents, ledger
+    ev_id, fight_id, _ = _setup()
+    try:
+        tag = f"{dt.datetime.now().timestamp():.6f}".replace(".", "")[-8:]
+        name = f"lm{tag}"
+        with session_scope() as db:
+            store = SettingsStore(db)
+            admin = db.scalar(select(User).where(User.role == Role.ADMIN))
+            master = agents.create_agent(db, admin, username=f"m{name}", password=PASSWORD, role=R.MASTER,
+                                         full_name="M" + name.upper(), settings=store)
+            user = agents.create_agent(db, master, username=name, password=PASSWORD, role=R.AGENT,
+                                       full_name=name.upper(), settings=store)
+            user.must_change_password = False
+            ledger.post(db, kind="request.in", entries=[(accounts.gcash_clearing(db), +50_000),
+                                                        (accounts.wallet_for_user(db, user), -50_000)],
+                        actor=admin, memo="test load")
+            store.set("account.daily_bet_limit_cents", "15000", admin.id)      # P150 a day
+        c, _ = login(name)
+        tok = _csrf(c)
+        hdr = {"Accept": "application/json", "X-CSRF-Token": tok}
+
+        def bet(key, amount):
+            return c.post("/bets/live/place", headers=hdr, data={"fight_id": fight_id, "side": "meron",
+                          "amount": amount, "idempotency_key": key, "csrf_token": tok})
+        assert bet("lim-1", "100").status_code == 200          # P100 of P150
+        over = bet("lim-2", "100")                              # would reach P200
+        assert over.status_code == 403 and "Daily betting limit" in over.text
+        assert bet("lim-3", "50").status_code == 200            # exactly P150: still allowed
+        with session_scope() as db:                             # 0 = unlimited again
+            SettingsStore(db).set("account.daily_bet_limit_cents", "0", db.scalar(select(User.id).where(User.role == Role.ADMIN)))
+        assert bet("lim-4", "100").status_code == 200
+    finally:
+        with session_scope() as db:
+            SettingsStore(db).set("account.daily_bet_limit_cents", "0", db.scalar(select(User.id).where(User.role == Role.ADMIN)))
+        _cleanup(ev_id)
+
+
+def test_fight_view_has_the_dock_and_a_fixed_scene():
+    """Chat and the bet slip open from a bottom dock bar (dock.js); the slip shows each side's live multiple and a
+    'Wins about' line; the chat pill no longer claims ON AIR before the game is on air."""
+    import re
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    bundles = (root / "app" / "asset_bundles.json").read_text()
+    assert '"dock"' in bundles
+    dock = (root / "app" / "static" / "js" / "dock.js").read_text()
+    assert "dk-bar" in dock and "dk-sheet" in dock and "dk-side" in dock
+    slip = (root / "app" / "web" / "templates" / "_betpanel.html").read_text()
+    assert 'data-bp-x="meron"' in slip and 'data-bp-x="wala"' in slip and "data-bp-est" in slip and "data-bp-other" in slip
+    page = (root / "app" / "web" / "templates" / "change_name.html").read_text()
+    assert "js('dock')" in page and "ON AIR" not in page
+    css = (root / "app" / "static" / "css" / "store.css").read_text()
+    assert re.search(r"\.fc-stagewrap\.dk-sheet \.fc-overlay\{", css) and "dk-short" in css

@@ -58,7 +58,17 @@ def _must_hold_money(user: User) -> None:
         raise Forbidden(f"A {user.role_label} account has no balance and cannot hold, send or receive credit.")
 
 
+def _preview_account(db: Session, code: str, kind: AccountKind, label: str) -> Account:
+    """DEV 'view as a player': read the real account if there is one, else a zero balance that is never saved
+    (a preview must not create rows)."""
+    return get_by_code(db, code) or Account(code=code, kind=kind, acct_type=KIND_TYPE[kind], label=label[:120],
+                                            allow_negative=False, balance_cents=0)
+
+
 def wallet_for_user(db: Session, user: User) -> Account:
+    preview_pid = getattr(user, "preview_player_id", None)
+    if preview_pid is not None:
+        return _preview_account(db, f"wallet:player:{preview_pid}", AccountKind.WALLET, f"Credit · {user.username}")
     code = f"wallet:user:{user.id}"
     existing = get_by_code(db, code)
     if existing is not None:
@@ -69,6 +79,10 @@ def wallet_for_user(db: Session, user: User) -> Account:
 
 
 def commission_for_user(db: Session, user: User) -> Account:
+    if getattr(user, "preview_player_id", None) is not None:      # a player earns no commission
+        return Account(code=f"commission:player:{user.preview_player_id}", kind=AccountKind.COMMISSION_PAYABLE,
+                       acct_type=KIND_TYPE[AccountKind.COMMISSION_PAYABLE], label="Commission", allow_negative=True,
+                       balance_cents=0)
     code = f"commission:user:{user.id}"
     existing = get_by_code(db, code)
     if existing is not None:

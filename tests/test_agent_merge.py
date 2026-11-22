@@ -17,7 +17,7 @@ from app.db.models import BolaCommission, BolaKind, Commission, DrawStatus, Resu
 from app.services import (
     agents, betting, bola, bola_settlement, commissions, ledger, locations, players, reports, settlement,
 )
-from tests.conftest import PASSWORD, load_credit
+from tests.conftest import PASSWORD, fund_user, load_credit
 
 
 @pytest.fixture()
@@ -109,6 +109,7 @@ def bola_tree(tree):
     w = tree
     w.store.set("bola.enabled", "true", w.admin.id)
     w.store.set("bola.commission.pay_master", "true", w.admin.id)
+    fund_user(w.db, w.admin, w.sub, 1_000_000)            # the Sub Agent bets from its own credit
     loc = locations.create_location(w.db, w.admin, name=f"Area {w.tag}")
     soon = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=2)
     w.draw = bola.create_draw(w.db, w.admin, location_id=loc.id, draw_date=dt.date.today(), slot=1,
@@ -119,9 +120,9 @@ def bola_tree(tree):
     w.db.flush()
 
 
-def _bola_settle(w, seller, player):
-    bola.place_bola_bet(w.db, seller, draw_id=w.draw.id, kind=BolaKind.PAIR, numbers=[1, 2],
-                        tumbok_cents=5000, sahod_cents=5000, player_id=player.id, settings=w.store)
+def _bola_settle(w, bettor):
+    bola.place_bola_bet(w.db, bettor, draw_id=w.draw.id, kind=BolaKind.PAIR, numbers=[1, 2],
+                        tumbok_cents=5000, sahod_cents=5000, settings=w.store)
     bola_settlement.declare(w.db, w.admin, draw_id=w.draw.id, ball_first=30, ball_second=31,
                             settings=w.store, reason="test: declare before draw time")
     return list(w.db.scalars(select(BolaCommission).where(BolaCommission.draw_id == w.draw.id)))
@@ -129,20 +130,20 @@ def _bola_settle(w, seller, player):
 
 def test_bola_uses_the_same_waterfall(bola_tree):
     w = bola_tree
-    rows = _bola_settle(w, w.sub, w.p_sub)
+    rows = _bola_settle(w, w.sub)
     pool = 10_000 * int(w.store.get("bola.commission.pool_bps")) // 10_000     # PHP 100 stake
     by = _tiers(rows)
     assert sum(by.values()) == pool
     assert by["master"] == pool - pool * 3000 // 10_000                       # 70% to the Master
-    assert by["sub_agent"] == pool * 3000 // 10_000 * 3000 // 10_000          # 30% of the Agent's 30%
-    assert by["agent"] == pool * 3000 // 10_000 - by["sub_agent"]
+    assert "sub_agent" not in by                                              # the bettor earns nothing on its own bet
+    assert by["agent"] == pool * 3000 // 10_000                               # so the Agent keeps its whole 30%
     assert ledger.verify_integrity(w.db)["ok"]
 
 
 # ---------------------------------------------------------------- merged statement + list
 def test_merged_statement_and_lines_cover_the_whole_network_and_both_games(bola_tree):
     w = bola_tree
-    _bola_settle(w, w.sub, w.p_sub)
+    _bola_settle(w, w.sub)
     day = dt.date.today()
     stmt = reports.agent_statement(w.db, w.agent, start=day, end=day)
     names = {r["name"] for r in stmt["rows"]}
@@ -153,9 +154,9 @@ def test_merged_statement_and_lines_cover_the_whole_network_and_both_games(bola_
     assert stmt["totals"]["commission"] == sum(r["commission"] for r in stmt["rows"])
 
     lines = commissions.list_scope(w.db, w.agent, start=day, end=day)
-    assert {l["earner"].id for l in lines} == {w.agent.id, w.sub.id}       # the Agent sees the Sub Agent's lines
+    assert {l["earner"].id for l in lines} == {w.agent.id}                 # the bettor (Sub Agent) earns no line
     assert {l["game"] for l in lines} == {"bola"}
-    mine = {w.master.id, w.agent.id, w.sub.id}              # the operator tier sees everything visible
+    mine = {w.master.id, w.agent.id}                        # the operator tier sees everything visible
     assert mine <= {l["earner"].id for l in commissions.list_scope(w.db, w.master, start=day, end=day)}
     assert commissions.list_scope(w.db, w.rival, start=day, end=day) == []  # nothing of another branch
     only_sabong = commissions.list_scope(w.db, w.master, game="sabong", start=day, end=day)
@@ -166,11 +167,11 @@ def test_sabong_and_bola_land_in_one_statement(bola_tree):
     w = bola_tree
     _sabong(w, w.sub, w.p_sub)
     # the Bola draw is declared in a second step so both games sit in the same statement
-    _bola_settle(w, w.sub, w.p_sub)
+    _bola_settle(w, w.sub)
     day = dt.date.today()
     stmt = reports.agent_statement(w.db, w.master, start=day, end=day)
     row = next(r for r in stmt["rows"] if r["name"] == w.sub.username)
-    assert row["commission_sabong"] == 90 and row["commission_bola"] > 0
+    assert row["commission_sabong"] == 90 and row["commission_bola"] == 0
     assert row["staked_sabong"] == 20_000 and row["staked_bola"] == 10_000
     games = reports.agent_games(w.db, w.master, w.sub.id, start=day, end=day)
     assert {g["game"] for g in games} == {"sabong", "bola"}

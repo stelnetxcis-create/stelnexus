@@ -50,7 +50,7 @@
   function apply(d) {
     root.classList.toggle('is-closed', !!d.locked);
     root.classList.toggle('is-locked', !d.locked && !d.can_send);
-    air.textContent = d.locked ? 'ENDED' : 'ON AIR';
+    air.textContent = d.locked ? 'ENDED' : 'PRE-SHOW';
     conn.dataset.state = 'on'; conn.textContent = 'live';
     const tok = root.querySelector('[data-fc-tokens]'); if (tok) tok.textContent = d.tokens;
     root.dataset.tokens = d.tokens;

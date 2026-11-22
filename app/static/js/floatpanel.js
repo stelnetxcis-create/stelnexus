@@ -76,7 +76,7 @@
     let pos = null;                                          // {fx, fy}: fraction of the free space, or null = corner
     try { pos = JSON.parse(store.get('pos') || 'null'); } catch (e) { pos = null; }
     const eff = () => pos || corner;
-    const draggable = () => getComputedStyle(overlay).position === 'absolute';
+    const draggable = () => !(stage && stage.classList.contains('dk-on')) && getComputedStyle(overlay).position === 'absolute';   // the dock places panels itself
     function free() {                                        // room the panel can travel inside the video screen
       const cs = getComputedStyle(overlay);
       const padX = parseFloat(cs.left) || parseFloat(cs.right) || 12;
@@ -166,6 +166,7 @@
     place();
 
     api = { collapsed, setCollapsed, place, reset, dragging: () => !!drag, setSize, setAlpha, clamp };
+    overlay.dataset.fpReady = '1';                            // the dock waits for this before it folds a panel
     peers.add(api);
     return api;
   };

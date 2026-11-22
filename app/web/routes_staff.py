@@ -83,8 +83,9 @@ def _bola_visible(ctx: Ctx) -> bool:
 def _desk(ctx: Ctx) -> dict:
     can = {
         "lock": ctx.can(Perm.FIGHTS_LOCK), "declare": ctx.can(Perm.FIGHTS_DECLARE),
-        "open_event": ctx.can(Perm.EVENTS_OPEN) or ctx.can(Perm.EVENTS_MANAGE),
+        "open_event": ctx.can(Perm.EVENTS_OPEN) or ctx.can(Perm.EVENTS_MANAGE),     # open or close an event
         "bola": ctx.can(Perm.BOLA_DECLARE),
+        "bola_open": ctx.can(Perm.BOLA_OPEN) or ctx.can(Perm.BOLA_MANAGE),
     }
     return declarator.board(ctx.db, ctx.user, ctx.store, can=can, sabong=ctx.can(Perm.FIGHTS_VIEW),
                             with_bola=_bola_visible(ctx))
@@ -156,9 +157,38 @@ async def desk_stream(event_id: int, request: Request, ctx: Ctx = Depends(requir
 async def desk_open_event(event_id: int, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.STAFF_DECLARATOR)
     if not ctx.can(Perm.EVENTS_MANAGE):
-        ctx.need(Perm.EVENTS_OPEN)             # a Declarator may only open an event, never close it
+        ctx.need(Perm.EVENTS_OPEN)
     event = events.set_event_status(ctx.db, ctx.user, event_id, EventStatus.OPEN)
     return _ok(f"{event.title} is open.")
+
+
+@router.post("/staff/declarator/events/{event_id}/close")
+async def desk_close_event(event_id: int, ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.STAFF_DECLARATOR)
+    if not ctx.can(Perm.EVENTS_MANAGE):
+        ctx.need(Perm.EVENTS_OPEN)
+    event = events.set_event_status(ctx.db, ctx.user, event_id, EventStatus.CLOSED)   # refuses while bets are unsettled
+    return _ok(f"{event.title} is closed.", "warning")
+
+
+def _need_bola_open_close(ctx: Ctx) -> None:
+    ctx.need(Perm.STAFF_DECLARATOR)
+    if not ctx.can(Perm.BOLA_MANAGE):
+        ctx.need(Perm.BOLA_OPEN)
+
+
+@router.post("/staff/declarator/bola/{draw_id}/open")
+async def desk_bola_open(draw_id: int, ctx: Ctx = Depends(require_ctx)):
+    _need_bola_open_close(ctx)
+    draw = bola.open_draw(ctx.db, ctx.user, draw_id)
+    return _ok(f"{draw.title}: betting is open.")
+
+
+@router.post("/staff/declarator/bola/{draw_id}/lock")
+async def desk_bola_lock(draw_id: int, ctx: Ctx = Depends(require_ctx)):
+    _need_bola_open_close(ctx)
+    draw = bola.lock_draw(ctx.db, ctx.user, draw_id)
+    return _ok(f"{draw.title}: betting is closed.", "warning")
 
 
 @router.post("/staff/declarator/bola/{draw_id}/declare")

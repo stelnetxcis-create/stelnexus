@@ -1,0 +1,56 @@
+/* StelNexus LITE layer: keeps the look, removes what makes the browser repaint every frame.
+   Applies in html.fx-lite and html.fx-min (the default on computers since this file was added; "Full" on the
+   profile page opts back out). Rules are prefixed with html.fx-lite so they win over the per-page bundles
+   (store, bola-ui, declarator, livestream) whatever order they load in. Delete this file + its entries in
+   asset_bundles.json to undo everything.
+
+   Why: box-shadow, filter, background-position, left and backdrop-filter cannot be animated on the GPU
+   compositor. Each frame they repaint on the main thread and compete with a video playing in another window.
+   The cheap replacement is opacity / transform. */
+
+/* ---- paused whenever this window is not focused (set by anim-pause.js); applies in every level ---- */
+html.is-blurred *, html.is-blurred *::before, html.is-blurred *::after { animation-play-state: paused !important; }
+
+/* ---- 1. page background: its own fixed layer instead of background-attachment:fixed (which repaints the
+        whole viewport on every scroll) ---- */
+html.fx-lite body:not(.auth-body) { background-image: none; background-attachment: scroll; }
+html.fx-lite body:not(.auth-body)::before {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background-image: radial-gradient(900px 480px at 85% -8%, rgba(217,177,85,.09), transparent 70%),
+                    radial-gradient(700px 400px at -5% 105%, rgba(143,107,30,.08), transparent 70%);
+}
+html.fx-lite .cursor-glow, html.fx-lite .spk { display: none !important; }
+
+/* ---- 2. shimmer sweeps (background-position): static ---- */
+html.fx-lite .topbar::after, html.fx-lite .foot::before, html.fx-lite .auth-card::after,
+html.fx-lite .topbar h1, html.fx-lite .brand strong, html.fx-lite .auth-brand h1,
+html.fx-lite .stat.dark .stat-value, html.fx-lite .fc-msg.is-lux .fc-name { animation: none; }
+html.fx-lite .bs-bar.is-ready .btn-brand::after { animation: none; }               /* was animating left */
+
+/* ---- 3. glows that breathed box-shadow / filter: static ---- */
+html.fx-lite .lobby-card.st-open { animation: card-in .7s var(--ease) backwards; }
+html.fx-lite .bd-card.is-open { animation: bs-in .5s var(--ease) both; }
+html.fx-lite .bola-ball[aria-pressed="true"] { animation: bs-pop .32s var(--ease); }
+html.fx-lite .foot-badge .ico { animation: none; }
+html.fx-lite .fc-msg.is-lux .fc-pass.fc-lux { animation: none; box-shadow: 0 0 12px 0 rgba(255,200,70,.85); }
+html.fx-lite .pbs-bg i { animation: none; filter: none; }                           /* was blur(46px), drifting forever */
+
+/* ---- 4. "live" indicators: a ring that grew via box-shadow becomes a soft blink (opacity only) ---- */
+@keyframes lite-blink { 50% { opacity: .4; } }
+html.fx-lite .dot, html.fx-lite .chip-dev.is-live,
+html.fx-lite .lobby-live i, html.fx-lite .lobby-card.st-open .lobby-status i,
+html.fx-lite .live-dot::before,
+html.fx-lite .dk-stat[data-lane="air"].has i, html.fx-lite .dk-live i, html.fx-lite .dk-lane[data-lane="air"] i,
+html.fx-lite .dk-pill[data-lane="air"] i, html.fx-lite .dk-bead.is-air,
+html.fx-lite .ls-pulse, html.fx-lite .ls-conn i, html.fx-lite .ls-countdown.is-soon,
+html.fx-lite .fc-air i, html.fx-lite .pbs-kicker i { animation: lite-blink 1.8s ease-in-out infinite; }
+html.fx-lite .bs-clock.is-urgent i, html.fx-lite .bl-dot, html.fx-lite .bl-live,
+html.fx-lite .sell-go.is-busy { animation: lite-blink 1s ease-in-out infinite; }
+
+/* ---- 5. blur: backdrop-filter re-blurs whatever is behind it every frame; the surfaces are already dark ---- */
+html.fx-lite .bs-bar, html.fx-lite .bt-modal, html.fx-lite .vp-big, html.fx-lite .fc-overlay,
+html.fx-lite .pbs-side, html.fx-lite .dk-go-row { backdrop-filter: none; -webkit-backdrop-filter: none; }
+html.fx-lite .vp-big { background: rgba(10,9,12,.8); }
+html.fx-lite .fc-overlay { background: rgba(11,10,13,max(var(--fc-a), .9)); }
+html.fx-lite .bt-modal { background: radial-gradient(800px 520px at 50% 28%, rgba(217,177,85,.2), rgba(5,4,6,.97)); }
+html.fx-lite .fx-sabong .orb { mix-blend-mode: normal; }

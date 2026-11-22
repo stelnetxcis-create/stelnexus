@@ -28,8 +28,7 @@ def two_areas(bw):
 
 def _bet_in(w, draw, numbers, tumbok, sahod=0):
     return bola.place_bola_bet(w.db, w.kub, draw_id=draw.id, kind=BolaKind.PAIR, numbers=numbers,
-                               tumbok_cents=tumbok, sahod_cents=sahod, player_id=w.player.id,
-                               settings=w.store)
+                               tumbok_cents=tumbok, sahod_cents=sahod, settings=w.store)
 
 
 def test_effective_caps_null_follows_global_and_override_wins(two_areas):
