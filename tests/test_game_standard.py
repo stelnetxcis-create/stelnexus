@@ -43,7 +43,7 @@ def test_every_game_exposes_all_workspace_urls_to_the_admin(key):
     from app.web.deps import Ctx  # noqa: F401  (the route builds the Ctx; here we check through the web layer)
     for tab in WORKSPACE_TABS:
         r = c.get(f"/games/{key}/{tab}")
-        if tab == "schedule" and key == "bola":     # the shared Schedule page renders in place
+        if tab == "schedule":                       # the shared Schedule page renders in place
             assert r.status_code == 200, (key, tab)
         else:
             assert r.status_code == 303 and r.headers["location"].startswith("/"), (key, tab)
@@ -94,12 +94,21 @@ def test_bola_schedule_page_renders_with_every_filter_and_a_create_drawer():
         assert 'data-modal="create-modal"' in r.text and 'data-modal="generate-modal"' in r.text
 
 
-def test_sabong_schedule_is_the_live_events_lobby():
+def test_sabong_schedule_is_the_shared_page_with_the_events_lobby():
     c, _ = login("admin")
-    r = c.get("/games/sabong/schedule")
-    assert r.status_code == 303 and r.headers["location"] == "/events"
-    page = c.get("/events")
-    assert page.status_code == 200 and 'data-modal="event-modal"' in page.text
+    page = c.get("/games/sabong/schedule")
+    assert page.status_code == 200
+    # the pieces pages.js and the realtime refresh look for must be on the shared page
+    for needle in ('data-modal="event-modal"', 'id="ev-location"', 'id="loc-quick-link"', 'id="loc-quick-modal"'):
+        assert needle in page.text, needle
+    for when in ("today", "upcoming", "past", "all", "nonsense"):
+        assert c.get(f"/games/sabong/schedule?when={when}").status_code == 200, when
+
+
+def test_old_events_url_redirects_and_keeps_its_query():
+    c, _ = login("admin")
+    r = c.get("/events?create=1")
+    assert r.status_code == 303 and r.headers["location"] == "/games/sabong/schedule?create=1"
 
 
 def test_vocabulary_no_game_number_in_templates():

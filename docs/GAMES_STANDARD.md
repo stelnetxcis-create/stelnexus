@@ -10,14 +10,14 @@ The original proposal is in [GAMES_STANDARD_PLAN.md](GAMES_STANDARD_PLAN.md).
 ## Where things live
 - `app/games/base.py`: the `GameAdapter` contract, normalized rows, `can_see_money`.
 - `app/games/<key>.py`: one adapter per game. `app/games/__init__.py`: the registry (`GAMES`).
-- `/games`: hub. `/games/{key}/{live|schedule|tickets|declare}`: workspace entry points.
+- `/games`: hub. Schedule (`/games/{key}/schedule`) renders each game's sessions as a table or as cards (`schedule_view`). `/games/{key}/{live|schedule|tickets|declare}`: workspace entry points.
 - `/records`: Tickets, Cancelled, Commissions, History, Reports for every game (`/records.csv` for exports).
-- Old URLs (`/betlogs`, `/cancelT`, `/history`, `/archives`, `/bola/betlogs`, `/bola/cancelled`, `/bola/results`, `/commissions`) redirect into Records.
+- Old URLs (`/betlogs`, `/cancelT`, `/history`, `/archives`, `/bola/betlogs`, `/bola/cancelled`, `/bola/results`, `/bola/reports`, `/commissions`) redirect into Records; `/events` redirects to the Sabong Schedule.
 
 ## Adding a game
 1. Write `app/games/<key>.py` with a `GameAdapter` subclass: `key`, `label`, `icon`, `vocabulary`, the six `perms`
    (`view, place, cancel, report, manage, declare`) plus `tickets`, and implement `workspace_urls`, `summary_today`,
-   `tickets`, `cancelled`, `history`, `report_daily`, `report_monthly`, `report_session`, `schedule`, `create_spec`.
+   `tickets`, `cancelled`, `history`, `report_daily`, `report_monthly`, `report_session`, `schedule`, `create_spec` (and `schedule_context` if you use the cards view).
 2. Register it in `app/games/__init__.py`.
 3. Run the suite: `tests/test_game_standard.py` fails if a method, right or vocabulary term is missing.
 

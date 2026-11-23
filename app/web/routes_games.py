@@ -50,10 +50,17 @@ async def game_tab(key: str, tab: str, request: Request, ctx: Ctx = Depends(requ
     if not target:
         raise NotFound("That page does not exist.")
     if tab == "schedule" and target == f"/games/{key}/schedule":
+        # the shared page renders in place; `?create=1` (old link) still opens the create drawer via pages.js
         when = request.query_params.get("when")
-        when = when if when in SCHEDULE_FILTERS else "today"
-        response = render(ctx, "games_schedule.html", active="games", game=adapter, when=when,
-                          filters=SCHEDULE_FILTERS, rows=adapter.schedule(ctx, when), spec=adapter.create_spec(ctx))
+        when = when if when in SCHEDULE_FILTERS else adapter.schedule_default
+        if adapter.schedule_view == "cards":
+            extra = adapter.schedule_context(ctx, when)
+            rows = []
+        else:
+            extra, rows = {}, adapter.schedule(ctx, when)
+        response = render(ctx, "games_schedule.html", active=adapter.nav_active[0] if adapter.nav_active else "games",
+                          game=adapter, when=when, filters=SCHEDULE_FILTERS, rows=rows,
+                          spec=adapter.create_spec(ctx), **extra)
         remember(response, key)
         return response
     query = request.url.query

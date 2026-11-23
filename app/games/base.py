@@ -101,9 +101,11 @@ class CreateSpec:
     submit: str = "Create"
     note: str = ""
     generate: "CreateSpec | None" = None
+    modal_id: str = "create-modal"
+    modals: list = field(default_factory=list)     # extra CreateSpec drawers (e.g. quick-register a location)
 
 
-SCHEDULE_FILTERS = ("today", "upcoming", "past")
+SCHEDULE_FILTERS = ("all", "today", "upcoming", "past")
 
 
 @dataclass
@@ -113,6 +115,8 @@ class GameAdapter:
     icon: str = "i-grid"
     vocabulary: dict[str, str] = field(default_factory=dict)      # {"session": "Event", "round": "Fight"}
     perms: dict[str, Any] = field(default_factory=dict)           # right -> Perm (or tuple of alternatives)
+    schedule_view: str = "table"                                  # "table" or "cards" (live event cards)
+    schedule_default: str = "today"
     nav_active: tuple[str, ...] = ()                              # sidebar 'active' keys that belong to this game
 
     # ---- rights --------------------------------------------------------------------------
@@ -161,6 +165,10 @@ class GameAdapter:
     def create_spec(self, ctx) -> CreateSpec | None:
         """None when the viewer may not create sessions or rounds."""
         raise NotImplementedError
+
+    def schedule_context(self, ctx, when: str) -> dict:
+        """Extra template context for games whose schedule_view is not the plain table."""
+        return {}
 
     def report_archive(self, ctx, f: Filters) -> list[ReportRow]:
         """Finished sessions, newest first (the old Report archives page). Optional per game."""

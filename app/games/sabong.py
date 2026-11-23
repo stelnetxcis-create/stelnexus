@@ -43,7 +43,7 @@ def canceller_names(ctx, ids) -> dict[int, str]:
 class SabongAdapter(GameAdapter):
     def __init__(self) -> None:
         super().__init__(
-            key="sabong", nav_active=("events", "change_name"), label="Sabong", icon="i-target",
+            key="sabong", nav_active=("events", "change_name"), schedule_view="cards", schedule_default="all", label="Sabong", icon="i-target",
             vocabulary={"game": "Sabong", "session": "Event", "round": "Fight", "ticket": "Ticket"},
             perms={"view": Perm.FIGHTS_VIEW, "place": Perm.BETS_PLACE, "cancel": Perm.CANCEL_LOG,
                    "tickets": Perm.BETS_VIEW, "report": Perm.REPORTS_VIEW,
@@ -62,7 +62,7 @@ class SabongAdapter(GameAdapter):
     def workspace_urls(self, ctx) -> dict[str, str | None]:
         return {
             "live": "/change_name" if ctx.can(Perm.FIGHTS_VIEW) else None,
-            "schedule": "/events" if ctx.can(Perm.EVENTS_VIEW) else None,
+            "schedule": "/games/sabong/schedule" if ctx.can(Perm.EVENTS_VIEW) else None,
             "tickets": "/records?tab=tickets&game=sabong" if ctx.can(Perm.BETS_VIEW) and can_see_money(ctx) else None,
             "declare": "/staff/declarator" if ctx.can(Perm.STAFF_DECLARATOR) else None,
         }
@@ -85,18 +85,26 @@ class SabongAdapter(GameAdapter):
                 "next": live_event.title if live_event else None}
 
     # ---- schedule --------------------------------------------------------------------
-    def schedule(self, ctx, when: str) -> list[ScheduleRow]:
+    def _events_for(self, ctx, when: str) -> list[Event]:
         today = bola.utcnow().astimezone(bola.MANILA).date()
-        evs = events.list_events(ctx.db, limit=200)
+        evs = events.list_events(ctx.db, limit=100)
         if when == "today":
-            evs = [e for e in evs if e.event_date == today]
-        elif when == "upcoming":
-            evs = sorted((e for e in evs if e.event_date > today), key=lambda e: (e.event_date, e.id))
-        else:
-            evs = [e for e in evs if e.event_date < today]
+            return [e for e in evs if e.event_date == today]
+        if when == "upcoming":
+            return sorted((e for e in evs if e.event_date > today), key=lambda e: (e.event_date, e.id))
+        if when == "past":
+            return [e for e in evs if e.event_date < today]
+        return evs
+
+    def schedule(self, ctx, when: str) -> list[ScheduleRow]:
         return [ScheduleRow(label=e.title, when=e.event_date.isoformat(), status=e.status.value,
                             location=e.location.name if e.location else "—",
-                            detail=f"{e.fight_count} fights", url=f"/events/{e.id}") for e in evs]
+                            detail=f"{e.fight_count} fights", url=f"/events/{e.id}")
+                for e in self._events_for(ctx, when)]
+
+    def schedule_context(self, ctx, when: str) -> dict:
+        evs = self._events_for(ctx, when)
+        return {"cards": evs, "stats": events.lobby_stats(ctx.db, [e.id for e in evs])}
 
     def create_spec(self, ctx) -> CreateSpec | None:
         if not ctx.can(Perm.EVENTS_CREATE):
@@ -104,19 +112,34 @@ class SabongAdapter(GameAdapter):
         locs = locations.list_locations(ctx.db, active_only=True)
         need_loc = bool(ctx.store.get("event.require_location")) and bool(locs)
         today = bola.utcnow().astimezone(bola.MANILA).date().isoformat()
-        return CreateSpec(title="Create event", action="/events/create",
-                          note="Creating an event generates its numbered fights. Locations are registered in Admin > Locations.",
-                          fields=[
-            {"name": "title", "label": "Event title", "type": "text", "required": True, "attrs": 'maxlength="120" placeholder="Sunday Derby"'},
-            {"name": "location_id", "label": "Location", "type": "select", "required": need_loc,
-             "options": [("", "Select a location…" if locs else "No location registered")] + [(str(l.id), l.name) for l in locs]},
-            {"name": "event_date", "label": "Event date", "type": "date", "value": today, "required": True},
-            {"name": "fight_count", "label": "Fights", "type": "number", "required": True,
-             "value": int(ctx.store.get("event.default_fight_count")), "attrs": 'min="1" max="200"'},
-            {"name": "payout_model", "label": "Payout model", "type": "select",
-             "options": [("", "Location / global default"), ("pool", "Pool + tong"), ("fixed", "Fixed odds")]},
-            {"name": "house_cut_bps", "label": "Tong override (bps)", "type": "number",
-             "attrs": 'min="0" max="10000" placeholder="blank = global"'}])
+        quick = CreateSpec(
+            title="Register location", action="/locations/quick", submit="Register", modal_id="loc-quick-modal",
+            note="The Admin can add custom fields and defaults later in the Admin Panel.",
+            fields=[{"name": "name", "label": "Name", "type": "text", "required": True, "attrs": 'maxlength="80"'},
+                    {"name": "city", "label": "City / area", "type": "text", "attrs": 'maxlength="80"'},
+                    {"name": "address", "label": "Address", "type": "text", "attrs": 'maxlength="200"'}])
+        return CreateSpec(
+            title="Create event", action="/events/create", modal_id="event-modal",
+            modals=[quick] if ctx.can(Perm.LOCATIONS_CREATE) else [],
+            note="Creating an event generates the numbered fights and one escrow pool account per fight.",
+            fields=[
+                {"name": "title", "label": "Event title", "type": "text", "required": True,
+                 "attrs": 'maxlength="120" placeholder="Sunday Derby"'},
+                {"name": "location_id", "label": "Location", "type": "select", "required": need_loc, "id": "ev-location",
+                 "link": ("loc-quick-modal", "+ Register a new location") if ctx.can(Perm.LOCATIONS_CREATE) else None,
+                 "options": [("", "Select a location…" if locs else "No location registered", "")] + [
+                     (str(l.id), l.name + (f" · {l.city}" if l.city else ""),
+                      f'data-fights="{l.default_fight_count or ""}" data-model="{l.default_payout_model or ""}" '
+                      f'data-cut="{l.default_house_cut_bps if l.default_house_cut_bps is not None else ""}"')
+                     for l in locs]},
+                {"name": "event_date", "label": "Event date", "type": "date", "value": today, "required": True},
+                {"name": "fight_count", "label": "Fights in this event", "type": "number", "required": True,
+                 "value": int(ctx.store.get("event.default_fight_count")), "attrs": 'min="1" max="200"'},
+                {"name": "payout_model", "label": "Payout model", "type": "select",
+                 "options": [("", "Location / global default"), ("pool", "Pool (pari-mutuel) + tong"),
+                             ("fixed", "Fixed odds per side")]},
+                {"name": "house_cut_bps", "label": "Tong override (bps)", "type": "number",
+                 "attrs": 'min="0" max="10000" placeholder="blank = use global setting"'}])
 
     # ---- records ---------------------------------------------------------------------
     def _rows(self, ctx, tickets: list[Ticket]) -> list[TicketRow]:

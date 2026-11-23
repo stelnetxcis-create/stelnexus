@@ -234,11 +234,11 @@ def test_events_page_create_button_and_quick_location(chain):
         u.must_change_password = False
     w.db.flush(); w.db.commit()
     m = _login(w.master.username)
-    assert "event-modal" in m.get("/events").text
+    assert "event-modal" in m.get("/events", follow_redirects=True).text
     r = m.post("/locations/quick", data={"csrf_token": _csrf(m), "name": f"Quick {w.tag}", "city": "Davao"})
-    assert r.status_code == 303 and f"Quick {w.tag}" in m.get("/events").text
+    assert r.status_code == 303 and f"Quick {w.tag}" in m.get("/events", follow_redirects=True).text
     cv = _login(w.cavo.username)
-    assert "event-modal" in cv.get("/events").text              # Agents host: they get the Create event button
+    assert "event-modal" in cv.get("/events", follow_redirects=True).text              # Agents host: they get the Create event button
     cv.post(f"/events/{w.event.id}/cancel", data={"csrf_token": _csrf(cv), "reason": "not allowed to run it"})
     w.db.expire_all()
     assert w.db.get(events.Event, w.event.id).status.value != "canceled"   # but cannot run / cancel events

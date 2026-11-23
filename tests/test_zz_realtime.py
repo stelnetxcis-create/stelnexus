@@ -107,9 +107,9 @@ def test_lobby_dashboard_and_fight_view_expose_their_regions():
     name, event_id, (fight_id, _) = _setup()
     try:
         c, _ = login(name)
-        assert 'data-region="lobby"' in c.get("/events").text
+        assert 'data-region="lobby"' in c.get("/events", follow_redirects=True).text
         assert 'data-region="fight-panel"' in c.get(f"/change_name?event_id={event_id}&fight_id={fight_id}").text
-        frag = c.get("/events", headers={**CONSOLE, "X-Fragment": "lobby"})
+        frag = c.get("/games/sabong/schedule", headers={**CONSOLE, "X-Fragment": "lobby"})
         assert frag.headers["x-fragment"] == "lobby" and "data-live-lobby" in frag.text
     finally:
         _cleanup(event_id)

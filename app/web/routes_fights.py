@@ -39,15 +39,11 @@ def _int(raw: str | None, default: int = 0) -> int:
 
 
 @router.get("/events")
-async def events_page(ctx: Ctx = Depends(require_ctx)):
+async def events_page(request: Request, ctx: Ctx = Depends(require_ctx)):
+    """Moved: Games > Sabong > Schedule (Games Standard 4.8). Kept as a redirect so old links work."""
     ctx.need(Perm.EVENTS_VIEW)
-    rows = events.list_events(ctx.db, limit=100)
-    return render(ctx, "events.html", active="events", rows=rows,
-                  stats=events.lobby_stats(ctx.db, [e.id for e in rows]),
-                  today=dt.date.today().isoformat(),
-                  default_fights=int(ctx.store.get("event.default_fight_count")),
-                  locations=locations.list_locations(ctx.db, active_only=True),
-                  require_location=bool(ctx.store.get("event.require_location")))
+    query = request.url.query
+    return RedirectResponse("/games/sabong/schedule" + (f"?{query}" if query else ""), status_code=303)
 
 
 @router.post("/events/create")
@@ -78,7 +74,7 @@ async def location_quick(request: Request, ctx: Ctx = Depends(require_ctx)):
     data = await form_data(request)
     row = locations.create_location(ctx.db, ctx.user, name=data.get("name", ""),
                                     address=data.get("address"), city=data.get("city"))
-    return flash_redirect("/events?create=1", f"Location '{row.name}' registered. Pick it for the new event.")
+    return flash_redirect("/games/sabong/schedule?create=1", f"Location '{row.name}' registered. Pick it for the new event.")
 
 
 @router.post("/events/{event_id}/stream")

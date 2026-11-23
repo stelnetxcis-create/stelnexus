@@ -370,7 +370,7 @@ def test_games_lobby_boxes_are_clickable(chain):
     w = chain
     w.db.commit()
     a = _login("admin")
-    html = a.get("/events").text
+    html = a.get("/events", follow_redirects=True).text
     assert "lobby-card" in html and f'href="/events/{w.event.id}"' in html and w.event.title in html
     assert "Main event" not in html and "Main Event" not in html
     detail = a.get(f"/events/{w.event.id}").text

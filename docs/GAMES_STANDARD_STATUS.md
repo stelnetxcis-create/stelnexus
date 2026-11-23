@@ -80,3 +80,12 @@ Six dead templates deleted (done).
 - `/bola/reports` now redirects to **Records > Reports** (game=bola). The Records daily table gained **Result** and **Tickets** columns (shown when a game supplies them), and rows link to the draw page, which keeps the exposure / worst-outcome panel and the per-draw CSV. The dashboard tile and the draw page's Reports button link straight to Records. `bola_reports.html` deleted.
 - Full suite: **567 passed, 1 skipped**.
 - Still open: card-lobby port for a shared Sabong Schedule (then redirect `/events`, `/bola`); the JS "Game #" strings + `dist` rebuild; the dead number-game player code (needs the SQL count on your live DB).
+
+## Update (round 8): Phase 5 finished, shared Schedule for both games
+- Sabong's Schedule is now the shared page `/games/sabong/schedule`: live event cards (realtime `lobby` region kept), Today / Upcoming / Past / All tabs, and the Create event drawer with location autofill and **Register a new location** (same element ids `pages.js` expects, so no JS rebuild needed). `?create=1` still opens the drawer.
+- Bola uses the same page as a table with its Create draw and Generate drawers.
+- `GET /events` redirects to `/games/sabong/schedule` (query kept). `events.html` deleted. The quick-location flow now returns to the shared page.
+- The adapter contract gained `schedule_view` (`table` or `cards`), `schedule_default`, `schedule_context` and drawers with extra modals, so a new game can choose either layout.
+- Full suite: **568 passed, 1 skipped**.
+- **Not redirected on purpose:** `/bola` and `/change_name`. They are the live play pages (bet panel, fight view), not schedules, so they stay as the Live tab.
+- Still open: the JS "Game #" strings + `dist` rebuild (needs your build), and the dead number-game player code (needs the SQL count on your live DB).

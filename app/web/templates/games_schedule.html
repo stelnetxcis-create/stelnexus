@@ -1,15 +1,25 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
+{% import "_lobby.html" as lobby %}
 {% block title %}{{ game.label }} · Schedule · {{ brand }}{% endblock %}
 {% block heading %}{{ game.label }} · Schedule{% endblock %}
 {% block actions %}
-{% if spec %}<button class="btn btn-sm btn-brand" data-modal="create-modal"><svg class="ico"><use href="#i-plus"/></svg>{{ spec.title }}</button>
-{% if spec.generate %}<button class="btn btn-sm" data-modal="generate-modal">{{ spec.generate.title }}</button>{% endif %}{% endif %}
+{% if spec %}<button class="btn btn-sm btn-brand" data-modal="{{ spec.modal_id }}"><svg class="ico"><use href="#i-plus"/></svg>{{ spec.title }}</button>
+{% if spec.generate %}<button class="btn btn-sm" data-modal="{{ spec.generate.modal_id }}">{{ spec.generate.title }}</button>{% endif %}{% endif %}
 {% endblock %}
 {% block content %}
 <div class="subtabs" role="tablist" aria-label="Schedule">
   {% for f in filters %}<a class="subtab {{ 'is-active' if when == f }}" href="/games/{{ game.key }}/schedule?when={{ f }}">{{ f | capitalize }}</a>{% endfor %}
 </div>
+
+{% if game.schedule_view == 'cards' %}
+  {% if cards %}
+  <p class="muted small" style="margin:0 0 12px">Tap an event to open its fights. Each box shows where it is held, its date and how far along it is.</p>
+  {{ lobby.event_cards(cards, stats, '/events/') }}
+  {% else %}
+  <div class="card"><div class="card-body">{{ ui.empty('Create an event to start taking Meron / Wala bets.' if when == 'all' else 'No events in this view.', kind='arena', title='No events yet' if when == 'all' else 'Nothing here', modal=spec.modal_id if spec else '', cta='Create an event' if spec else '') }}</div></div>
+  {% endif %}
+{% else %}
 <div class="card"><div class="card-body tight">
 {% if rows %}
 <div class="table-wrap"><table class="table"><thead><tr>
@@ -20,17 +30,19 @@
     <td class="small">{{ r.detail }}</td><td>{{ ui.status_badge(r.status) }}</td><td class="right"><a class="btn btn-sm btn-ghost" href="{{ r.url }}">Open</a></td></tr>
 {% endfor %}
 </tbody></table></div>
-{% else %}{{ ui.empty('Nothing scheduled here.' ) }}{% endif %}
+{% else %}{{ ui.empty('Nothing scheduled here.') }}{% endif %}
 </div></div>
+{% endif %}
 
-{% macro form(s, modal_id) %}
-{% call ui.modal(modal_id, s.title) %}
+{% macro form(s) %}
+{% call ui.modal(s.modal_id, s.title) %}
 <form method="post" action="{{ s.action }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <div class="form-grid">
   {% for f in s.fields %}
     <label class="field"><span>{{ f.label }}{% if f.required %} <em>*</em>{% endif %}</span>
-    {% if f.type == 'select' %}<select name="{{ f.name }}" {{ 'required' if f.required }}>{% for v, text in f.options %}<option value="{{ v }}">{{ text }}</option>{% endfor %}</select>
+    {% if f.type == 'select' %}<select name="{{ f.name }}" {% if f.id %}id="{{ f.id }}"{% endif %} {{ 'required' if f.required }}>{% for o in f.options %}<option value="{{ o[0] }}" {{ (o[2] if o | length > 2) | safe }}>{{ o[1] }}</option>{% endfor %}</select>
+    {% if f.link %}<small><a href="#" data-modal="{{ f.link[0] }}" id="loc-quick-link">{{ f.link[1] }}</a></small>{% endif %}
     {% else %}<input type="{{ f.type }}" name="{{ f.name }}" value="{{ f.value if f.value is defined else '' }}" {{ 'required' if f.required }} {{ f.attrs | safe if f.attrs }}>{% endif %}
     </label>
   {% endfor %}
@@ -40,5 +52,5 @@
 </form>
 {% endcall %}
 {% endmacro %}
-{% if spec %}{{ form(spec, 'create-modal') }}{% if spec.generate %}{{ form(spec.generate, 'generate-modal') }}{% endif %}{% endif %}
+{% if spec %}{{ form(spec) }}{% for m in spec.modals %}{{ form(m) }}{% endfor %}{% if spec.generate %}{{ form(spec.generate) }}{% endif %}{% endif %}
 {% endblock %}

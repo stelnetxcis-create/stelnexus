@@ -79,7 +79,8 @@ class BolaAdapter(GameAdapter):
             return None
         areas = locations.list_locations(ctx.db, active_only=True)
         today = bola.utcnow().astimezone(bola.MANILA).date().isoformat()
-        gen = CreateSpec(title="Generate from schedules", action="/bola/draws/generate", submit="Generate", fields=[
+        gen = CreateSpec(title="Generate from schedules", action="/bola/draws/generate", submit="Generate",
+                         modal_id="generate-modal", fields=[
             {"name": "days", "label": "Days ahead", "type": "number", "value": 1, "required": True,
              "attrs": 'min="1" max="14"'}])
         return CreateSpec(title="Create draw", action="/bola/draws/create", generate=gen, fields=[

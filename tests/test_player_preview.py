@@ -118,9 +118,9 @@ def test_every_player_menu_page_stays_in_the_player_preview(admin_c, scene):
 
 def test_top_bar_shows_the_players_credit_not_the_admins(admin_c, scene):
     c = admin_c
-    admin_html = c.get("/events").text
+    admin_html = c.get("/events", follow_redirects=True).text
     preview(c, scene)
-    html = c.get("/events").text
+    html = c.get("/events", follow_redirects=True).text
     assert "₱5,000.00" in html or "₱4,900.00" in html or "₱4,700.00" in html     # Stella: 5,000 less her two bets
     bal = lambda h: re.search(r'class="bal"[^>]*>([^<]+)<', h).group(1)
     assert bal(html) != bal(admin_html)
@@ -143,7 +143,7 @@ def test_player_rights_are_below_a_sub_agent(admin_c, scene):
     for path in ("/dashboard", "/admin", "/agents", "/clp", "/staff", "/cancelT", "/commissions", "/referrals",
                  "/bola/reports"):
         assert c.get(path).status_code == 403, path
-    assert 'dev-perms' in c.get("/events").text
+    assert 'dev-perms' in c.get("/events", follow_redirects=True).text
 
 
 def test_preview_is_read_only(admin_c, scene):
@@ -158,7 +158,7 @@ def test_preview_is_read_only(admin_c, scene):
     c = admin_c
     preview(c, scene)
     before = counts()
-    token = csrf(c, "/events")
+    token = csrf(c, "/games/sabong/schedule")
     r = c.post("/events/create", data={"csrf_token": token, "title": "nope", "event_date": "2026-12-01",
                                        "fight_count": "2"})
     assert r.status_code == 303 and counts() == before
@@ -169,7 +169,7 @@ def test_preview_is_read_only(admin_c, scene):
 def test_exit_preview_restores_the_admin_console(admin_c, scene):
     c = admin_c
     preview(c, scene)
-    assert c.post("/dev/view-as/exit", data={"csrf_token": csrf(c, "/events")}).status_code == 303
+    assert c.post("/dev/view-as/exit", data={"csrf_token": csrf(c, "/games/sabong/schedule")}).status_code == 303
     c.cookies.delete(VIEWAS_COOKIE)
     html = c.get("/dashboard").text
     assert 'title="Admin Panel"' in html and "Previewing as" not in html
@@ -209,7 +209,7 @@ def test_the_player_can_bet_so_the_bet_panel_and_slip_show_with_their_own_credit
     assert "Place a bet" in page
     bola_page = c.get(f"/bola/draws/{scene['draw']}").text
     assert "data-bola-slip" in bola_page
-    token = csrf(c, "/events")
+    token = csrf(c, "/games/sabong/schedule")
     r = c.post("/bets/live/place", data={"csrf_token": token, "event_id": str(scene["event"])},
                headers={"Accept": "application/json"})
     assert r.status_code in (303, 403)
