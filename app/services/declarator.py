@@ -145,7 +145,7 @@ def _recent(db: Session, now: dt.datetime, *, sabong: bool, with_bola: bool) -> 
                 .where(Fight.status.in_((FightStatus.SETTLED, FightStatus.VOID)),
                        Fight.declared_at.is_not(None), Fight.declared_at >= since)
                 .order_by(Fight.declared_at.desc()).limit(RECENT_LIMIT)).all():
-            rows.append({"kind": "fight", "id": f.id, "ev": f.event_id, "ref": f"Game #{f.number}",
+            rows.append({"kind": "fight", "id": f.id, "ev": f.event_id, "ref": f"Fight #{f.number}",
                          "title": title, "res": f.result.value if f.result else "",
                          "nm": f.entry_name_meron, "nw": f.entry_name_wala,
                          "at": _ms(f.declared_at), "by_id": f.declared_by_id})

@@ -39,7 +39,7 @@
   {% else %}
     {% set f = board.fight %}{% set snap = board.snapshot %}{% set mult = board.multipliers %}
     <div class="live-head">
-      <div class="live-game">Game {{ f.number }}</div>
+      <div class="live-game">Fight {{ f.number }}</div>
       {% if f.status.value == 'open' %}<div class="live-state live-open">BETTING OPEN</div>{% else %}<div class="live-state live-closed">BETTING CLOSED</div>{% endif %}
     </div>
     {% if f.bet_mode != 'all' %}<div class="alert alert-warning">Only {{ f.bet_mode | upper }} is open for this game.</div>{% endif %}

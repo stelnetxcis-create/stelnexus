@@ -429,7 +429,7 @@ def request_correction(
     for admin_id in db.scalars(select(User.id).where(User.role.in_([Role.ADMIN, Role.MASTER]),
                                                       User.id != actor.id)).all():
         db.add(Notification(user_id=admin_id, level="warning",
-                            message=f"{actor.username} requested a {action} on game #{fight.number}",
+                            message=f"{actor.username} requested a {action} on fight #{fight.number}",
                             link="/change_name"))
     db.flush()
     return run

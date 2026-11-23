@@ -62,7 +62,7 @@ async def staff_home(ctx: Ctx = Depends(require_ctx)):
     if decl_open:
         waiting = declarator.attention(ctx.db, sabong=ctx.can(Perm.FIGHTS_VIEW), with_bola=_bola_visible(ctx))
         decl_value = f"{waiting} waiting" if waiting else "All clear"
-        decl_hint = "Games waiting for a result" if waiting else "No game is waiting for a result"
+        decl_hint = "Fights waiting for a result" if waiting else "No fight is waiting for a result"
     sections = [
         dict(label="Teller", url="/staff/teller", open=teller_open, value=teller_value,
              hint=teller_hint, tone="green", locked_hint="Tellers only"),
@@ -123,9 +123,9 @@ async def desk_declare(fight_id: int, request: Request, ctx: Ctx = Depends(requi
         proofs.attach(ctx.db, ctx.user, fight, proof)
     if (run.totals or {}).get("auto_cancel"):
         floor = int(ctx.store.get("payout.min_odds_bps")) / 10000
-        return _ok(f"Game {fight.number}: odds were below {floor:.2f}x, so it was cancelled and every stake "
+        return _ok(f"Fight {fight.number}: odds were below {floor:.2f}x, so it was cancelled and every stake "
                    "refunded.", "warning")
-    return _ok(f"Game {fight.number} declared {result.value.upper()} and settled.")
+    return _ok(f"Fight {fight.number} declared {result.value.upper()} and settled.")
 
 
 @router.post("/staff/declarator/fights/{fight_id}/lock")
@@ -135,7 +135,7 @@ async def desk_lock(fight_id: int, request: Request, ctx: Ctx = Depends(require_
     data = await form_data(request)
     locking = data.get("locked", "1") == "1"
     fight = events.lock_fight(ctx.db, ctx.user, fight_id, locked=locking)
-    return _ok(f"Game {fight.number}: betting closed." if locking else f"Game {fight.number}: betting re-opened.",
+    return _ok(f"Fight {fight.number}: betting closed." if locking else f"Fight {fight.number}: betting re-opened.",
                "success" if not locking else "warning")
 
 
@@ -149,8 +149,8 @@ async def desk_stream(event_id: int, request: Request, ctx: Ctx = Depends(requir
     fid = data.get("fight_id", "")
     fight = events.set_stream_live(ctx.db, ctx.user, event_id, live, int(fid) if str(fid).isdigit() else None)
     if live:
-        return _ok(f"Game {fight.number} is on air. Betting and chat are closed until it is declared.")
-    return _ok(f"Game {fight.number} is back to pre-show: betting and chat are open.", "warning")
+        return _ok(f"Fight {fight.number} is on air. Betting and chat are closed until it is declared.")
+    return _ok(f"Fight {fight.number} is back to pre-show: betting and chat are open.", "warning")
 
 
 @router.post("/staff/declarator/events/{event_id}/open")

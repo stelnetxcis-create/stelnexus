@@ -15,7 +15,7 @@
   <td><strong>{{ l.name }}</strong>{% if l.notes %}<div class="small muted">{{ l.notes }}</div>{% endif %}</td>
   <td class="small">{{ l.address or '' }}{{ ', ' if l.address and l.city else '' }}{{ l.city or '' }}{% if not l.address and not l.city %}—{% endif %}</td>
   <td class="small">{% for f in (l.custom_fields or []) %}<div><span class="muted">{{ f.label }}:</span> {{ f.value }}</div>{% else %}—{% endfor %}</td>
-  <td class="small">{{ (l.default_fight_count ~ ' games') if l.default_fight_count else 'global' }}{% if l.default_payout_model %} · {{ l.default_payout_model }}{% endif %}{% if l.default_house_cut_bps is not none %} · tong {{ '%.2f%%' | format(l.default_house_cut_bps / 100) }}{% endif %}</td>
+  <td class="small">{{ (l.default_fight_count ~ ' fights') if l.default_fight_count else 'global' }}{% if l.default_payout_model %} · {{ l.default_payout_model }}{% endif %}{% if l.default_house_cut_bps is not none %} · tong {{ '%.2f%%' | format(l.default_house_cut_bps / 100) }}{% endif %}</td>
   <td class="small">{% if l.bola_limit_per_line_cents is none and l.bola_max_liability_per_outcome_cents is none and l.bola_max_liability_per_draw_cents is none %}global{% else %}{% if l.bola_limit_per_line_cents is not none %}<div>line {{ ('₱%.2f' | format(l.bola_limit_per_line_cents / 100)) if l.bola_limit_per_line_cents else 'no cap' }}</div>{% endif %}{% if l.bola_max_liability_per_outcome_cents is not none %}<div>outcome {{ ('₱%.2f' | format(l.bola_max_liability_per_outcome_cents / 100)) if l.bola_max_liability_per_outcome_cents else 'no cap' }}</div>{% endif %}{% if l.bola_max_liability_per_draw_cents is not none %}<div>draw {{ ('₱%.2f' | format(l.bola_max_liability_per_draw_cents / 100)) if l.bola_max_liability_per_draw_cents else 'no cap' }}</div>{% endif %}{% endif %}</td>
   <td class="right num">{{ counts.get(l.id, 0) }}</td>
   <td>{{ ui.badge('active' if l.is_active else 'archived', 'green' if l.is_active else 'slate') }}</td>
@@ -51,7 +51,7 @@
   </label>
   <h4 style="margin:14px 0 6px">Event defaults <small class="muted">(blank = global setting)</small></h4>
   <div class="form-grid">
-    {{ ui.field('Games', 'default_fight_count', 'number', attrs='min=1 max=200 data-fill=fights') }}
+    {{ ui.field('Fights', 'default_fight_count', 'number', attrs='min=1 max=200 data-fill=fights') }}
     <label class="field"><span>Payout model</span><select name="default_payout_model" data-fill="model"><option value="">Global default</option><option value="pool">Pool</option><option value="fixed">Fixed odds</option></select></label>
     {{ ui.field('Tong (bps)', 'default_house_cut_bps', 'number', attrs='min=0 max=10000 data-fill=cut') }}
   </div>

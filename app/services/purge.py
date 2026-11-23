@@ -36,7 +36,7 @@ def _live_stakes(db: Session, fight_id: int) -> int:
 def _wipe_fight(db: Session, fight: Fight) -> dict:
     fid = fight.id
     if fight.status not in (FightStatus.SETTLED, FightStatus.VOID) and _live_stakes(db, fid):
-        raise Conflict(f"Game #{fight.number} still holds live stakes. Cancel it first so players are refunded.")
+        raise Conflict(f"Fight #{fight.number} still holds live stakes. Cancel it first so players are refunded.")
     snap = {"number": fight.number, "status": fight.status.value,
             "tickets": db.scalar(select(func.count()).select_from(Ticket).where(Ticket.fight_id == fid)) or 0}
     db.execute(update(Account).where(Account.owner_fight_id == fid).values(owner_fight_id=None))

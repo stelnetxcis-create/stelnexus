@@ -546,7 +546,7 @@ def scope_label(db: Session, scope_type: str, scope_id: int | None) -> str:
     if f is None:
         return "a game that no longer exists"
     e = db.get(Event, f.event_id)
-    return f"everyone watching game #{f.number} of {e.title if e else 'its event'}"
+    return f"everyone watching fight #{f.number} of {e.title if e else 'its event'}"
 
 
 def impact(db: Session, *, scope_type: str, scope_id: int | None, mode: str, chain: list[int],

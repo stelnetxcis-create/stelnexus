@@ -19,16 +19,16 @@
     <span class="lobby-art" aria-hidden="true"></span><span class="lobby-glare" aria-hidden="true"></span>
     <div class="lobby-top">
       <span class="lobby-status"><i></i>{{ e.status.value | upper }}</span>
-      {% if s.live and e.status.value == 'open' %}<span class="lobby-live"><i></i>Game {{ s.live }} up next</span>{% endif %}
+      {% if s.live and e.status.value == 'open' %}<span class="lobby-live"><i></i>Fight {{ s.live }} up next</span>{% endif %}
     </div>
     <h3>{{ e.title }}</h3>
     <div class="lobby-where">
       <svg class="ico"><use href="#i-target"/></svg>{{ e.location.name if e.location else 'No location' }}{% if e.location and e.location.city %} · {{ e.location.city }}{% endif %}
     </div>
     <div class="lobby-date"><svg class="ico"><use href="#i-calendar"/></svg>{{ e.event_date | date }}</div>
-    <div class="lobby-bar" title="{{ s.settled + s.void }} of {{ s.total }} games finished"><i style="--w: {{ s.pct }}%; width: {{ s.pct }}%"></i></div>
+    <div class="lobby-bar" title="{{ s.settled + s.void }} of {{ s.total }} fights finished"><i style="--w: {{ s.pct }}%; width: {{ s.pct }}%"></i></div>
     <div class="lobby-nums">
-      <span><b data-count>{{ s.total }}</b> games</span>
+      <span><b data-count>{{ s.total }}</b> fights</span>
       <span class="n-open"><b>{{ s.open }}</b> open</span>
       <span class="n-locked"><b>{{ s.locked }}</b> locked</span>
       <span class="n-done"><b>{{ s.settled + s.void }}</b> done</span>
@@ -45,7 +45,7 @@
   {% set res = f.result.value if f.result else '' %}
   <a class="game-tile st-{{ f.status.value }}{{ ' res-' ~ res if res }}{{ ' is-active' if f.id == active_id }}{{ ' has-pool' if f.status.value in ('open', 'locked') }}" data-fight="{{ f.id }}" data-n="{{ f.number }}"
      href="/change_name?event_id={{ event_id }}&fight_id={{ f.id }}" style="--i: {{ loop.index0 }}"
-     title="Game {{ f.number }} · {{ f.entry_name_meron }} vs {{ f.entry_name_wala }} · {{ res | upper if res else f.status.value | upper }}">
+     title="Fight {{ f.number }} · {{ f.entry_name_meron }} vs {{ f.entry_name_wala }} · {{ res | upper if res else f.status.value | upper }}">
     <span class="tile-pic" aria-hidden="true"></span>
     <b>{{ f.number }}</b>
     <span class="tile-state">{% if res %}{{ res | upper }}{% else %}{{ f.status.value | upper }}{% endif %}</span>
@@ -67,7 +67,7 @@
   {% for f in fights %}{% set res = f.result.value if f.result else '' %}
     <a class="fv-chip st-{{ f.status.value }}{{ ' res-' ~ res if res }}{{ ' is-active' if f.id == active_id }}" data-fight="{{ f.id }}" data-n="{{ f.number }}"
        data-m="{{ f.entry_name_meron }}" data-w="{{ f.entry_name_wala }}" href="/change_name?event_id={{ event_id }}&fight_id={{ f.id }}"{% if f.id == active_id %} aria-current="true"{% endif %}
-       title="Game {{ f.number }} · {{ f.entry_name_meron }} vs {{ f.entry_name_wala }} · {{ res | upper if res else f.status.value | upper }}"><b>{{ f.number }}</b></a>
+       title="Fight {{ f.number }} · {{ f.entry_name_meron }} vs {{ f.entry_name_wala }} · {{ res | upper if res else f.status.value | upper }}"><b>{{ f.number }}</b></a>
   {% endfor %}
   </div>
   <button type="button" class="fv-nav" data-fv-next aria-label="Scroll games right" title="Later games">&#8250;</button>

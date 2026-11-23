@@ -100,3 +100,12 @@ def test_sabong_schedule_is_the_live_events_lobby():
     assert r.status_code == 303 and r.headers["location"] == "/events"
     page = c.get("/events")
     assert page.status_code == 200 and 'data-modal="event-modal"' in page.text
+
+
+def test_vocabulary_no_game_number_in_templates():
+    """Plan 4.1: 'Game' only ever means the product; a fight is 'Fight #n'."""
+    import pathlib
+    import re
+    bad = [p.name for p in pathlib.Path("app/web/templates").rglob("*.html")
+           if re.search(r"\b[Gg]ame #|\bGame \{\{", p.read_text())]
+    assert not bad, bad

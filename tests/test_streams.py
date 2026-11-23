@@ -416,7 +416,7 @@ def test_admin_assigns_per_event_and_per_game_and_viewers_poll_their_scope():
             _post(c, "/admin/streams/assign", **bad)
         with session_scope() as db:
             assert len(streams.list_assignments(db)) == 2                                         # none of the bad ones was saved
-        assert "Game #" in c.get("/admin/streams").text and "Event:" in c.get("/admin/streams").text
+        assert "Fight #" in c.get("/admin/streams").text and "Event:" in c.get("/admin/streams").text
 
         e = c.get(f"/_live/stream/e{ev_id}").json()
         g = c.get(f"/_live/stream/f{fight_id}").json()

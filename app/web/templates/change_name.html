@@ -47,7 +47,7 @@
 <div class="fight-grid{{ ' is-single' if fight }}">
   {% if not fight %}
   <div class="card">
-    <div class="card-head"><h3>Games</h3></div>
+    <div class="card-head"><h3>Fights</h3></div>
     <div class="card-body">{{ lobby.game_tiles(fights, event.id, 0) }}</div>
   </div>
   {% endif %}
@@ -61,7 +61,7 @@
     {% set ph = fv_phase %}
     <div class="fv-live" data-fv-live data-live="{{ 1 if ph == 'onair' else 0 }}" data-phase="{{ ph }}">
       <span class="fv-live-dot" aria-hidden="true"></span>
-      <span data-fv-live-text>{% if ph == 'open' %}Game #{{ fight.number }} &middot; pre-show &middot; betting and chat are open{% elif ph == 'onair' %}{% if on_air %}Game #{{ fight.number }} is on air &middot; betting and chat are closed until it is done{% else %}Game #{{ fight.number }} &middot; betting is closed{% endif %}{% elif ph == 'waiting' %}Game #{{ fight.number }} opens after the games before it are done{% else %}Game #{{ fight.number }} &middot; ended{% endif %}</span>
+      <span data-fv-live-text>{% if ph == 'open' %}Fight #{{ fight.number }} &middot; pre-show &middot; betting and chat are open{% elif ph == 'onair' %}{% if on_air %}Fight #{{ fight.number }} is on air &middot; betting and chat are closed until it is done{% else %}Fight #{{ fight.number }} &middot; betting is closed{% endif %}{% elif ph == 'waiting' %}Fight #{{ fight.number }} opens after the games before it are done{% else %}Fight #{{ fight.number }} &middot; ended{% endif %}</span>
       {% if 'fights.lock' in perms and event.status.value == 'open' %}
       <form method="post" action="/events/{{ event.id }}/stream" data-fv-live-form="start" data-confirm="Put this game on air? Betting and chat close until it is declared; the next game opens after that."{% if ph != 'open' %} hidden{% endif %}>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="start"><input type="hidden" name="fight_id" value="{{ fight.id }}">
@@ -93,7 +93,7 @@
           <div class="pbs-stage">
 
           <div class="pbs-pane pbs-open" data-pbs-pane="open"{% if ph == 'onair' %} data-closed{% endif %}>
-            <div class="pbs-kicker"><i></i><span data-pb="kick">{{ 'Betting closed' if ph == 'onair' else 'Betting open' }}</span><span class="pbs-dot">&middot;</span>Game #<span data-pb="gn">{{ fight.number }}</span></div>
+            <div class="pbs-kicker"><i></i><span data-pb="kick">{{ 'Betting closed' if ph == 'onair' else 'Betting open' }}</span><span class="pbs-dot">&middot;</span>Fight #<span data-pb="gn">{{ fight.number }}</span></div>
             <div class="pbs-duel">
               <div class="pbs-side meron{% if multipliers and multipliers.meron.capped %} is-max{% endif %}" data-pb-side="meron">
                 <div class="pbs-tag"><span>MERON</span><em data-pb="tm">{{ role_of(fight, 'meron') or '' }}</em></div>
@@ -123,14 +123,14 @@
           <div class="pbs-pane pbs-wait" data-pbs-pane="waiting">
             <div class="pbs-ring" aria-hidden="true"></div>
             <div class="pbs-kicker"><i></i>Up next</div>
-            <div class="pbs-big">Game #<span data-pb="gn2">{{ fight.number }}</span></div>
+            <div class="pbs-big">Fight #<span data-pb="gn2">{{ fight.number }}</span></div>
             <div class="pbs-vsline"><span class="m" data-pb="nm2">{{ fight.entry_name_meron }}</span><em>vs</em><span class="w" data-pb="nw2">{{ fight.entry_name_wala }}</span></div>
-            <p data-pb="waitmsg">Betting opens after game #{{ cur_number or '?' }} is done</p>
+            <p data-pb="waitmsg">Betting opens after fight #{{ cur_number or '?' }} is done</p>
           </div>
 
           <div class="pbs-pane pbs-end" data-pbs-pane="ended">
             <div class="pbs-crown" aria-hidden="true"><svg class="ico"><use href="#i-crown"/></svg></div>
-            <div class="pbs-kicker"><i></i>Game #<span data-pb="gn3">{{ fight.number }}</span><span class="pbs-dot">&middot;</span>Final</div>
+            <div class="pbs-kicker"><i></i>Fight #<span data-pb="gn3">{{ fight.number }}</span><span class="pbs-dot">&middot;</span>Final</div>
             <div class="pbs-result" data-pb="rh">{% if res == 'meron' %}MERON WINS{% elif res == 'wala' %}WALA WINS{% elif res == 'draw' %}DRAW{% else %}CANCELLED{% endif %}</div>
             <div class="pbs-winner" data-pb="rw">{% if res == 'meron' %}{{ fight.entry_name_meron }}{% elif res == 'wala' %}{{ fight.entry_name_wala }}{% elif res == 'draw' %}Stakes refunded{% else %}Stakes refunded{% endif %}{% if res in ('meron', 'wala') and role_of(fight, res) %} <em>{{ role_of(fight, res) }}</em>{% endif %}</div>
             <div class="pbs-final" data-m>
@@ -145,11 +145,11 @@
           </div>
         </div>
         {% endset %}
-        {{ pl.stream_player('fight', 'Game #' ~ fight.number ~ ' · Live match video', fight.entry_name_meron, fight.entry_name_wala, stream_pass, chat_access.reason == 'closed', strip_html, scene_html, stream_payload, '/_live/stream/f' ~ fight.id) }}
+        {{ pl.stream_player('fight', 'Fight #' ~ fight.number ~ ' · Live match video', fight.entry_name_meron, fight.entry_name_wala, stream_pass, chat_access.reason == 'closed', strip_html, scene_html, stream_payload, '/_live/stream/f' ~ fight.id) }}
         <div class="fc-overlay" data-fc-overlay data-size="m" role="region" aria-label="Livestream chat"{% if ph in ('onair', 'waiting') %} style="display:none"{% endif %}>
       <div class="fc-head">
         <span class="fc-air"><i></i><span data-fc-air>{{ 'ENDED' if chat_access.reason == 'closed' else 'PRE-SHOW' }}</span></span>
-        <div class="fc-title" data-fc-grip title="Drag to move · double-click to reset"><b>Livestream chat <span class="fc-unread" data-fc-unread hidden>0</span></b><small>Game #{{ fight.number }} · {{ fight.entry_name_meron }} vs {{ fight.entry_name_wala }}</small></div>
+        <div class="fc-title" data-fc-grip title="Drag to move · double-click to reset"><b>Livestream chat <span class="fc-unread" data-fc-unread hidden>0</span></b><small>Fight #{{ fight.number }} · {{ fight.entry_name_meron }} vs {{ fight.entry_name_wala }}</small></div>
         <span class="fc-conn" data-fc-conn data-state="wait">connecting</span>
         <button type="button" class="fc-toggle fc-cog" data-fc-cog aria-expanded="false" aria-label="Chat display settings" title="Size, transparency &amp; position"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg></button>
         <button type="button" class="fc-toggle" data-fc-toggle aria-expanded="true" aria-label="Collapse chat" title="Collapse / expand chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
@@ -185,7 +185,7 @@
           <div class="fc-lock-opts">
             <a class="fc-opt is-pass" href="/store"><small>Battle Pass</small><strong>{{ pass_price | money }}</strong><span>{{ pass_days }} days, every game</span></a>
             {% if chat_tokens %}
-            <button type="button" class="fc-opt" data-fc-unlock><small>Chats left: <span data-fc-tokens>{{ chat_tokens }}</span></small><strong>Use 1 on this game</strong><span>Unlocks Game #{{ fight.number }} only</span></button>
+            <button type="button" class="fc-opt" data-fc-unlock><small>Chats left: <span data-fc-tokens>{{ chat_tokens }}</span></small><strong>Use 1 on this game</strong><span>Unlocks Fight #{{ fight.number }} only</span></button>
             {% else %}
             <a class="fc-opt" href="/store"><small>Chat tokens</small><strong>{{ tok_price | money }}</strong><span>{{ settings['store.token_uses'] }} chats, 1 per game, {{ settings['store.token_events'] }} events</span></a>
             {% endif %}
@@ -205,7 +205,7 @@
     {% if fight %}
     <div class="card">
       <div class="card-head">
-        <h2>Game #{{ fight.number }}</h2>
+        <h2>Fight #{{ fight.number }}</h2>
         {{ ui.status_badge(fight.status) }}
         {% if fight.settlement_version %}<span class="tag">settlement v{{ fight.settlement_version }}</span>{% endif %}
       </div>
@@ -444,9 +444,9 @@
   <div class="card-head"><h2>Delete this game</h2>{{ ui.badge('DEV only', 'red') }}</div>
   <div class="card-body">
     <p class="notice">Permanently removes it with its tickets, settlements and chat. Wallet and ledger history is kept untouched. Anything still holding live stakes is refused: cancel / void it first so players are refunded.</p>
-    <form method="post" action="/dev/purge/fight/{{ fight.id }}" class="inline-form" data-confirm="Permanently delete Game #{{ fight.number }}? This cannot be undone.">
+    <form method="post" action="/dev/purge/fight/{{ fight.id }}" class="inline-form" data-confirm="Permanently delete Fight #{{ fight.number }}? This cannot be undone.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <button class="btn btn-danger" type="submit">Delete game #{{ fight.number }}</button>
+      <button class="btn btn-danger" type="submit">Delete fight #{{ fight.number }}</button>
     </form>
   </div>
 </div>

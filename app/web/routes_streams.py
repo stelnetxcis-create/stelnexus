@@ -50,7 +50,7 @@ def _assignment_rows(db, rows, sources):
         else:
             f = fights.get(a.scope_id)
             e = evs.get(f.event_id) if f else None
-            scope = f"Game #{f.number} of {e.title}" if f and e else "Game (removed)"
+            scope = f"Fight #{f.number} of {e.title}" if f and e else "Game (removed)"
         win = " → ".join(x for x in (streams.fmt_local(a.starts_at) or "…", streams.fmt_local(a.ends_at) or "…") if x) \
             if (a.starts_at or a.ends_at) else "always"
         out.append({"id": a.id, "scope": scope, "mode": streams.MODE_LABEL[a.mode], "active": a.active, "window": win,
@@ -154,7 +154,7 @@ def _assign_args(ctx: Ctx, data) -> dict:
                 raise ValidationError("Enter the game number.")
             fight = ctx.db.scalar(select(Fight).where(Fight.event_id == scope_id, Fight.number == int(num)))
             if fight is None:
-                raise ValidationError(f"Game #{num} does not exist in that event.")
+                raise ValidationError(f"Fight #{num} does not exist in that event.")
             scope_id = fight.id
     chain = [int(data[k]) for k in ("s1", "s2", "s3") if data.get(k, "").isdigit()]
     return dict(scope_type=scope, scope_id=scope_id, mode=data.get("mode", "live"), chain=chain,

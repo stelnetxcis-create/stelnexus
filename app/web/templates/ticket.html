@@ -12,7 +12,7 @@
     <h2>{{ brand }}</h2>
     <div class="t-sub">{{ event.title }}</div>
     <div class="t-sep"></div>
-    <div class="t-row"><span>Game #</span><strong>{{ fight.number }}</strong></div>
+    <div class="t-row"><span>Fight #</span><strong>{{ fight.number }}</strong></div>
     <div class="t-big">{{ ticket.side.value | upper }}</div>
     <div class="t-row"><span>Entry</span><span>{{ 'Draw' if ticket.side.value == 'draw' else (fight.entry_name_meron if ticket.side.value == 'meron' else fight.entry_name_wala) }}</span></div>
     <div class="t-row"><span>Amount</span><strong>{{ ticket.stake_cents | money }}</strong></div>

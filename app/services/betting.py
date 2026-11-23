@@ -225,12 +225,12 @@ def place_bet(
         cur = events.current_fight(db, fight.event_id)
         phase = events.stream_phase(fight, cur.id if cur else None)
         if phase == "waiting":
-            raise LockedState(f"Game #{fight.number} is not open yet: it opens when game #{cur.number} is done.")
+            raise LockedState(f"Fight #{fight.number} is not open yet: it opens when fight #{cur.number} is done.")
         if phase == "onair":
-            raise LockedState(f"Betting is closed: game #{fight.number} has started. "
-                              f"Game #{fight.number + 1} opens when it is done.")
+            raise LockedState(f"Betting is closed: fight #{fight.number} has started. "
+                              f"Fight #{fight.number + 1} opens when it is done.")
     if fight.status != FightStatus.OPEN:
-        raise LockedState(f"Game #{fight.number} is {fight.status} -- betting is closed.")
+        raise LockedState(f"Fight #{fight.number} is {fight.status} -- betting is closed.")
 
     minimum, maximum = int(settings.get("payout.min_stake_cents")), int(settings.get("payout.max_stake_cents"))
     if stake_cents < minimum or stake_cents > maximum:
@@ -240,7 +240,7 @@ def place_bet(
     if side == Side.DRAW and not settings.get("fight.draw_bets_enabled"):
         raise LockedState("Draw bets are switched off.")
     if fight.bet_mode in ("meron", "wala") and side.value != fight.bet_mode:
-        raise LockedState(f"Game #{fight.number} only accepts {fight.bet_mode.upper()} bets right now.")
+        raise LockedState(f"Fight #{fight.number} only accepts {fight.bet_mode.upper()} bets right now.")
     if funded_by != "wallet":
         raise ValidationError("Bets are funded from player credit only.")
 

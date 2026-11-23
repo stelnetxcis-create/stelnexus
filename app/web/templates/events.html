@@ -28,7 +28,7 @@
   </label>
   <div class="form-grid">
     {{ ui.field('Event date', 'event_date', 'date', today, required=true) }}
-    {{ ui.field('Game sequence (fight count)', 'fight_count', 'number', default_fights, required=true, attrs='min=1 max=200') }}
+    {{ ui.field('Fights in this event', 'fight_count', 'number', default_fights, required=true, attrs='min=1 max=200') }}
     <label class="field"><span>Payout model</span>
       <select name="payout_model">
         <option value="">Location / global default</option>

@@ -115,7 +115,7 @@ def test_early_bet_follows_the_game_order():
 
     assert early(fight_id, "e-1").status_code == 200                      # current game, pre-show: open
     nxt = early(second_id, "e-2")                                         # later game: not open yet
-    assert nxt.status_code >= 400 and "opens when game #1 is done" in nxt.text
+    assert nxt.status_code >= 400 and "opens when fight #1 is done" in nxt.text
     rows = {f["n"]: f for f in c.get(f"/_live/event/{ev_id}").json()["fights"]}
     assert rows[1]["ph"] == "open" and rows[2]["ph"] == "waiting"
     assert rows[1]["mm"] and rows[1]["tt"] >= 10000 and "np" in rows[1]    # live payout figures ride on the poll
@@ -125,7 +125,7 @@ def test_early_bet_follows_the_game_order():
     page = c.get(f"/change_name?event_id={ev_id}&fight_id={fight_id}").text
     assert "is on air" in page and 'data-phase="onair"' in page and 'data-live="1"' in page
     late = early(fight_id, "e-3")
-    assert late.status_code >= 400 and "game #1 has started" in late.text
+    assert late.status_code >= 400 and "fight #1 has started" in late.text
     assert early(second_id, "e-4").status_code >= 400                      # still waiting
     # only the current game can go on air
     bad = c.post(f"/events/{ev_id}/stream", data={"action": "start", "fight_id": second_id, "csrf_token": _csrf(c)})

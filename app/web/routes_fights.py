@@ -91,9 +91,9 @@ async def event_stream(event_id: int, request: Request, ctx: Ctx = Depends(requi
     fid = data.get("fight_id", "")
     fight = events.set_stream_live(ctx.db, ctx.user, event_id, live, int(fid) if str(fid).isdigit() else None)
     back = f"/change_name?event_id={event_id}&fight_id={fight.id}"
-    return flash_redirect(back, (f"Game #{fight.number} is on air: betting and chat are closed until it is declared. "
+    return flash_redirect(back, (f"Fight #{fight.number} is on air: betting and chat are closed until it is declared. "
                                  "The next game opens after that." if live
-                                 else f"Game #{fight.number} is back to pre-show: betting and chat are open."))
+                                 else f"Fight #{fight.number} is back to pre-show: betting and chat are open."))
 
 
 @router.post("/events/{event_id}/status")

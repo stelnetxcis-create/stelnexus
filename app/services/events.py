@@ -148,7 +148,7 @@ def get_fight(db: Session, fight_id: int) -> Fight:
 def get_fight_by_number(db: Session, event_id: int, number: int) -> Fight:
     fight = db.scalar(select(Fight).where(Fight.event_id == event_id, Fight.number == number))
     if fight is None:
-        raise NotFound(f"Game #{number} does not exist in this event.")
+        raise NotFound(f"Fight #{number} does not exist in this event.")
     return fight
 
 
@@ -227,11 +227,11 @@ def set_stream_live(db: Session, actor: User, event_id: int, live: bool, fight_i
     if fight is None or fight.event_id != event.id:
         raise NotFound("There is no game to put on air.")
     if live and fight.status in (FightStatus.SETTLED, FightStatus.VOID):
-        raise LockedState(f"Game #{fight.number} has already ended.")
+        raise LockedState(f"Fight #{fight.number} has already ended.")
     if live:
         cur = current_fight(db, event_id)
         if cur is not None and cur.id != fight.id:
-            raise LockedState(f"Game #{cur.number} comes first: finish it before putting game #{fight.number} on air.")
+            raise LockedState(f"Fight #{cur.number} comes first: finish it before putting fight #{fight.number} on air.")
     before = {"started_at": fight.started_at}
     if live and fight.started_at is None:
         fight.started_at = utcnow()

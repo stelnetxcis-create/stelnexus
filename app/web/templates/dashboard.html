@@ -97,9 +97,9 @@
     {{ game_menu('sabong', 'Sabong · where to?', [
       ('/events', 'i-calendar', 'Events', 'Open an event and see its games', 'events.view'),
       ('/change_name', 'i-target', 'Fight View', 'Watch live, place bets, declare results', 'fights.view'),
-      ('/records?tab=tickets&game=sabong', 'i-list', 'Betting List', 'Every ticket placed', 'bets.view'),
-      ('/records?tab=history&game=sabong', 'i-clock', 'Game History', 'Results and result pictures', 'fights.view'),
-      ('/records?tab=cancelled&game=sabong', 'i-ban', 'Cancel Ticket', 'Cancelled tickets log', 'cancellog.view')]) }}
+      ('/records?tab=tickets&game=sabong', 'i-list', 'Tickets', 'Every ticket placed', 'bets.view'),
+      ('/records?tab=history&game=sabong', 'i-clock', 'History', 'Declared fights and result pictures', 'fights.view'),
+      ('/records?tab=cancelled&game=sabong', 'i-ban', 'Cancelled', 'Cancelled tickets log', 'cancellog.view')]) }}
   </div>
   {% endif %}
   {% if number_tile %}
@@ -157,14 +157,14 @@
   {{ kpi('i-coins', 'My credit', mine.credit | money, 'available credit', 'gold') }}
   {{ kpi('i-users', 'My agents', mine.downline, 'in my downline') }}
   {{ kpi('i-card', 'My players', mine.players, 'in my network') }}
-  {{ kpi('i-target', 'Open Sabong games', stats.open_fights, stats.events ~ ' events on file', live='open') }}
+  {{ kpi('i-target', 'Open Sabong fights', stats.open_fights, stats.events ~ ' events on file', live='open') }}
 {% elif show_money %}
   {{ kpi('i-chart', 'Stake today', stats.stake_today | money, stats.tickets_today ~ ' tickets sold', 'gold', stats.stake_delta_pct, series=stats.series | map(attribute='stake') | list, live='stake') }}
   {{ kpi('i-coins', 'Player balances', stats.cashflow.player_balances | money, 'owed to players', 'blue') }}
   {{ kpi('i-shield', 'House revenue', stats.cashflow.house_revenue | money, 'tong + rounding', 'green') }}
-  {{ kpi('i-target', 'Open Sabong games', stats.open_fights, stats.locked_fights ~ ' locked · ' ~ stats.events ~ ' events', live='open') }}
+  {{ kpi('i-target', 'Open Sabong fights', stats.open_fights, stats.locked_fights ~ ' locked · ' ~ stats.events ~ ' events', live='open') }}
 {% else %}
-  {{ kpi('i-target', 'Open Sabong games', stats.open_fights, stats.events ~ ' events on file', 'gold', live='open') }}
+  {{ kpi('i-target', 'Open Sabong fights', stats.open_fights, stats.events ~ ' events on file', 'gold', live='open') }}
   {{ kpi('i-lock', 'Awaiting result', stats.locked_fights, 'locked, not yet declared', 'amber' if stats.locked_fights else '') }}
   {{ kpi('i-list', 'Tickets today', stats.tickets_today, 'sold since midnight', series=stats.series | map(attribute='tickets') | list, live='tickets') }}
   {{ kpi('i-users', 'Agents', stats.active_agents ~ ' / ' ~ stats.agents, 'active / total', 'green') }}
@@ -270,7 +270,7 @@
       <div class="card-body tight">
         {% if recent_events %}
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Event</th><th>Date</th><th>Games</th><th>Model</th><th>Status</th></tr></thead>
+          <thead><tr><th>Event</th><th>Date</th><th>Fights</th><th>Model</th><th>Status</th></tr></thead>
           <tbody>
           {% for event in recent_events %}
             <tr>
