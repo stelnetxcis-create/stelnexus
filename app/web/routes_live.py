@@ -228,6 +228,16 @@ async def live_fight_final(fight_id: int, request: Request, ctx: Ctx = Depends(r
     return _reply(request, out)
 
 
+@router.get("/_live/wallet")
+async def live_wallet(request: Request, ctx: Ctx = Depends(require_ctx)):
+    """My credit right now. The page header polls this, so a credit or debit shows up without a refresh."""
+    from app.core.money import fmt
+    from app.web.deps import wallet_snapshot
+    balance, pending = wallet_snapshot(ctx)
+    return _reply(request, {"balance_cents": balance, "balance": None if balance is None else fmt(balance),
+                            "pending": pending})
+
+
 @router.get("/_live/lobby")
 async def live_lobby(request: Request, ctx: Ctx = Depends(require_ctx)):
     if not (ctx.can(Perm.EVENTS_VIEW) or ctx.can(Perm.FIGHTS_VIEW)):

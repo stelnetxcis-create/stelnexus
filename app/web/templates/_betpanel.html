@@ -23,7 +23,7 @@
     <div class="sell-closed bp-ended" data-bp-ended hidden><span>This game has started, so betting is closed.</span></div>
     <div class="bp-scroll">
       <div class="bp-col">
-      <div class="bp-bal muted small">Your credit <b data-sl="balance">{{ balance_cents | money }}</b></div>
+      <div class="bp-bal muted small">Your credit <b data-sl="balance" data-wallet-balance>{{ balance_cents | money }}</b></div>
       <div class="bp-game"><b data-sl="name">Game</b><span class="sell-state" data-sl="state"></span></div>
       <div class="sell-sides bp-sides">
         <button class="side-btn m" type="button" data-sl="side-meron" data-side="meron"><span class="sb-lab">MERON<em class="sb-x" data-bp-x="meron"></em></span><span class="sb-name" data-sl="nm-meron">Meron</span><span class="sb-pool"><span data-sl="sh-meron"></span><b data-sl="pl-meron"></b></span></button>

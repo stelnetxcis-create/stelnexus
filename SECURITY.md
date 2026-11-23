@@ -11,3 +11,6 @@ Production checklist
 6. Rotate any credential that ever lived in a shared .env / dev.db / SQL dump.
 
 Known limits: no two-factor login yet; non-login rate limits (bets, cash desk) are per-process memory.
+
+## Games Standard
+Every game follows the shared contract in [docs/GAMES_STANDARD.md](docs/GAMES_STANDARD.md): one rights model (view, place, cancel, report, manage, declare), money hidden for roles that cannot see totals, and a dev-gated game invisible to everyone else. Records pages and CSV exports go through the game adapters, so the same checks apply to every game.

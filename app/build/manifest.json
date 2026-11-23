@@ -1,25 +1,25 @@
 {
-  "build": "f7f421f6",
-  "inputs": "92458cf9654e462c1701b51318c343748d1eac8e0a37fd1d4b4cd8fd44850a2f",
+  "build": "c7849fca",
+  "inputs": "67bd26e16b54e8cdc7b1191198ccd6407efcd76fed05d65df3186d43b0cf4d5c",
   "css": {
-    "auth": "/static/dist/auth.5453b9db.css",
-    "site": "/static/dist/site.55c1a8a6.css",
+    "auth": "/static/dist/auth.4b715bf0.css",
+    "site": "/static/dist/site.97045b53.css",
     "store": "/static/dist/store.bb0b75c9.css",
-    "bola-ui": "/static/dist/bola-ui.51bfed1f.css",
+    "bola-ui": "/static/dist/bola-ui.c8fefe2d.css",
     "livestream": "/static/dist/livestream.f6922ca2.css",
     "declarator": "/static/dist/declarator.fac8ae8d.css"
   },
   "js": {
     "nav-init": "/static/dist/nav-init.f71a574e.js",
     "auth": "/static/dist/auth.4a767180.js",
-    "site": "/static/dist/site.0719aa16.js",
-    "bola": "/static/dist/bola.541cc39d.js",
+    "site": "/static/dist/site.4ce429ed.js",
+    "bola": "/static/dist/bola.ef0ee78a.js",
     "bola-live": "/static/dist/bola-live.0f128a91.js",
     "chat": "/static/dist/chat.a5798df9.js",
     "dash": "/static/dist/dash.8f6468b6.js",
     "declarator": "/static/dist/declarator.57b81aa4.js",
     "dock": "/static/dist/dock.ddf3de4b.js",
-    "fightchat": "/static/dist/fightchat.fdb59807.js",
+    "fightchat": "/static/dist/fightchat.5c5c73aa.js",
     "fightview": "/static/dist/fightview.1b5cc20d.js",
     "referrals": "/static/dist/referrals.0ec603de.js",
     "hls": "/static/dist/hls.63709b99.js",
@@ -31,8 +31,8 @@
     "/static/dist/fonts/cormorant-garamond-latin-600-normal.ae062b6d.woff2"
   ],
   "shell": [
-    "/static/dist/site.55c1a8a6.css",
-    "/static/dist/site.0719aa16.js",
+    "/static/dist/site.97045b53.css",
+    "/static/dist/site.4ce429ed.js",
     "/static/dist/nav-init.f71a574e.js"
   ]
 }

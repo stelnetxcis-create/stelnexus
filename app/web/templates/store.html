@@ -18,7 +18,7 @@
     <h2>Talk during the fight. Watch the room go quiet when the winner is announced.</h2>
     <p class="muted small">Chat is read-only until you unlock it. It closes for everyone as soon as the declarator announces the result of that game. Passes work on every stream, including Esports when it opens.</p>
   </div>
-  <div class="st-wallet"><small>Your credit</small><strong>{{ st.balance | money }}</strong>
+  <div class="st-wallet"><small>Your credit</small><strong data-wallet-balance>{{ st.balance | money }}</strong>
     <span class="small muted">{% if st.has_lux %}Lux VIP active{% elif st.has_pass %}Battle Pass active{% else %}{{ st.tokens }} chat{{ '' if st.tokens == 1 else 's' }} left{% endif %}</span></div>
 </div>
 

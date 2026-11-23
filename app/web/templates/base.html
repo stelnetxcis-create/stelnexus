@@ -20,6 +20,7 @@
 </head>
 <body>
 <svg class="sprite" aria-hidden="true" focusable="false"><defs>
+<symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h5v-6h4v6h5V10"/></symbol>
 <symbol id="i-grid" viewBox="0 0 24 24"><path d="M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z"/></symbol>
 <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 19v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 19v-2a4 4 0 0 0-3-3.87M16 3.13A4 4 0 0 1 16 11"/></symbol>
 <symbol id="i-card" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></symbol>
@@ -70,13 +71,20 @@
       <div><strong>{{ brand }}</strong><span>{{ tagline }}</span></div>
       <button class="icon-btn close-nav" data-close-nav aria-label="Close menu"><svg><use href="#i-x"/></svg></button>
     </div>
+    {% if user %}
+    <div class="nav-me" aria-label="Your account">
+      <span class="avatar">{{ user.full_name[:1] | upper }}</span>
+      <div class="nav-me-who"><strong>{{ user.full_name }}</strong><small>{{ user.username }} · {{ user.role_label }}</small></div>
+      {% if my_balance is not none %}<a class="nav-me-bal" href="/wallet" aria-label="Open wallet"><svg class="ico"><use href="#i-coins"/></svg><span data-wallet-balance data-cents="{{ my_balance }}">{{ my_balance | money }}</span></a>{% endif %}
+    </div>
+    {% endif %}
     <nav class="nav">
       {% set groups = [
         ('', [
-          ('dashboard', '/dashboard', 'i-grid', 'Dashboard', 'dashboard.view'),
+          ('dashboard', '/dashboard', 'i-home', 'Dashboard', 'dashboard.view'),
           ('store', '/store', 'i-crown', 'Store', 'wallet.transfer'),
           ('admin', '/admin', 'i-sliders', 'Admin Panel', 'panel.view'),
-          ('staff', '/staff', 'i-users', 'Staff Panel', 'staff.view')]),
+          ('staff', '/staff', 'i-monitor', 'Staff Panel', 'staff.view')]),
         ('Network', [
           ('agents', '/agents', 'i-users', 'Users', 'agents.view'),
           ('clp', '/clp', 'i-card', 'Players', 'players.view'),
@@ -94,6 +102,22 @@
         {% endfor %}
         {% endif %}
       {% endfor %}
+      {% if user %}
+      <div class="nav-account">
+        <div class="nav-title"><span>Account</span></div>
+        <a class="nav-link {{ 'is-active' if active == 'profile' }}" href="/profile"><svg class="ico"><use href="#i-user"/></svg><span>Profile &amp; security</span></a>
+        {% if 'referrals.manage' in perms %}<a class="nav-link {{ 'is-active' if active == 'referrals' }}" href="/referrals"><svg class="ico"><use href="#i-key"/></svg><span>Referral codes</span></a>{% endif %}
+        {% if 'cashflow.view' in perms %}<a class="nav-link" href="/cashflow"><svg class="ico"><use href="#i-chart"/></svg><span>Cashflow</span></a>{% endif %}
+        {% if 'reports.view' in perms %}<a class="nav-link" href="/records?tab=reports&amp;view=archive&amp;game=sabong"><svg class="ico"><use href="#i-archive"/></svg><span>Report archives</span></a>{% endif %}
+        <button class="nav-link snd-btn nav-snd" type="button" data-sound-toggle aria-pressed="false">
+          <svg class="ico on"><use href="#i-sound"/></svg><svg class="ico off"><use href="#i-sound-off"/></svg><span>Live sounds</span><em class="nav-state" aria-hidden="true"></em>
+        </button>
+        <form method="post" action="/logout" class="nav-signout">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="nav-link" type="submit"><svg class="ico"><use href="#i-out"/></svg><span>Sign out</span></button>
+        </form>
+      </div>
+      {% endif %}
     </nav>
     <div class="sidebar-install">
       <button class="install-btn" type="button" data-install title="Install app">
@@ -106,8 +130,9 @@
 
   <div class="main">
     <header class="topbar">
-      <button class="icon-btn open-nav" data-open-nav aria-label="Open menu"><svg><use href="#i-menu"/></svg></button>
+      <button class="icon-btn open-nav" data-open-nav aria-label="Open menu" aria-haspopup="dialog" aria-expanded="false" aria-controls="sidebar"><svg><use href="#i-menu"/></svg></button>
       <button class="icon-btn collapse-btn" data-collapse-nav type="button" aria-label="Collapse or expand sidebar" title="Collapse / expand sidebar"><svg><use href="#i-menu"/></svg></button>
+      {% include "_license_logo.html" %}
       <h1>{% block heading %}{{ brand }}{% endblock %}</h1>
       <div class="topbar-actions">
         {% block actions %}{% endblock %}
@@ -203,10 +228,10 @@
         {% if my_balance is not none %}
         <details class="menu wallet-menu">
           <summary class="chip wallet-chip" aria-label="Wallet">
-            <svg class="ico"><use href="#i-coins"/></svg><span class="bal" title="Your credit balance">{{ my_balance | money }}</span>{% if wallet_pending %}<span class="dot">{{ wallet_pending }}</span>{% endif %}
+            <svg class="ico"><use href="#i-coins"/></svg><span class="bal" data-wallet-balance data-cents="{{ my_balance }}" title="Your credit balance">{{ my_balance | money }}</span>{% if wallet_pending %}<span class="dot">{{ wallet_pending }}</span>{% endif %}
           </summary>
           <div class="menu-panel wallet-panel">
-            <div class="wallet-bal"><small>Your credit</small><strong>{{ my_balance | money }}</strong></div>
+            <div class="wallet-bal"><small>Your credit</small><strong data-wallet-balance>{{ my_balance | money }}</strong></div>
             <div class="wallet-actions">
               {% if 'requests.create' in perms %}<a href="/wallet?t=load"><svg class="ico"><use href="#i-plus"/></svg>Load</a>
               <a href="/wallet?t=cashout"><svg class="ico"><use href="#i-out"/></svg>Cash out</a>{% endif %}
@@ -271,7 +296,7 @@
 
 {% if user %}
 <nav class="tabbar" aria-label="Quick navigation">
-  {% for key, href, icon, label, perm in [('dashboard','/dashboard','i-grid','Home','dashboard.view'),
+  {% for key, href, icon, label, perm in [('dashboard','/dashboard','i-home','Home','dashboard.view'),
                                           ('events','/events','i-calendar','Sabong','events.view'),
                                           ('wallet','/wallet','i-coins','Wallet','wallet.view'),
                                           ('betlogs','/records?tab=tickets&game=sabong','i-list','Bets','bets.view'),
@@ -280,7 +305,7 @@
     <a class="tab {{ 'is-active' if active == key }}" href="{{ href }}"><svg class="ico"><use href="#{{ icon }}"/></svg><span>{{ label }}</span></a>
     {% endif %}
   {% endfor %}
-  <button class="tab" data-open-nav type="button"><svg class="ico"><use href="#i-menu"/></svg><span>More</span></button>
+  <button class="tab" data-open-nav type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="sidebar"><svg class="ico"><use href="#i-menu"/></svg><span>Menu</span></button>
 </nav>
 {% endif %}
 {{ js('site') }}

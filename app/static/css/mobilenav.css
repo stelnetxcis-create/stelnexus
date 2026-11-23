@@ -1,0 +1,85 @@
+/* Phone navigation. Loaded after base/theme. Only affects screens <= 860px; desktop is untouched.
+   Idea: the top bar only carries what you need all the time (menu, where you are, alerts, money, you);
+   everything else lives one tap away in the Menu, which is organised like an app: who you are, where to go,
+   account, sign out. The bottom bar holds the 4-5 places people actually switch between. */
+
+.nav-me,.nav-account{display:none}
+
+@media (max-width:860px){
+  /* ---- top bar: never overflow, always say where you are ---- */
+  html,body{overflow-x:clip}
+  .topbar{gap:8px;padding:8px 10px;min-height:56px}
+  .topbar .license-logo{display:none}
+  .topbar>.icon-btn,.topbar>.open-nav{flex:0 0 auto}
+  .topbar>.snd-btn,.topbar-actions>.snd-btn{display:none}          /* sounds moved into the Menu */
+  .topbar h1{flex:1 1 0;min-width:0;font-size:17px;line-height:1.2}
+  .topbar-actions{gap:6px;min-width:0;max-width:72vw}
+  .topbar-actions .btn{padding-inline:11px;min-height:38px}
+  .topbar-actions .btn .lbl{display:none}
+  .topbar-actions .btn.is-iconic{padding-inline:0;width:38px;justify-content:center}
+  .chip-dev span:not(.dev-as){display:none}                          /* DEV: icon only */
+  .chip-dev{padding:7px 9px}
+  .topbar .icon-btn,.topbar .menu>summary.icon-btn{width:40px;height:40px}
+  .wallet-chip{padding:5px 9px;max-width:34vw}
+  .wallet-chip .bal{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .user-chip{padding:3px}
+  .menu-panel{max-width:calc(100vw - 20px)}
+
+  .page-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+  .page-actions .btn{min-height:40px}
+
+  /* ---- bottom bar: even slots, clear active state, never cramped ---- */
+  .tabbar{padding:4px 4px calc(4px + env(safe-area-inset-bottom));gap:2px;justify-content:stretch}
+  .tab{flex:1 1 0;min-width:0;padding:7px 2px 6px;gap:3px;font-size:11px;position:relative}
+  .tab svg{width:22px;height:22px}
+  .tab span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tab.is-active::before{content:"";position:absolute;top:0;left:30%;right:30%;height:2px;border-radius:2px;background:var(--gold-hi)}
+  .content{padding-bottom:calc(84px + env(safe-area-inset-bottom))}
+
+  /* ---- Menu (the drawer) ---- */
+  .sidebar{width:min(86vw,340px);flex-basis:auto;visibility:hidden;transition:transform .22s ease,visibility 0s .22s;overscroll-behavior:contain}
+  .sidebar.is-open{visibility:visible;transition:transform .22s ease,visibility 0s}
+  .sidebar .brand{padding:14px 14px 12px}
+  .sidebar .close-nav{margin-left:auto}
+  .backdrop{position:fixed;inset:0;z-index:35;background:rgba(0,0,0,.62)}
+  .backdrop[hidden]{display:none}
+  .nav-me{display:flex;align-items:center;gap:11px;margin:12px 12px 4px;padding:11px 12px;border:1px solid var(--line-2);border-radius:14px;background:rgba(217,177,85,.07)}
+  .nav-me .avatar{flex:0 0 40px;width:40px;height:40px;display:grid;place-items:center;border-radius:12px;background:var(--gold-grad,#d9b155);color:#1a1405;font-weight:800;font-size:17px}
+  .nav-me-who{min-width:0;flex:1}
+  .nav-me-who strong{display:block;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nav-me-who small{display:block;font-size:11.5px;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nav-me-bal{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;border:1px solid var(--line-2);color:var(--gold-hi);font-weight:700;font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .nav-me-bal:hover{text-decoration:none;background:rgba(217,177,85,.12)}
+  .sidebar .nav{padding-bottom:6px}
+  .sidebar .nav-link{min-height:44px;padding:9px 14px;border-radius:12px;font-size:15px}
+  .sidebar .nav-title{margin-top:8px}
+  .nav-account{display:block;margin-top:4px;padding-bottom:10px}
+  .nav-account form{margin:0}
+  .nav-account .nav-link{width:100%;background:none;border:0;text-align:left;cursor:pointer;font-family:inherit}
+  .nav-snd .nav-state{margin-left:auto;font-style:normal;font-size:12px;font-weight:700;color:var(--ink-3)}
+  .nav-snd .nav-state::before{content:"Off"}
+  .nav-snd.is-on .nav-state::before{content:"On";color:var(--gold-hi)}
+  .nav-signout .nav-link{color:#f08a8f}
+  /* the install button scrolls with the list instead of pinning ~100px of the Menu */
+  .sidebar-install{position:static;border-top:0;background:none;padding:2px 12px calc(14px + env(safe-area-inset-bottom))}
+  .sidebar-install .install-btn{min-height:44px}
+
+  /* ---- section tabs (Admin Panel, Staff Panel, Access...): ONE swipeable row, stuck under the top bar ---- */
+  .content>.subtabs,.content>.ax-bar>.subtabs{
+    flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;
+    scroll-snap-type:x proximity;gap:6px;margin:-14px -14px 14px;padding:10px 14px 10px;
+    background:rgba(10,9,11,.97);border-bottom:1px solid var(--line);
+    position:sticky;top:56px;z-index:15;
+    -webkit-mask-image:linear-gradient(90deg,#000 0,#000 calc(100% - 26px),transparent);
+            mask-image:linear-gradient(90deg,#000 0,#000 calc(100% - 26px),transparent)}
+  .content>.subtabs::-webkit-scrollbar,.content>.ax-bar>.subtabs::-webkit-scrollbar{display:none}
+  .content>.subtabs .subtab,.content>.ax-bar>.subtabs .subtab{flex:0 0 auto;scroll-snap-align:center;padding:9px 15px;min-height:38px}
+  .content>.ax-bar{display:block;margin:0 0 6px}
+  .content>.ax-bar>.btn{margin:0 0 10px;width:100%;justify-content:center}
+}
+@media (max-width:380px){
+  .topbar h1{font-size:15px}
+  .wallet-chip .ico{display:none}
+  .tab{font-size:10.5px}
+}
+@media (max-width:860px){.nav-snd .ico{width:18px;height:18px}.nav-snd{gap:11px}}

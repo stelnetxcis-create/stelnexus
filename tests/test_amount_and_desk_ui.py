@@ -31,3 +31,30 @@ def test_bet_panel_has_additive_chips_clear_and_stack(world):
     html = c.get(f"/change_name?event_id={world.event.id}&fight_id={world.games[0].id}").text
     assert 'data-amt="100"' in html and ">+100<" in html                # chips say they add
     assert "data-clear" in html and 'data-sl="stack"' in html           # Clear + the stack of tapped chips
+
+
+def test_slip_is_a_guided_flow():
+    ids = _web_setup()
+    try:
+        c, _ = login("admin")
+        html = c.get(f"/bola/draws/{ids['draw']}").text
+        assert "data-rail" in html and all(f'data-rail-step="{n}"' in html for n in (1, 2, 3, 4))
+        assert all(f'data-sec="{n}"' in html for n in (1, 2, 3, 4))          # type, numbers, amount, place
+        assert 'class="card bs-card"' in html and "data-bola-repeat" in html
+        assert '<button type="button" class="bs-why" data-bola-why' in html     # the coach line is clickable
+        js = open("app/static/js/bola.js", encoding="utf-8").read()
+        assert "function focusStep" in js and "function advance" in js and "snx.bola.last" in js
+        css = open("app/static/css/bola-ui.css", encoding="utf-8").read()
+        assert "overflow:clip" in css and ".bs-rail" in css                      # sticky bar / rail actually stick
+    finally:
+        _web_teardown(ids)
+
+
+def test_slip_feel_layer_is_wired():
+    js = open("app/static/js/bola.js", encoding="utf-8").read()
+    for name in ("function toss", "function ripple", "function lockIn", "function readyBurst", "function countTo", "function sparks", "function idleReset"):
+        assert name in js, name
+    css = open("app/static/css/bola-ui.css", encoding="utf-8").read()
+    for sel in (".bs-spark", ".bs-toss", ".bs-rip", "--prog", "bs-lockslot", 'data-chip="100"'):
+        assert sel in css, sel
+    assert "prefers-reduced-motion" in css                                   # every effect has a calm fallback

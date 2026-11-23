@@ -1,7 +1,7 @@
 {
   "css": {
     "auth": ["css/base.css", "css/lite.css", "css/inapp.css"],
-    "site": ["css/base.css", "css/theme.css", "css/lite.css", "css/inapp.css"],
+    "site": ["css/base.css", "css/theme.css", "css/lite.css", "css/inapp.css", "css/mobilenav.css"],
     "store": ["css/store.css"],
     "bola-ui": ["css/bola-ui.css"],
     "livestream": ["css/livestream.css"],
@@ -10,7 +10,7 @@
   "js": {
     "nav-init": ["js/nav-init.js"],
     "auth": ["js/app.js", "js/luxe.js", "js/login-extras.js", "js/inapp.js"],
-    "site": ["js/app.js", "js/luxe.js", "js/pages.js", "js/arena.js", "js/royale.js", "js/menus.js", "js/anim-pause.js", "js/inapp.js"],
+    "site": ["js/app.js", "js/luxe.js", "js/pages.js", "js/arena.js", "js/royale.js", "js/wallet-live.js", "js/menus.js", "js/anim-pause.js", "js/inapp.js", "js/mobilenav.js"],
     "bola": ["js/bola.js"],
     "bola-live": ["js/bola-live.js"],
     "chat": ["js/chat.js"],

@@ -872,3 +872,12 @@ input[type=checkbox]{accent-color:var(--gold)}
 .team-tile form,.team-tile .badge{flex:0 0 100%}
 .team-tile form .btn{width:100%}
 
+
+/* licence mark in the page header (see _license_logo.html) */
+.license-logo{display:inline-flex;align-items:center;flex:0 0 auto;line-height:0;margin-right:10px}
+.license-logo img{display:block;width:36px;height:36px;border-radius:50%}
+@media (max-width:860px){.license-logo{margin-right:8px}.license-logo img{width:28px;height:28px}}
+/* live credit: a short glow when it goes up or down */
+.wallet-chip.bal-up{animation:balUp 1.6s ease-out}.wallet-chip.bal-down{animation:balDown 1.6s ease-out}
+@keyframes balUp{0%{box-shadow:0 0 0 3px rgba(79,209,139,.55);background-color:rgba(79,209,139,.28)}100%{box-shadow:0 0 0 0 rgba(79,209,139,0)}}
+@keyframes balDown{0%{box-shadow:0 0 0 3px rgba(229,72,77,.55);background-color:rgba(229,72,77,.24)}100%{box-shadow:0 0 0 0 rgba(229,72,77,0)}}

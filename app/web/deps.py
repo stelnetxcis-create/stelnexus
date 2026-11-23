@@ -210,6 +210,30 @@ def _fragment_name(ctx: Ctx) -> str | None:
     return name
 
 
+def wallet_snapshot(ctx: Ctx) -> tuple[int | None, int]:
+    """(my credit in cents or None when this account holds none, requests waiting for me to review).
+    The page header renders it and ``/_live/wallet`` repeats it, so both always agree."""
+    from sqlalchemy import select as _select
+    from app.db.models import Account as _Account
+    my_balance, wallet_pending = None, 0
+    if ctx.user is None:
+        return None, 0
+    preview_pid = ctx.user.preview_player_id
+    if preview_pid is not None:                            # DEV preview of a player: their own credit
+        my_balance = int(ctx.db.scalar(_select(_Account.balance_cents)
+                                       .where(_Account.code == f"wallet:player:{preview_pid}")) or 0)
+    elif ctx.user.has_wallet:
+        _row = ctx.db.scalar(_select(_Account.balance_cents).where(_Account.code == f"wallet:user:{ctx.user.id}"))
+        my_balance = int(_row or 0)
+        if Perm.REQUESTS_REVIEW.value in ctx.perms:
+            from app.services import cashdesk as _cashdesk
+            wallet_pending = _cashdesk.pending_count(ctx.db, ctx.user)
+    elif Perm.REQUESTS_REVIEW.value in ctx.perms:          # a Teller holds no balance
+        from app.services import cashdesk as _cashdesk
+        wallet_pending = _cashdesk.pending_count(ctx.db, ctx.user)
+    return my_balance, wallet_pending
+
+
 def render(ctx: Ctx, template: str, status_code: int = 200, **extra: Any):
     store = ctx.store
     settings = store.all()
@@ -222,25 +246,7 @@ def render(ctx: Ctx, template: str, status_code: int = 200, **extra: Any):
             .order_by(Notification.id.desc()).limit(8)).all())
     real = ctx.real_user or ctx.user
     is_dev = bool(real is not None and real.role == Role.ADMIN)
-    my_balance = None
-    wallet_pending = 0
-    preview_pid = ctx.user.preview_player_id if ctx.user is not None else None
-    if preview_pid is not None:                            # DEV preview of a player: their own credit
-        from sqlalchemy import select as _select
-        from app.db.models import Account as _Account
-        my_balance = int(ctx.db.scalar(_select(_Account.balance_cents)
-                                       .where(_Account.code == f"wallet:player:{preview_pid}")) or 0)
-    elif ctx.user is not None and ctx.user.has_wallet:
-        from sqlalchemy import select as _select
-        from app.db.models import Account as _Account
-        _row = ctx.db.scalar(_select(_Account.balance_cents).where(_Account.code == f"wallet:user:{ctx.user.id}"))
-        my_balance = int(_row or 0)
-        if Perm.REQUESTS_REVIEW.value in ctx.perms:
-            from app.services import cashdesk as _cashdesk
-            wallet_pending = _cashdesk.pending_count(ctx.db, ctx.user)
-    elif ctx.user is not None and Perm.REQUESTS_REVIEW.value in ctx.perms:   # a Teller holds no balance
-        from app.services import cashdesk as _cashdesk
-        wallet_pending = _cashdesk.pending_count(ctx.db, ctx.user)
+    my_balance, wallet_pending = wallet_snapshot(ctx)
     context = {
         "my_balance": my_balance, "wallet_pending": wallet_pending, "request": ctx.request, "ctx": ctx, "user": ctx.user, "perms": ctx.perms,
         "settings": settings, "brand": settings.get("brand.name", "StelNexus"),

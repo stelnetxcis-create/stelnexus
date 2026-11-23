@@ -227,8 +227,9 @@
   }
   // the panel shows the bettor's own credit; the server sends the new balance (cents) with every bet / undo
   function showBalance(cents) {
-    const b = sl("balance");
-    if (b && typeof cents === "number") b.textContent = money(cents);
+    if (typeof cents !== "number") return;
+    if (window.snx.walletSync) window.snx.walletSync(cents);       // the header and this panel move together
+    else { const b = sl("balance"); if (b) b.textContent = money(cents); }
   }
   // the server sends the game's fresh pools / live multiples with every bet and undo; the page repaints from it at once
   function pushRow(row) { if (row) document.dispatchEvent(new CustomEvent("snx:live-row", { detail: row })); }
