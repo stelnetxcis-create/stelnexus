@@ -117,7 +117,7 @@
     {{ game_menu('number', 'Number game · where to?', [
       ('/bola', 'i-hash', 'Draws & bet slip', 'Pick a draw and place bets', 'bola.view'),
       ('/records?tab=tickets&game=bola', 'i-list', 'My tickets', 'Tickets you placed', 'bola.place'),
-      ('/bola/reports', 'i-coins', 'Reports', 'Exposure and sales', 'bola.exposure'),
+      ('/records?tab=reports&game=bola', 'i-coins', 'Reports', 'Exposure and sales', 'bola.exposure'),
       ('/bola/cancelled', 'i-ban', 'Cancelled', 'Cancelled tickets log', 'cancellog.view')]) }}
   </div>
   {% else %}

@@ -78,6 +78,8 @@ class ReportRow:
     expenses: int
     net: int
     url: str = ""
+    tickets: int | None = None   # live ticket count, when the game can say
+    result: str = ""             # declared result, for a single round
 
 
 @dataclass(frozen=True)

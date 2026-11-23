@@ -324,23 +324,10 @@ def _need_exposure(ctx: Ctx) -> None:
 
 @router.get("/bola/reports")
 async def bola_reports_page(request: Request, ctx: Ctx = Depends(require_ctx)):
+    """Moved: Records > Reports (Games Standard 4.8). Kept as a redirect so old links work."""
     _need_exposure(ctx)
-    p = request.query_params
-    today = dt.datetime.now(dt.timezone.utc).astimezone(bola.MANILA).date()
-    try:
-        day = dt.date.fromisoformat(p["date"]) if p.get("date") else today
-    except ValueError:
-        day = today
-    try:
-        year, month = (int(x) for x in (p.get("month") or today.strftime("%Y-%m")).split("-"))
-        if not (1 <= month <= 12 and 2000 <= year <= 2100):
-            raise ValueError
-    except (ValueError, TypeError):
-        year, month = today.year, today.month
-    return render(ctx, "bola_reports.html", active="bola_reports",
-                  daily=reports.bola_daily(ctx.db, day),
-                  monthly=reports.bola_monthly(ctx.db, year, month),
-                  local=bola.local)
+    from app.web.routes_records import legacy_redirect
+    return legacy_redirect(request, "reports", "bola", rename={"date": "day"}, extra={"view": "daily"})
 
 
 CSV_BATCH = 500

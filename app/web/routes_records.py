@@ -183,6 +183,8 @@ async def records(request: Request, ctx: Ctx = Depends(require_ctx)):
             rows = rows[:ARCHIVE_PER_PAGE]
             pager = make_pager(request, ARCHIVE_PER_PAGE, page_number(request), len(rows), has_next)
         ctx_extra.update(view=view, asked=asked, totals=totals_of(rows),
+                         has_result=any(r.result for _, r in rows),
+                         has_tickets=any(r.tickets is not None for _, r in rows),
                          day=asked if view == "daily" else _today(),
                          month=asked if view == "monthly" else _today().strftime("%Y-%m"))
     else:

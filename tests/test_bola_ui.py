@@ -86,11 +86,15 @@ def test_expenses_cancel_proof_reports_and_csv_end_to_end():
 
         # daily + monthly report page render the same figures
         today = dt.date.today().isoformat()
-        rep = c.get(f"/bola/reports?date={today}&month={today[:7]}")
-        assert rep.status_code == 200
-        assert "Daily report" in rep.text and "Monthly report" in rep.text and "Web Area" in rep.text
+        old = c.get(f"/bola/reports?date={today}&month={today[:7]}")          # the old URL still lands in Records
+        assert old.status_code == 303 and old.headers["location"].startswith("/records?tab=reports&game=bola")
+        rep = c.get(f"/records?tab=reports&game=bola&view=daily&day={today}")
+        assert rep.status_code == 200 and "Web Area" in rep.text and 'Tickets</th>' in rep.text
+        mon = c.get(f"/records?tab=reports&game=bola&view=monthly&month={today[:7]}")
+        assert mon.status_code == 200 and today in mon.text
         # junk query values fall back to today instead of failing
-        assert c.get("/bola/reports?date=nope&month=2026-99").status_code == 200
+        assert c.get("/records?tab=reports&game=bola&day=nope&month=2026-99&view=monthly").status_code == 200
+        assert c.get("/bola/reports?date=nope&month=2026-99", follow_redirects=True).status_code == 200
 
         # removing the expense changes net income
         assert c.post(f"/bola/expenses/{eid}/delete", data={"csrf_token": _csrf(c)}).status_code == 303

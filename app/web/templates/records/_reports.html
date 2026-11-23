@@ -20,10 +20,12 @@
 {% if rows %}
 <div class="table-wrap"><table class="table"><thead><tr>
   {% if show_game %}<th>Game</th>{% endif %}<th>{{ 'Day' if view == 'monthly' else 'Session / round' }}</th>
+  {% if has_result %}<th>Result</th>{% endif %}{% if has_tickets %}<th class="right">Tickets</th>{% endif %}
   <th class="right">Staked</th><th class="right">Paid out</th><th class="right">House</th><th class="right">Commission</th><th class="right">Expenses</th><th class="right">Net</th>
 </tr></thead><tbody>
 {% for label, r in rows %}
   <tr>{% if show_game %}<td class="small">{{ label }}</td>{% endif %}<td>{% if r.url %}<a href="{{ r.url }}">{{ r.label }}</a>{% else %}{{ r.label }}{% endif %}</td>
+    {% if has_result %}<td class="num"><strong>{{ r.result or '—' }}</strong></td>{% endif %}{% if has_tickets %}<td class="right num">{{ r.tickets if r.tickets is not none else '—' }}</td>{% endif %}
     <td class="right num">{{ r.staked | money }}</td><td class="right num">{{ r.paid | money }}</td><td class="right num">{{ r.house | money }}</td>
     <td class="right num">{{ r.commission | money }}</td><td class="right num">{{ r.expenses | money }}</td><td class="right num">{{ r.net | money }}</td></tr>
 {% endfor %}

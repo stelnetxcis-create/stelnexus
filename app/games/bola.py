@@ -141,7 +141,8 @@ class BolaAdapter(GameAdapter):
     @staticmethod
     def _row(label: str, r: dict, url: str = "") -> ReportRow:
         return ReportRow(label=label, staked=r["staked"], paid=r["paid"], house=r["house"],
-                         commission=r["commission"], expenses=r["expenses"], net=r["net"], url=url)
+                         commission=r["commission"], expenses=r["expenses"], net=r["net"], url=url,
+                         tickets=r.get("tickets"), result=r["draw"].result_label or "" if "draw" in r else "")
 
     def report_daily(self, ctx, day: dt.date) -> list[ReportRow]:
         rep = reports.bola_daily(ctx.db, day)

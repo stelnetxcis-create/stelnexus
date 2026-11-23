@@ -4,7 +4,7 @@
 {% block heading %}{{ draw.location.name }} · slot {{ draw.slot }}{% endblock %}
 {% block head %}{{ css('bola-ui') }}{% endblock %}
 {% block actions %}
-{% if can_report %}<a class="btn btn-sm" href="/bola/draws/{{ draw.id }}/report.csv">Report CSV</a><a class="btn btn-sm" href="/bola/reports?date={{ draw.draw_date }}">Reports</a>{% endif %}
+{% if can_report %}<a class="btn btn-sm" href="/bola/draws/{{ draw.id }}/report.csv">Report CSV</a><a class="btn btn-sm" href="/records?tab=reports&game=bola&day={{ draw.draw_date }}">Reports</a>{% endif %}
 <a class="btn btn-sm" href="/bola">All draws</a>
 {% endblock %}
 {% block content %}

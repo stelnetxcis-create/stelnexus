@@ -74,3 +74,9 @@ Six dead templates deleted (done).
 - **Dead number-game player code NOT removed:** that needs one SQL check against your live database. Run `SELECT COUNT(*) FROM bola_tickets WHERE player_id IS NOT NULL;` (also in the docs); if it returns 0 the code can go.
 - Full suite: **558 passed, 1 skipped**.
 - Still open: card-lobby port for a shared Sabong Schedule (then redirect `/events`, `/bola`), `/bola/reports` exposure parity then redirect, JS "Game #" strings + dist rebuild.
+
+## Update (round 7): rebased on your archive + `/bola/reports` parity
+- Rebased on your updated archive (mobile nav, live wallet balance, license logo). It passed untouched (567 passed), so nothing of yours was changed or reverted.
+- `/bola/reports` now redirects to **Records > Reports** (game=bola). The Records daily table gained **Result** and **Tickets** columns (shown when a game supplies them), and rows link to the draw page, which keeps the exposure / worst-outcome panel and the per-draw CSV. The dashboard tile and the draw page's Reports button link straight to Records. `bola_reports.html` deleted.
+- Full suite: **567 passed, 1 skipped**.
+- Still open: card-lobby port for a shared Sabong Schedule (then redirect `/events`, `/bola`); the JS "Game #" strings + `dist` rebuild; the dead number-game player code (needs the SQL count on your live DB).
