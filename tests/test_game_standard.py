@@ -8,7 +8,7 @@ from app.games.base import GameAdapter
 from tests.test_web import login
 
 ADAPTER_METHODS = ("workspace_urls", "summary_today", "tickets", "cancelled", "history",
-                   "report_daily", "report_monthly", "report_session")
+                   "report_daily", "report_monthly", "report_session", "schedule", "create_spec")
 
 
 def test_registry_is_not_empty_and_keys_match():
@@ -43,7 +43,10 @@ def test_every_game_exposes_all_workspace_urls_to_the_admin(key):
     from app.web.deps import Ctx  # noqa: F401  (the route builds the Ctx; here we check through the web layer)
     for tab in WORKSPACE_TABS:
         r = c.get(f"/games/{key}/{tab}")
-        assert r.status_code == 303 and r.headers["location"].startswith("/"), (key, tab)
+        if tab == "schedule" and key == "bola":     # the shared Schedule page renders in place
+            assert r.status_code == 200, (key, tab)
+        else:
+            assert r.status_code == 303 and r.headers["location"].startswith("/"), (key, tab)
 
 
 def test_every_records_tab_renders_for_the_admin():
@@ -51,3 +54,49 @@ def test_every_records_tab_renders_for_the_admin():
     for tab in RECORD_TABS:
         for game in ("all", *games.GAMES):
             assert c.get(f"/records?tab={tab}&game={game}").status_code == 200, (tab, game)
+
+
+class _FakeCtx:
+    """Just enough of Ctx for the visibility rules."""
+    def __init__(self, perms, enabled=True, user=None):
+        self.perms, self.enabled, self.user = set(perms), enabled, user
+        self.store = self
+
+    def get(self, key, default=None):
+        return self.enabled if key == "bola.enabled" else default
+
+    def can(self, perm):
+        return getattr(perm, "value", perm) in self.perms
+
+
+def test_number_game_is_hidden_when_switched_off_or_without_the_right():
+    from types import SimpleNamespace
+    from app.core.rbac import Perm
+    bola_game = games.GAMES["bola"]
+    user = SimpleNamespace(role=None, is_top=True)
+    assert not bola_game.visible(_FakeCtx({Perm.BOLA_VIEW.value}, enabled=False, user=user))
+    assert not bola_game.visible(_FakeCtx(set(), enabled=True, user=user))
+
+
+def test_sabong_visible_with_fights_or_events_view_only():
+    from app.core.rbac import Perm
+    sabong = games.GAMES["sabong"]
+    assert sabong.visible(_FakeCtx({Perm.FIGHTS_VIEW.value}))
+    assert sabong.visible(_FakeCtx({Perm.EVENTS_VIEW.value}))
+    assert not sabong.visible(_FakeCtx(set()))
+
+
+def test_bola_schedule_page_renders_with_every_filter_and_a_create_drawer():
+    c, _ = login("admin")
+    for when in ("today", "upcoming", "past", "nonsense"):     # unknown filter falls back to today
+        r = c.get(f"/games/bola/schedule?when={when}")
+        assert r.status_code == 200, when
+        assert 'data-modal="create-modal"' in r.text and 'data-modal="generate-modal"' in r.text
+
+
+def test_sabong_schedule_is_the_live_events_lobby():
+    c, _ = login("admin")
+    r = c.get("/games/sabong/schedule")
+    assert r.status_code == 303 and r.headers["location"] == "/events"
+    page = c.get("/events")
+    assert page.status_code == 200 and 'data-modal="event-modal"' in page.text

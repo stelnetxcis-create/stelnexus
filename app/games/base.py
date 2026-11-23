@@ -64,6 +64,8 @@ class RoundRow:
     detail: str                  # pools (sabong) or balls (number game); "" when hidden
     url: str = ""
     location: str = ""
+    role: str = ""               # Llamado / Dehado of the declared side (sabong)
+    proof_url: str = ""          # result photo, when one was uploaded
 
 
 @dataclass(frozen=True)
@@ -76,6 +78,30 @@ class ReportRow:
     expenses: int
     net: int
     url: str = ""
+
+
+@dataclass(frozen=True)
+class ScheduleRow:
+    label: str
+    when: str                     # already formatted, e.g. "2026-11-23" or "2026-11-23 10:48"
+    status: str                   # chip text: draft/open/closed/canceled (sabong), scheduled/open/locked/settled/void (number game)
+    location: str
+    detail: str
+    url: str
+
+
+@dataclass(frozen=True)
+class CreateSpec:
+    """What the shared Schedule drawer renders. Field dicts: name, label, type, value, required, options, attrs."""
+    title: str
+    action: str
+    fields: list
+    submit: str = "Create"
+    note: str = ""
+    generate: "CreateSpec | None" = None
+
+
+SCHEDULE_FILTERS = ("today", "upcoming", "past")
 
 
 @dataclass
@@ -125,6 +151,13 @@ class GameAdapter:
         raise NotImplementedError
 
     def report_session(self, ctx, session_id: int) -> list[ReportRow]:
+        raise NotImplementedError
+
+    def schedule(self, ctx, when: str) -> list[ScheduleRow]:
+        raise NotImplementedError
+
+    def create_spec(self, ctx) -> CreateSpec | None:
+        """None when the viewer may not create sessions or rounds."""
         raise NotImplementedError
 
     def report_archive(self, ctx, f: Filters) -> list[ReportRow]:

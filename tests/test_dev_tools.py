@@ -79,7 +79,7 @@ def test_admin_keeps_house_money_and_reports_live_in_account_menu(admin_c):
         assert shown in html, shown
     assert '<div class="nav-title">Reports</div>' not in html          # gone from the sidebar
     menu = html[html.index('class="menu account-menu"'):]
-    assert "Profile &amp; security" in menu and 'href="/cashflow"' in menu and 'href="/archives"' in menu
+    assert "Profile &amp; security" in menu and 'href="/cashflow"' in menu and 'tab=reports' in menu and 'view=archive' in menu
     assert menu.index("Profile &amp; security") < menu.index('href="/cashflow"') < menu.index("Sign out")
     assert c.get("/cashflow").status_code == 200 and c.get("/archives", follow_redirects=True).status_code == 200
 

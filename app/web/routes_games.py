@@ -11,6 +11,7 @@ from fastapi.responses import RedirectResponse
 from app import games
 from app.core.errors import NotFound
 from app.games import WORKSPACE_TABS
+from app.games.base import SCHEDULE_FILTERS
 from app.web.deps import Ctx, render, require_ctx
 
 router = APIRouter()
@@ -48,6 +49,13 @@ async def game_tab(key: str, tab: str, request: Request, ctx: Ctx = Depends(requ
     target = adapter.workspace_urls(ctx).get(tab)
     if not target:
         raise NotFound("That page does not exist.")
+    if tab == "schedule" and target == f"/games/{key}/schedule":
+        when = request.query_params.get("when")
+        when = when if when in SCHEDULE_FILTERS else "today"
+        response = render(ctx, "games_schedule.html", active="games", game=adapter, when=when,
+                          filters=SCHEDULE_FILTERS, rows=adapter.schedule(ctx, when), spec=adapter.create_spec(ctx))
+        remember(response, key)
+        return response
     query = request.url.query
     if query:
         target += ("&" if "?" in target else "?") + query

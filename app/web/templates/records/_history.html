@@ -1,11 +1,11 @@
 <div class="card"><div class="card-body tight">
 {% if rows %}
 <div class="table-wrap"><table class="table"><thead><tr>
-  <th>Time</th>{% if show_game %}<th>Game</th>{% endif %}<th>Session</th><th>Location</th><th>Round</th><th>Result</th>{% if can_see_money %}<th>Pools / balls</th>{% endif %}
+  <th>Time</th>{% if show_game %}<th>Game</th>{% endif %}<th>Session</th><th>Location</th><th>Round</th><th>Result</th><th>Llamado / Dehado</th><th>Photo</th>{% if can_see_money %}<th>Pools / balls</th>{% endif %}
 </tr></thead><tbody>
 {% for r in rows %}
   <tr><td class="small nowrap">{{ r.at | datetime }}</td>{% if show_game %}<td class="small">{{ r.game }}</td>{% endif %}
-    <td class="small"><a href="{{ r.url }}">{{ r.session }}</a></td><td class="small">{{ r.location or '—' }}</td><td>{{ r.round_label }}</td><td>{{ r.result }}</td>
+    <td class="small"><a href="{{ r.url }}">{{ r.session }}</a></td><td class="small">{{ r.location or '—' }}</td><td>{{ r.round_label }}</td><td>{{ r.result }}</td><td>{{ r.role or '—' }}</td><td>{% if r.proof_url %}<a class="btn btn-sm btn-ghost" href="{{ r.proof_url }}">View</a>{% else %}<span class="muted">—</span>{% endif %}</td>
     {% if can_see_money %}<td class="small">{{ r.detail }}</td>{% endif %}</tr>
 {% endfor %}
 </tbody></table></div>

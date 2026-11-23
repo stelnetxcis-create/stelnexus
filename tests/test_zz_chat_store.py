@@ -346,8 +346,8 @@ def test_commission_in_wallet_menu_and_referrals_in_account_menu_only_for_those_
         html = c.get("/dashboard").text
         wallet = html[html.index("wallet-panel"):html.index("account-menu")]
         account = html[html.index("account-panel"):]
-        assert 'href="/commissions"' in wallet and 'href="/referrals"' in account
-        assert 'href="/commissions"' not in html[:html.index("wallet-panel")]
+        assert 'href="/records?tab=commissions"' in wallet and 'href="/referrals"' in account
+        assert 'href="/records?tab=commissions"' not in html[:html.index("wallet-panel")]
     finally:
         _cleanup(event_id)
     # a player holds neither permission

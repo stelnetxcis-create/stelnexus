@@ -7,8 +7,9 @@ from sqlalchemy import func, select
 
 from app.core.rbac import Perm, is_top, scope_ids
 from app.db.models import Event, EventStatus, Fight, FightStatus, Location, Ticket, TicketStatus, User
-from app.games.base import Filters, GameAdapter, ReportRow, RoundRow, TicketRow, can_see_money
-from app.services import betting, bola, events, reports
+from app.games.base import (CreateSpec, Filters, GameAdapter, ReportRow, RoundRow, ScheduleRow, TicketRow,
+                            can_see_money)
+from app.services import betting, bola, events, locations, reports
 
 
 def day_bounds(day: dt.date) -> tuple[dt.datetime, dt.datetime]:
@@ -83,6 +84,40 @@ class SabongAdapter(GameAdapter):
                 "staked": int(staked) if can_see_money(ctx) else None,
                 "next": live_event.title if live_event else None}
 
+    # ---- schedule --------------------------------------------------------------------
+    def schedule(self, ctx, when: str) -> list[ScheduleRow]:
+        today = bola.utcnow().astimezone(bola.MANILA).date()
+        evs = events.list_events(ctx.db, limit=200)
+        if when == "today":
+            evs = [e for e in evs if e.event_date == today]
+        elif when == "upcoming":
+            evs = sorted((e for e in evs if e.event_date > today), key=lambda e: (e.event_date, e.id))
+        else:
+            evs = [e for e in evs if e.event_date < today]
+        return [ScheduleRow(label=e.title, when=e.event_date.isoformat(), status=e.status.value,
+                            location=e.location.name if e.location else "—",
+                            detail=f"{e.fight_count} fights", url=f"/events/{e.id}") for e in evs]
+
+    def create_spec(self, ctx) -> CreateSpec | None:
+        if not ctx.can(Perm.EVENTS_CREATE):
+            return None
+        locs = locations.list_locations(ctx.db, active_only=True)
+        need_loc = bool(ctx.store.get("event.require_location")) and bool(locs)
+        today = bola.utcnow().astimezone(bola.MANILA).date().isoformat()
+        return CreateSpec(title="Create event", action="/events/create",
+                          note="Creating an event generates its numbered fights. Locations are registered in Admin > Locations.",
+                          fields=[
+            {"name": "title", "label": "Event title", "type": "text", "required": True, "attrs": 'maxlength="120" placeholder="Sunday Derby"'},
+            {"name": "location_id", "label": "Location", "type": "select", "required": need_loc,
+             "options": [("", "Select a location…" if locs else "No location registered")] + [(str(l.id), l.name) for l in locs]},
+            {"name": "event_date", "label": "Event date", "type": "date", "value": today, "required": True},
+            {"name": "fight_count", "label": "Fights", "type": "number", "required": True,
+             "value": int(ctx.store.get("event.default_fight_count")), "attrs": 'min="1" max="200"'},
+            {"name": "payout_model", "label": "Payout model", "type": "select",
+             "options": [("", "Location / global default"), ("pool", "Pool + tong"), ("fixed", "Fixed odds")]},
+            {"name": "house_cut_bps", "label": "Tong override (bps)", "type": "number",
+             "attrs": 'min="0" max="10000" placeholder="blank = global"'}])
+
     # ---- records ---------------------------------------------------------------------
     def _rows(self, ctx, tickets: list[Ticket]) -> list[TicketRow]:
         if not tickets:
@@ -133,7 +168,8 @@ class SabongAdapter(GameAdapter):
                 round_label=f"Fight #{x.number}", result=x.result.value if x.result else x.status.value,
                 at=x.declared_at, detail=(f"Meron {snap['meron']/100:,.2f} · Wala {snap['wala']/100:,.2f} · "
                                           f"Draw {snap['draw']/100:,.2f}") if snap else "",
-                url=f"/events/{x.event_id}",
+                url=f"/events/{x.event_id}", role=events.role_of(x, x.result.value if x.result else None) or "",
+                proof_url=f"/change_name?event_id={x.event_id}&fight_id={x.id}" if x.proof_file else "",
                 location=" · ".join(p for p in (locs[evs[x.event_id].location_id].name,
                                                locs[evs[x.event_id].location_id].city) if p)
                 if x.event_id in evs and evs[x.event_id].location_id in locs else ""))

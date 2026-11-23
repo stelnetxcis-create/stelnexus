@@ -213,7 +213,7 @@
               {% if 'wallet.transfer' in perms %}<a href="/wallet?t=transfer"><svg class="ico"><use href="#i-swap"/></svg>Transfer</a>{% endif %}
               <a href="/wallet?t=history"><svg class="ico"><use href="#i-clock"/></svg>History</a>
             </div>
-            {% if 'commissions.view' in perms %}<a class="account-item {{ 'is-active' if active == 'commissions' }}" href="/commissions"><svg class="ico"><use href="#i-coins"/></svg>Commission</a>{% endif %}
+            {% if 'commissions.view' in perms %}<a class="account-item {{ 'is-active' if active in ('commissions', 'records') }}" href="/records?tab=commissions"><svg class="ico"><use href="#i-coins"/></svg>Commission</a>{% endif %}
             <a class="account-item" href="/wallet">Open wallet{% if wallet_pending %} · {{ wallet_pending }} to review{% endif %}</a>
           </div>
         </details>
@@ -226,7 +226,7 @@
             <div class="account-who"><strong>{{ user.full_name }}</strong><small>{{ user.username }} · {{ user.role_label }}</small></div>
             <a class="account-item" href="/profile"><svg class="ico"><use href="#i-user"/></svg>Profile &amp; security</a>
             {% if 'referrals.manage' in perms %}<a class="account-item {{ 'is-active' if active == 'referrals' }}" href="/referrals"><svg class="ico"><use href="#i-key"/></svg>Referral codes</a>{% endif %}
-            {% set report_links = [('/cashflow', 'i-chart', 'Cashflow', 'cashflow.view'), ('/archives', 'i-archive', 'Report archives', 'reports.view')] %}
+            {% set report_links = [('/cashflow', 'i-chart', 'Cashflow', 'cashflow.view'), ('/records?tab=reports&view=archive&game=sabong', 'i-archive', 'Report archives', 'reports.view')] %}
             {% set shown_reports = report_links | selectattr(3, 'in', perms) | list %}
             {% if shown_reports %}
             <div class="account-sep">Reports</div>
@@ -274,7 +274,7 @@
   {% for key, href, icon, label, perm in [('dashboard','/dashboard','i-grid','Home','dashboard.view'),
                                           ('events','/events','i-calendar','Sabong','events.view'),
                                           ('wallet','/wallet','i-coins','Wallet','wallet.view'),
-                                          ('betlogs','/betlogs','i-list','Bets','bets.view'),
+                                          ('betlogs','/records?tab=tickets&game=sabong','i-list','Bets','bets.view'),
                                           ('admin','/admin','i-sliders','Panel','panel.view')] %}
     {% if perm in perms %}
     <a class="tab {{ 'is-active' if active == key }}" href="{{ href }}"><svg class="ico"><use href="#{{ icon }}"/></svg><span>{{ label }}</span></a>

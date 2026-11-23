@@ -87,3 +87,15 @@ def test_daily_report_total_equals_archive_rows(world, bet):
     assert len(same_day) == 1
     assert same_day[0].staked == sum(r.staked for r in day_rows)
     assert same_day[0].net == sum(r.net for r in day_rows)
+
+
+def test_history_keeps_location_role_and_photo_columns(world, bet):
+    from app.db.models import Result
+    w = world
+    settlement.declare(w.db, w.admin, fight_id=w.games[0].id, result=Result.MERON, settings=w.store)
+    w.db.commit()
+    c, _ = login("admin")
+    html = c.get("/records?tab=history&game=sabong").text
+    for head in ("<th>Location</th>", "<th>Llamado / Dehado</th>", "<th>Photo</th>"):
+        assert head in html
+    assert f"Fight #{w.games[0].number}" in html

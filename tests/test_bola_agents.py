@@ -242,6 +242,6 @@ def test_sidebar_links_resolve(net):
     """The nav entries for these two pages shipped before the pages did; keep them honest."""
     a, _ = login("admin")
     html = a.get("/dashboard").text
-    for href in ("/bola/cancelled", "/commissions"):
+    for href in ("/bola/cancelled", "/records?tab=commissions"):
         assert f'href="{href}"' in html
         assert a.get(href, follow_redirects=True).status_code == 200

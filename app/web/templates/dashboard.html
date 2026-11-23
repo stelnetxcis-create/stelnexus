@@ -97,9 +97,9 @@
     {{ game_menu('sabong', 'Sabong · where to?', [
       ('/events', 'i-calendar', 'Events', 'Open an event and see its games', 'events.view'),
       ('/change_name', 'i-target', 'Fight View', 'Watch live, place bets, declare results', 'fights.view'),
-      ('/betlogs', 'i-list', 'Betting List', 'Every ticket placed', 'bets.view'),
-      ('/history', 'i-clock', 'Game History', 'Results and result pictures', 'fights.view'),
-      ('/cancelT', 'i-ban', 'Cancel Ticket', 'Cancelled tickets log', 'cancellog.view')]) }}
+      ('/records?tab=tickets&game=sabong', 'i-list', 'Betting List', 'Every ticket placed', 'bets.view'),
+      ('/records?tab=history&game=sabong', 'i-clock', 'Game History', 'Results and result pictures', 'fights.view'),
+      ('/records?tab=cancelled&game=sabong', 'i-ban', 'Cancel Ticket', 'Cancelled tickets log', 'cancellog.view')]) }}
   </div>
   {% endif %}
   {% if number_tile %}
@@ -116,7 +116,7 @@
     </a>
     {{ game_menu('number', 'Number game · where to?', [
       ('/bola', 'i-hash', 'Draws & bet slip', 'Pick a draw and place bets', 'bola.view'),
-      ('/bola/betlogs', 'i-list', 'My tickets', 'Tickets you placed', 'bola.place'),
+      ('/records?tab=tickets&game=bola', 'i-list', 'My tickets', 'Tickets you placed', 'bola.place'),
       ('/bola/reports', 'i-coins', 'Reports', 'Exposure and sales', 'bola.exposure'),
       ('/bola/cancelled', 'i-ban', 'Cancelled', 'Cancelled tickets log', 'cancellog.view')]) }}
   </div>

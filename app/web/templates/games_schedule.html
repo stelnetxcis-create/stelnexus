@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}{{ game.label }} · Schedule · {{ brand }}{% endblock %}
+{% block heading %}{{ game.label }} · Schedule{% endblock %}
+{% block actions %}
+{% if spec %}<button class="btn btn-sm btn-brand" data-modal="create-modal"><svg class="ico"><use href="#i-plus"/></svg>{{ spec.title }}</button>
+{% if spec.generate %}<button class="btn btn-sm" data-modal="generate-modal">{{ spec.generate.title }}</button>{% endif %}{% endif %}
+{% endblock %}
+{% block content %}
+<div class="subtabs" role="tablist" aria-label="Schedule">
+  {% for f in filters %}<a class="subtab {{ 'is-active' if when == f }}" href="/games/{{ game.key }}/schedule?when={{ f }}">{{ f | capitalize }}</a>{% endfor %}
+</div>
+<div class="card"><div class="card-body tight">
+{% if rows %}
+<div class="table-wrap"><table class="table"><thead><tr>
+  <th>{{ game.vocabulary.session }}</th><th>When</th><th>Location</th><th>Detail</th><th>Status</th><th></th>
+</tr></thead><tbody>
+{% for r in rows %}
+  <tr><td><a href="{{ r.url }}">{{ r.label }}</a></td><td class="small nowrap">{{ r.when }}</td><td class="small">{{ r.location }}</td>
+    <td class="small">{{ r.detail }}</td><td>{{ ui.status_badge(r.status) }}</td><td class="right"><a class="btn btn-sm btn-ghost" href="{{ r.url }}">Open</a></td></tr>
+{% endfor %}
+</tbody></table></div>
+{% else %}{{ ui.empty('Nothing scheduled here.' ) }}{% endif %}
+</div></div>
+
+{% macro form(s, modal_id) %}
+{% call ui.modal(modal_id, s.title) %}
+<form method="post" action="{{ s.action }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="form-grid">
+  {% for f in s.fields %}
+    <label class="field"><span>{{ f.label }}{% if f.required %} <em>*</em>{% endif %}</span>
+    {% if f.type == 'select' %}<select name="{{ f.name }}" {{ 'required' if f.required }}>{% for v, text in f.options %}<option value="{{ v }}">{{ text }}</option>{% endfor %}</select>
+    {% else %}<input type="{{ f.type }}" name="{{ f.name }}" value="{{ f.value if f.value is defined else '' }}" {{ 'required' if f.required }} {{ f.attrs | safe if f.attrs }}>{% endif %}
+    </label>
+  {% endfor %}
+  </div>
+  {% if s.note %}<p class="notice">{{ s.note }}</p>{% endif %}
+  <div class="form-actions"><button class="btn btn-primary" type="submit">{{ s.submit }}</button></div>
+</form>
+{% endcall %}
+{% endmacro %}
+{% if spec %}{{ form(spec, 'create-modal') }}{% if spec.generate %}{{ form(spec.generate, 'generate-modal') }}{% endif %}{% endif %}
+{% endblock %}

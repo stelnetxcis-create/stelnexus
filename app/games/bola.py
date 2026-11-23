@@ -8,9 +8,10 @@ from sqlalchemy.orm import joinedload
 
 from app.core.rbac import Perm, bola_visible_to
 from app.db.models import BolaDraw, BolaTicket, DrawStatus, TicketStatus
-from app.games.base import Filters, GameAdapter, ReportRow, RoundRow, TicketRow, can_see_money
+from app.games.base import (CreateSpec, Filters, GameAdapter, ReportRow, RoundRow, ScheduleRow, TicketRow,
+                            can_see_money)
 from app.games.sabong import canceller_names, day_bounds, range_bounds, usernames
-from app.services import bola, reports
+from app.services import bola, locations, reports
 
 
 def _draw_label(d: BolaDraw) -> str:
@@ -40,7 +41,7 @@ class BolaAdapter(GameAdapter):
     def workspace_urls(self, ctx) -> dict[str, str | None]:
         return {
             "live": "/bola",
-            "schedule": "/bola" if ctx.can(Perm.BOLA_MANAGE) or ctx.can(Perm.BOLA_VIEW) else None,
+            "schedule": "/games/bola/schedule",
             "tickets": "/records?tab=tickets&game=bola" if can_see_money(ctx) else None,
             "declare": "/staff/declarator" if ctx.can(Perm.STAFF_DECLARATOR) else None,
         }
@@ -57,6 +58,36 @@ class BolaAdapter(GameAdapter):
                 "rounds": board["total"], "open": board["open"], "tickets": tickets,
                 "staked": int(staked) if staked is not None else None,
                 "next": f"{bola.local(nxt.scheduled_at):%H:%M}" if nxt else None}
+
+    # ---- schedule --------------------------------------------------------------------
+    def schedule(self, ctx, when: str) -> list[ScheduleRow]:
+        today = bola.utcnow().astimezone(bola.MANILA).date()
+        stmt = select(BolaDraw).options(joinedload(BolaDraw.location))
+        if when == "today":
+            stmt = stmt.where(BolaDraw.draw_date == today).order_by(BolaDraw.scheduled_at, BolaDraw.id)
+        elif when == "upcoming":
+            stmt = stmt.where(BolaDraw.draw_date > today).order_by(BolaDraw.scheduled_at, BolaDraw.id)
+        else:
+            stmt = stmt.where(BolaDraw.draw_date < today).order_by(BolaDraw.scheduled_at.desc(), BolaDraw.id.desc())
+        draws = ctx.db.scalars(stmt.limit(200)).unique().all()
+        return [ScheduleRow(label=f"Draw #{d.slot}", when=f"{d.draw_date:%Y-%m-%d} {bola.local(d.scheduled_at):%H:%M}",
+                            status=d.status.value, location=d.location.name if d.location else "—",
+                            detail="", url=f"/bola/draws/{d.id}") for d in draws]
+
+    def create_spec(self, ctx) -> CreateSpec | None:
+        if not ctx.can(Perm.BOLA_MANAGE):
+            return None
+        areas = locations.list_locations(ctx.db, active_only=True)
+        today = bola.utcnow().astimezone(bola.MANILA).date().isoformat()
+        gen = CreateSpec(title="Generate from schedules", action="/bola/draws/generate", submit="Generate", fields=[
+            {"name": "days", "label": "Days ahead", "type": "number", "value": 1, "required": True,
+             "attrs": 'min="1" max="14"'}])
+        return CreateSpec(title="Create draw", action="/bola/draws/create", generate=gen, fields=[
+            {"name": "location_id", "label": "Area", "type": "select", "required": True,
+             "options": [(str(a.id), a.name) for a in areas]},
+            {"name": "draw_date", "label": "Date", "type": "date", "value": today, "required": True},
+            {"name": "slot", "label": "Slot", "type": "number", "value": 1, "required": True, "attrs": 'min="1" max="6"'},
+            {"name": "draw_time", "label": "Draw time (Manila)", "type": "time", "required": True}])
 
     # ---- records ---------------------------------------------------------------------
     def _rows(self, ctx, tickets: list[BolaTicket]) -> list[TicketRow]:
