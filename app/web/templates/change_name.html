@@ -145,7 +145,7 @@
           </div>
         </div>
         {% endset %}
-        {{ pl.stream_player('fight', 'Game #' ~ fight.number ~ ' · Live match video', fight.entry_name_meron, fight.entry_name_wala, stream_pass, chat_access.reason == 'closed', strip_html, scene_html) }}
+        {{ pl.stream_player('fight', 'Game #' ~ fight.number ~ ' · Live match video', fight.entry_name_meron, fight.entry_name_wala, stream_pass, chat_access.reason == 'closed', strip_html, scene_html, stream_payload, '/_live/stream/f' ~ fight.id) }}
         <div class="fc-overlay" data-fc-overlay data-size="m" role="region" aria-label="Livestream chat"{% if ph in ('onair', 'waiting') %} style="display:none"{% endif %}>
       <div class="fc-head">
         <span class="fc-air"><i></i><span data-fc-air>{{ 'ENDED' if chat_access.reason == 'closed' else 'PRE-SHOW' }}</span></span>

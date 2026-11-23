@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}{{ target.username }} · Access · {{ brand }}{% endblock %}
+{% block heading %}Admin Panel{% endblock %}
+{% block content %}
+{% include "_access_nav.html" %}
+<section class="ax-hero" style="--ax:{{ kind.tree.accent }}">
+  <div>
+    <h2>{{ target.full_name }} <small class="muted">{{ target.username }}</small></h2>
+    <p>{{ kind.label }}{% if own_kind.is_custom %} · custom type <b>{{ own_kind.label }}</b>{% endif %}. Choose Allow or Deny for single rights. Deny always wins. Changes apply on their next click and are written to the audit trail.{% if target.role.value in ('master', 'agent', 'sub_agent') %} Some pages also look at the account's place in the network, so an allowed right may still only reach their own downline.{% endif %}</p>
+    <div class="ax-meta">{{ ui.status_badge(target.status) }}<span class="ax-chip">{{ effective|length }} rights now</span>
+      <a class="ax-chip hot" href="{{ own_kind.href }}">&larr; {{ own_kind.label }} accounts</a></div>
+  </div>
+</section>
+
+<form method="post" action="/admin/access/account/{{ target.id }}">{{ ui.csrf(csrf_token) }}
+  <div class="card">
+    <div class="card-head"><h2>Account type</h2></div>
+    <div class="card-body">
+      {% if types %}
+      <label class="field"><span>Type for this {{ kind.label }}</span>
+        <select name="account_type">
+          <option value="" {{ 'selected' if not target.account_type_id }}>Plain {{ kind.label }} (role defaults)</option>
+          {% for t in types %}<option value="{{ t.type.id }}" {{ 'selected' if target.account_type_id == t.type.id }}>{{ t.label }}</option>{% endfor %}
+        </select>
+        <small>Moving an account into a custom type gives it that type's rights. Save to apply, then adjust single rights below if needed.</small>
+      </label>
+      {% else %}<p class="muted small">No custom types are built on {{ kind.label }} yet. Use <b>New account type</b> at the top to make one.</p>{% endif %}
+    </div>
+  </div>
+
+  <div class="ax-acc">
+  {% for category, items in catalog %}
+    <div class="card"><div class="card-head"><h2>{{ category }}</h2></div><div class="card-body">
+      {% for perm, label in items %}{% set k = perm.value %}
+      {% set locked = (k in non_delegable) or (bola_locked and k in bola_perms) %}
+      {% set choice = 'allow' if k in allow else ('deny' if k in deny else '') %}
+      <div class="ax-line">
+        <span>{{ label }}<small>{{ k }}</small></span>
+        {% if locked %}<span class="muted small">{{ 'Admin only' if k in non_delegable else 'Bola locked' }}</span>
+        {% else %}<select name="p:{{ k }}" aria-label="{{ label }}">
+          <option value="" {{ 'selected' if choice == '' }}>Default ({{ 'yes' if k in base else 'no' }})</option>
+          <option value="allow" {{ 'selected' if choice == 'allow' }}>Allow</option>
+          <option value="deny" {{ 'selected' if choice == 'deny' }}>Deny</option>
+        </select>{% endif %}
+        {% if k in effective %}<span class="badge badge-green">Yes</span>{% else %}<span class="badge badge-red">No</span>{% endif %}
+      </div>
+      {% endfor %}
+    </div></div>
+  {% endfor %}
+  </div>
+  <div class="ax-save"><span class="muted small">Saves the account type and every Allow / Deny above together.</span><button class="btn btn-primary" type="submit">Save</button></div>
+</form>
+<form method="post" action="/admin/access/account/{{ target.id }}/reset" class="inline-form" style="margin-top:12px" data-confirm="Remove this account's type and every Allow / Deny, back to plain role defaults?">{{ ui.csrf(csrf_token) }}
+  <button class="btn btn-sm btn-ghost" type="submit">Reset to plain role defaults</button></form>
+{% endblock %}

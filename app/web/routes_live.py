@@ -26,8 +26,8 @@ from app.core import ttlcache
 from app.core.config import get_settings
 from app.core.rbac import sees_house, Perm, hides_totals
 from app.core.money import bps_of
-from app.db.models import (AppSetting, Event, Fight, FightStatus, PayoutModel, RunStatus, SettlementRun, Ticket,
-                           TicketStatus)
+from app.db.models import (AppSetting, Event, Fight, FightStatus, PayoutModel, RunStatus, SettlementRun, StreamAssignment,
+                           StreamSource, Ticket, TicketStatus)
 from app.services import betting, events, reports
 from app.web.conditional import etag_matches, not_modified
 from app.web.deps import Ctx, require_ctx
@@ -74,7 +74,7 @@ def _reply_packed(request: Request, rev: str, body: bytes) -> Response:
 # The shared live payload ("live" cache prefix) is cleared the moment a transaction that wrote a ticket, game,
 # event or setting COMMITS, so a bet, a lock, a declared result or a changed house cut shows on the very next
 # poll. LIVE_CACHE_SECONDS only covers writes made by another process.
-_LIVE_MODELS = (Ticket, Fight, Event, AppSetting)
+_LIVE_MODELS = (Ticket, Fight, Event, AppSetting, StreamSource, StreamAssignment)
 
 
 @sa_event.listens_for(Session, "before_flush")

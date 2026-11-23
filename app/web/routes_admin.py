@@ -4,8 +4,7 @@
     /admin/variables    every business variable (was Settings)
     /admin/locations    the venue registry
     /admin/cuts         Volume % / SOP % (was the Cuts page)
-    /admin/pawns        Pawns & Access: create Pawns, set their grants (Admin only)
-    /admin/pawns/access rights chart of every role + per-account permission editor (Admin only)
+    /admin/access       Access: the Dev / Staff / Users trees, role defaults, account types (Admin only; see routes_access)
     /admin/audit        audit trail and ledger integrity
 
 The Admin sees all of it. A Pawn sees only the sections the Admin switched on for that account
@@ -18,10 +17,8 @@ from sqlalchemy import func, select
 
 from app.core import audit
 from app.core.errors import NotFound, ValidationError
-from app.core.rbac import (GRANTS, NON_DELEGABLE, PERM_CATALOG, Perm, base_permissions_of, bola_dev_only,
-                           builtin_permissions_for, builtin_player_perms, normalize_grants, offered_grants, permissions_for,
-                           permissions_of, player_perms,
-                           variable_groups_editable, variable_groups_visible, BOLA_PERMS)
+from app.core.rbac import (GRANTS, Perm, normalize_grants, offered_grants, variable_groups_editable,
+                           variable_groups_visible)
 from app.core.settings_registry import BY_KEY, DEFS, GROUPS
 from app.db.models import AuditLog, Event, EventStatus, Location, Role, Status, User
 from app.services import account_admin, agents, bola, ipbans, locations, presence, reports, teams
@@ -39,8 +36,9 @@ SECTIONS = (
     ("bola", "/admin/bola/schedules", "Bola draw times", Perm.BOLA_MANAGE),
     ("cuts", "/admin/cuts", "Cuts", Perm.CUTS_VIEW),
     ("accounts", "/admin/accounts", "Accounts", Perm.ACCOUNTS_VIEW),
+    ("streams", "/admin/streams", "Streams", Perm.STREAMS_VIEW),
     ("ipbans", "/admin/ipbans", "IP bans", Perm.IPBANS_MANAGE),
-    ("pawns", "/admin/pawns", "Pawns & Access", Perm.PAWNS_MANAGE),
+    ("access", "/admin/access", "Access", Perm.PAWNS_MANAGE),
     ("audit", "/admin/audit", "Audit trail", Perm.AUDIT_VIEW),
 )
 
@@ -76,7 +74,7 @@ async def admin_home(ctx: Ctx = Depends(require_ctx)):
         cards.append(("GCash pool", live, "numbers in rotation", "/staff/teller"))
     if ctx.can(Perm.PAWNS_MANAGE):
         n = int(db.scalar(select(func.count(User.id)).where(User.role == Role.PAWN)) or 0)
-        cards.append(("Pawns", n, "spectator accounts", "/admin/pawns"))
+        cards.append(("Pawns", n, "spectator accounts", "/admin/access/dev/pawn"))
     recent = []
     if ctx.can(Perm.AUDIT_VIEW):
         recent = list(db.scalars(select(AuditLog).order_by(AuditLog.id.desc()).limit(8)).all())
@@ -246,16 +244,6 @@ async def bola_schedules_delete(schedule_id: int, ctx: Ctx = Depends(require_ctx
 
 # --------------------------------------------------------------------------- pawns (Admin only)
 
-@router.get("/admin/pawns")
-async def pawns_page(ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.PAWNS_MANAGE)
-    sections: dict[str, list] = {}
-    for grant in offered_grants():
-        sections.setdefault(grant.section, []).append(grant)
-    return panel(ctx, "pawns", "admin_pawns.html", pawns=agents.list_pawns(ctx.db), sections=sections, access_view="pawns",
-                 min_len=int(ctx.store.get("security.password_min_length")))
-
-
 @router.post("/admin/pawns/create")
 async def pawns_create(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.PAWNS_MANAGE)
@@ -265,7 +253,7 @@ async def pawns_create(request: Request, ctx: Ctx = Depends(require_ctx)):
         role=Role.PAWN, full_name=form.get("full_name", ""), contact=form.get("contact"),
         settings=ctx.store)
     agents.set_pawn_grants(ctx.db, ctx.user, pawn.id, _multi(form, "grant"))
-    return flash_redirect("/admin/pawns", f"Pawn '{pawn.username}' created. They must change the password at first sign-in.")
+    return flash_redirect("/admin/access/dev/pawn", f"Pawn '{pawn.username}' created. They must change the password at first sign-in.")
 
 
 @router.post("/admin/pawns/{pawn_id}/grants")
@@ -273,7 +261,7 @@ async def pawns_grants(pawn_id: int, request: Request, ctx: Ctx = Depends(requir
     ctx.need(Perm.PAWNS_MANAGE)
     form = await request.form()
     pawn = agents.set_pawn_grants(ctx.db, ctx.user, pawn_id, _multi(form, "grant"))
-    return flash_redirect("/admin/pawns", f"Access updated for {pawn.username}. It applies on their next click.")
+    return flash_redirect("/admin/access/dev/pawn", f"Access updated for {pawn.username}. It applies on their next click.")
 
 
 @router.post("/admin/pawns/{pawn_id}/status")
@@ -285,7 +273,7 @@ async def pawns_status(pawn_id: int, request: Request, ctx: Ctx = Depends(requir
         raise NotFound("Pawn not found.")
     agents.update_agent(ctx.db, ctx.user, pawn_id, status=Status(data.get("status", "active")),
                         reason=data.get("reason"))
-    return flash_redirect("/admin/pawns", f"{pawn.username} is now {data.get('status', 'active')}.")
+    return flash_redirect("/admin/access/dev/pawn", f"{pawn.username} is now {data.get('status', 'active')}.")
 
 
 @router.post("/admin/pawns/{pawn_id}/password")
@@ -296,102 +284,7 @@ async def pawns_password(pawn_id: int, request: Request, ctx: Ctx = Depends(requ
     if pawn is None or pawn.role != Role.PAWN:
         raise NotFound("Pawn not found.")
     agents.reset_password(ctx.db, ctx.user, pawn_id, data.get("password", ""), settings=ctx.store)
-    return flash_redirect("/admin/pawns", f"Password reset for {pawn.username}.")
-
-
-# --------------------------------------------------------------------------- rights chart & per-account permissions (Admin only)
-
-_ROLE_COLUMNS = (Role.ADMIN, Role.MASTER, Role.AGENT, Role.SUB_AGENT, Role.TELLER, Role.DECLARATOR, Role.PAWN)
-
-
-def _parse_overrides(form) -> tuple[list[str], list[str]]:
-    grants, revokes = [], []
-    for perm in Perm:
-        choice = str(form.get(f"p:{perm.value}", ""))
-        if choice == "allow":
-            grants.append(perm.value)
-        elif choice == "deny":
-            revokes.append(perm.value)
-    return grants, revokes
-
-
-@router.get("/admin/pawns/access")
-async def access_page(ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.PAWNS_MANAGE)
-    columns = [(r.label, {p.value for p in permissions_for(r)}) for r in _ROLE_COLUMNS]
-    columns.append(("Player", {p.value for p in player_perms()}))
-    accounts = agents.list_permission_accounts(ctx.db)
-    return panel(ctx, "pawns", "admin_access.html", catalog=PERM_CATALOG, columns=columns, accounts=accounts,
-                 effective={u.id: len(permissions_of(u)) for u in accounts}, bola_locked=bola_dev_only(),
-                 non_delegable={p.value for p in NON_DELEGABLE}, access_view="chart")
-
-
-@router.get("/admin/pawns/access/roles")
-async def access_roles_page(ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.PAWNS_MANAGE)
-    roles = [(r.value, r.label, {p.value for p in permissions_for(r)}, {p.value for p in builtin_permissions_for(r, gated=False)})
-             for r in _ROLE_COLUMNS[1:]]
-    roles.append(("player", "Player", {p.value for p in player_perms()}, {p.value for p in builtin_player_perms()}))
-    return panel(ctx, "pawns", "admin_access_roles.html", catalog=PERM_CATALOG, roles=roles,
-                 locked={p.value for p in NON_DELEGABLE} | ({p.value for p in BOLA_PERMS} if bola_dev_only() else set()),
-                 non_delegable={p.value for p in NON_DELEGABLE}, bola_locked=bola_dev_only(), access_view="roles")
-
-
-@router.post("/admin/pawns/access/roles")
-async def access_roles_save(request: Request, ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.PAWNS_MANAGE)
-    form = await request.form()
-    changed = []
-    for role_key in agents.EDITABLE_DEFAULT_ROLES:
-        wanted = [p.value for p in Perm if str(form.get(f"r:{role_key}:{p.value}", "")) == "on"]
-        if agents.set_role_defaults(ctx.db, ctx.user, role_key, wanted):
-            changed.append(role_key)
-    msg = ("Role defaults updated for " + ", ".join(changed) + ". Applies to everyone in those roles within seconds."
-           if changed else "No changes.")
-    return flash_redirect("/admin/pawns/access/roles", msg)
-
-
-@router.post("/admin/pawns/access/roles/{role_key}/reset")
-async def access_roles_reset(role_key: str, ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.PAWNS_MANAGE)
-    from app.core import rbac as _rbac
-    builtin = (_rbac.builtin_player_perms() if role_key == "player"
-               else _rbac.builtin_permissions_for(role_key, gated=False)) if role_key in agents.EDITABLE_DEFAULT_ROLES else set()
-    agents.set_role_defaults(ctx.db, ctx.user, role_key, [p.value for p in builtin])
-    return flash_redirect("/admin/pawns/access/roles", f"{role_key.replace('_', ' ').title()} is back to the built-in defaults.")
-
-
-@router.get("/admin/pawns/access/{user_id}")
-async def access_edit_page(user_id: int, ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.PAWNS_MANAGE)
-    target = ctx.db.get(User, user_id)
-    if target is None or target.role == Role.ADMIN:
-        raise NotFound("Account not found.")
-    base = {p.value for p in base_permissions_of(target)}
-    allow = {k for k in (target.perm_grants or [])}
-    deny = {k for k in (target.perm_revokes or [])}
-    effective = {p.value for p in permissions_of(target)}
-    return panel(ctx, "pawns", "admin_access_edit.html", target=target, catalog=PERM_CATALOG, base=base, allow=allow,
-                 deny=deny, effective=effective, non_delegable={p.value for p in NON_DELEGABLE},
-                 bola_locked=bola_dev_only(), bola_perms={p.value for p in BOLA_PERMS}, access_view="edit")
-
-
-@router.post("/admin/pawns/access/{user_id}")
-async def access_save(user_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.PAWNS_MANAGE)
-    form = await request.form()
-    grants, revokes = _parse_overrides(form)
-    target = agents.set_permission_overrides(ctx.db, ctx.user, user_id, grants, revokes)
-    return flash_redirect(f"/admin/pawns/access/{user_id}",
-                          f"Permissions updated for {target.username}. They apply on their next click.")
-
-
-@router.post("/admin/pawns/access/{user_id}/reset")
-async def access_reset(user_id: int, ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.PAWNS_MANAGE)
-    target = agents.set_permission_overrides(ctx.db, ctx.user, user_id, [], [])
-    return flash_redirect(f"/admin/pawns/access/{user_id}",
-                          f"{target.username} is back to the defaults for their role.")
+    return flash_redirect("/admin/access/dev/pawn", f"Password reset for {pawn.username}.")
 
 
 # --------------------------------------------------------------------------- accounts

@@ -129,7 +129,7 @@ def test_every_page_and_endpoint_is_closed_to_everyone_but_dev():
         c, _ = login("admin")
         html = c.get("/dashboard").text
         assert "Number game · dev only" in html and "bola-card" in html
-        assert all(c.get(u).status_code == 200 for u in urls[:4] + [urls[4], urls[5], "/admin/bola/schedules"])
+        assert all(c.get(u, follow_redirects=True).status_code == 200 for u in urls[:4] + [urls[4], urls[5], "/admin/bola/schedules"])
     finally:
         _web_teardown(ids)
 

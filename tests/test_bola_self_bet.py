@@ -110,6 +110,6 @@ def test_slip_has_no_required_player_and_bets_over_http():
             t = db.get(BolaTicket, tid)
             assert t.user_id == admin_id and t.player_id is None
         assert c.get(r.headers["location"]).status_code == 200            # the ticket page renders without a player
-        assert c.get("/bola/betlogs").status_code == 200
+        assert c.get("/bola/betlogs", follow_redirects=True).status_code == 200
     finally:
         _web_teardown(ids)

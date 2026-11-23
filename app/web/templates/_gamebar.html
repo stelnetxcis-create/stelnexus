@@ -1,0 +1,8 @@
+{# Game switcher (segmented control): {% from "_gamebar.html" import gamebar %}{{ gamebar(game, game_choices, base_url) }}
+   Identical on the Games hub and on Records. Passing the current query keeps the other filters. #}
+{% macro gamebar(current, choices, url) %}
+<div class="subtabs gamebar" role="tablist" aria-label="Game">
+  <a class="subtab {{ 'is-active' if current == 'all' }}" href="{{ url }}game=all">All</a>
+  {% for g in choices %}<a class="subtab {{ 'is-active' if current == g.key }}" href="{{ url }}game={{ g.key }}">{{ g.label }}</a>{% endfor %}
+</div>
+{% endmacro %}

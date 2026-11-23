@@ -10,6 +10,7 @@
 {% endif %}
 {% endblock %}
 {% block content %}
+{% if records_bar %}{% include "records/_bar.html" %}{% endif %}
 {% macro pct(bps) %}{{ ('%.2f' | format(bps / 100)).rstrip('0').rstrip('.') }}%{% endmacro %}
 {% set t = stmt.totals %}
 {% set q = 'start=' ~ stmt.start ~ '&amp;end=' ~ stmt.end %}

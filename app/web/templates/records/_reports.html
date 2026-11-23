@@ -1,0 +1,33 @@
+<div class="subtabs" role="tablist" aria-label="Report view">
+  <a class="subtab {{ 'is-active' if view == 'daily' }}" href="/records?tab=reports&amp;game={{ game }}&amp;view=daily">Daily</a>
+  <a class="subtab {{ 'is-active' if view == 'monthly' }}" href="/records?tab=reports&amp;game={{ game }}&amp;view=monthly">Monthly</a>
+  {% if game in ('all', 'sabong') %}<a class="subtab {{ 'is-active' if view == 'archive' }}" href="/records?tab=reports&amp;game={{ 'sabong' if game == 'all' else game }}&amp;view=archive">Archive</a>{% endif %}
+  {% if view == 'session' %}<a class="subtab is-active" href="#">Session</a>{% endif %}
+</div>
+{% if view == 'daily' %}
+<form method="get" class="inline-form" style="margin:0 0 12px"><input type="hidden" name="tab" value="reports"><input type="hidden" name="game" value="{{ game }}"><input type="hidden" name="view" value="daily">
+  <label class="field"><span>Date</span><input type="date" name="day" value="{{ day }}"></label><button class="btn btn-sm" type="submit">Show</button></form>
+{% elif view == 'monthly' %}
+<form method="get" class="inline-form" style="margin:0 0 12px"><input type="hidden" name="tab" value="reports"><input type="hidden" name="game" value="{{ game }}"><input type="hidden" name="view" value="monthly">
+  <label class="field"><span>Month</span><input type="month" name="month" value="{{ month }}"></label><button class="btn btn-sm" type="submit">Show</button></form>
+{% endif %}
+<div class="grid grid-3">
+  {{ ui.stat('Staked', totals.staked | money) }}{{ ui.stat('Paid out', totals.paid | money) }}
+  {{ ui.stat('House', totals.house | money) }}{{ ui.stat('Commission', totals.commission | money) }}
+  {{ ui.stat('Expenses', totals.expenses | money) }}{{ ui.stat('Net', totals.net | money, '', 'green' if totals.net >= 0 else 'red') }}
+</div>
+<div class="card"><div class="card-body tight">
+{% if rows %}
+<div class="table-wrap"><table class="table"><thead><tr>
+  {% if show_game %}<th>Game</th>{% endif %}<th>{{ 'Day' if view == 'monthly' else 'Session / round' }}</th>
+  <th class="right">Staked</th><th class="right">Paid out</th><th class="right">House</th><th class="right">Commission</th><th class="right">Expenses</th><th class="right">Net</th>
+</tr></thead><tbody>
+{% for label, r in rows %}
+  <tr>{% if show_game %}<td class="small">{{ label }}</td>{% endif %}<td>{% if r.url %}<a href="{{ r.url }}">{{ r.label }}</a>{% else %}{{ r.label }}{% endif %}</td>
+    <td class="right num">{{ r.staked | money }}</td><td class="right num">{{ r.paid | money }}</td><td class="right num">{{ r.house | money }}</td>
+    <td class="right num">{{ r.commission | money }}</td><td class="right num">{{ r.expenses | money }}</td><td class="right num">{{ r.net | money }}</td></tr>
+{% endfor %}
+</tbody></table></div>
+{{ ui.pager(pager) }}
+{% else %}{{ ui.empty('Nothing to report for this period.') }}{% endif %}
+</div></div>

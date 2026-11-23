@@ -119,8 +119,11 @@ def world(db):
     store.set("payout.max_dehado_bps", "0", admin.id)
     store.set("payout.platform_cut_bps", "0", admin.id)      # the platform cut has its own tests
     load_credit(db, admin, store, player, 10_000_000)
+    # Other test files leave active locations behind, and an event must then say where it is held: use any of them.
+    from app.db.models import Location
+    loc_id = db.scalar(select(Location.id).where(Location.is_active.is_(True)).order_by(Location.id).limit(1))
     event = events.create_event(db, admin, title=f"Event {tag}", event_date=dt.date.today(),
-                                settings=store, fight_count=6)
+                                settings=store, fight_count=6, location_id=loc_id)
     events.set_event_status(db, admin, event.id, EventStatus.OPEN)
     return type("World", (), {"db": db, "store": store, "admin": admin, "player": player,
                               "event": event,

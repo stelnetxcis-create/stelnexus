@@ -299,6 +299,8 @@ class User(UUIDMixin, TimestampMixin, Base):
     # perm_grants = extra permission keys, perm_revokes = removed ones (removal wins). See app.core.rbac.
     perm_grants: Mapped[list | None] = mapped_column(JsonType)
     perm_revokes: Mapped[list | None] = mapped_column(JsonType)
+    # Optional custom account type (Admin Panel -> Access). Its base role must equal this account's role.
+    account_profile_id: Mapped[int | None] = mapped_column(ForeignKey("account_profiles.id", ondelete="SET NULL"), index=True)
 
     parent: Mapped["User | None"] = relationship(
         remote_side="User.id", back_populates="children", foreign_keys="User.parent_id")
@@ -437,8 +439,53 @@ class IpBan(TimestampMixin, Base):
     expires_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())       # NULL = until lifted
 
 
+class StreamSource(TimestampMixin, Base):
+    """A named, reusable video link the Admin pasted (Admin Panel -> Streams). The server detects the type and builds
+    the safe embed itself: admin HTML is never stored or rendered. ``is_active`` marks the one source viewers watch."""
+    __tablename__ = "stream_sources"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    kind: Mapped[str] = mapped_column(String(12))                     # hls | file | youtube | facebook | embed
+    url: Mapped[str] = mapped_column(String(1000))                    # as typed (after iframe extraction)
+    embed_ref: Mapped[str | None] = mapped_column(String(1000))       # the iframe URL the server built
+    default_mode: Mapped[str] = mapped_column(String(8), default="auto")   # auto | live | replay
+    loop: Mapped[bool] = mapped_column(Boolean, default=False)
+    start_at: Mapped[int | None] = mapped_column(Integer)             # seconds
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    health: Mapped[str] = mapped_column(String(8), default="unknown")      # up | down | unknown
+    health_detail: Mapped[str | None] = mapped_column(String(255))
+    last_checked_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+    media_seq: Mapped[int | None] = mapped_column(Integer)            # last HLS media sequence the checker saw
+    seq_changed_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())   # when that number last moved
+    fail_count: Mapped[int | None] = mapped_column(Integer)           # consecutive failed checks (Down at 2)
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+
+class StreamAssignment(TimestampMixin, Base):
+    """What plays where (Admin Panel -> Streams). Scope: everything, one event, or one game. Mode: live, replay,
+    standby (looping clip) or off (slate only). ``chain`` is the ordered source ids: primary, backup 1, backup 2...
+    A row with a window (starts_at / ends_at) is only in force inside it, so standby -> live -> replay can be
+    scheduled ahead. The most specific scope wins (game > event > everything); a windowed row beats a standing one."""
+    __tablename__ = "stream_assignments"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    scope_type: Mapped[str] = mapped_column(String(8), index=True)          # global | event | fight
+    scope_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    mode: Mapped[str] = mapped_column(String(8))                            # live | replay | standby | off
+    chain: Mapped[str] = mapped_column(String(100), default="")             # "3,7,2": source ids in order
+    starts_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+    ends_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+    pinned_source_id: Mapped[int | None] = mapped_column(Integer)           # play this one even if its health check says down
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    slate_message: Mapped[str | None] = mapped_column(String(500))
+    previous: Mapped[dict | None] = mapped_column(JsonType)                 # the standing setting this one replaced (for Undo)
+    updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+
 class RolePermOverride(TimestampMixin, Base):
-    """The Admin's changes to a role's DEFAULT rights (Admin Panel -> Pawns & Access -> Role defaults).
+    """The Admin's changes to a role's DEFAULT rights (Admin Panel -> Access -> a kind's page, or Compare roles).
 
     One row per role (a Role value, or ``player``). ``perm_grants`` are rights added on top of the built-in
     defaults in app.core.rbac, ``perm_revokes`` are rights taken away (removal wins). No row = built-in defaults."""
@@ -448,6 +495,23 @@ class RolePermOverride(TimestampMixin, Base):
     perm_grants: Mapped[list | None] = mapped_column(JsonType)
     perm_revokes: Mapped[list | None] = mapped_column(JsonType)
     updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+
+class AccountProfile(TimestampMixin, Base):
+    """A named rights profile the Admin builds on one of the built-in roles (Admin Panel -> Access).
+
+    The account keeps its real role (so wallets, the network tree and who may recruit whom work as before);
+    the type only changes its rights: base role defaults, then this type's extra (``perm_grants``) and removed
+    (``perm_revokes``) rights, then the account's own overrides."""
+    __tablename__ = "account_profiles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    base_role: Mapped[str] = mapped_column(String(20))
+    description: Mapped[str] = mapped_column(String(200), default="")
+    perm_grants: Mapped[list | None] = mapped_column(JsonType)
+    perm_revokes: Mapped[list | None] = mapped_column(JsonType)
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
 
 class Account(TimestampMixin, Base):

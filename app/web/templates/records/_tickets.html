@@ -1,0 +1,26 @@
+<div class="card"><div class="card-body tight">
+{% if rows %}
+<div class="table-wrap"><table class="table"><thead><tr>
+  <th>{{ 'Cancelled' if tab == 'cancelled' else 'Time' }}</th><th>Code</th>{% if show_game %}<th>Game</th>{% endif %}<th>Round</th>
+  {% if tab == 'tickets' %}<th>Pick</th>{% endif %}<th>Who</th>
+  {% if can_see_money %}<th class="right">Stake</th>{% endif %}
+  {% if tab == 'tickets' %}{% if can_see_money %}<th class="right">Payout</th>{% endif %}<th>Status</th>
+  {% else %}<th>Cancelled by</th><th>Reason</th>{% endif %}
+</tr></thead><tbody>
+{% for r in rows %}
+  <tr>
+    <td class="small nowrap">{{ (r.cancelled_at if tab == 'cancelled' else r.at) | datetime }}</td>
+    <td class="mono small"><a href="{{ r.url }}">{{ r.code }}</a></td>
+    {% if show_game %}<td class="small">{{ r.game }}</td>{% endif %}
+    <td class="small">{{ r.round_label }}</td>
+    {% if tab == 'tickets' %}<td>{{ r.pick }}</td>{% endif %}
+    <td class="small">{{ r.who }}</td>
+    {% if can_see_money %}<td class="right num">{{ r.stake | money }}</td>{% endif %}
+    {% if tab == 'tickets' %}{% if can_see_money %}<td class="right num">{{ r.payout | money if r.payout else '—' }}</td>{% endif %}<td>{{ ui.status_badge(r.status) }}</td>
+    {% else %}<td class="small">{{ r.cancelled_by }}</td><td class="small">{{ r.reason }}</td>{% endif %}
+  </tr>
+{% endfor %}
+</tbody></table></div>
+{{ ui.pager(pager) }}
+{% else %}{{ ui.empty('No tickets match.' if tab == 'tickets' else 'No cancelled tickets.') }}{% endif %}
+</div></div>

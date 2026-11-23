@@ -37,6 +37,8 @@
   /* ---------------------------------------------------------------- small helpers */
   const timeFmt = new Intl.DateTimeFormat('en-PH', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Manila' });
   const dayFmt = new Intl.DateTimeFormat('en-PH', { month: 'short', day: 'numeric', timeZone: 'Asia/Manila' });
+  const clockFmt = new Intl.DateTimeFormat('en-PH', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Manila' });
+  const baseTitle = document.title;
   const at = (ms) => (ms ? timeFmt.format(new Date(ms)) : '');
   function clock(totalSeconds) {
     const s = Math.max(0, Math.floor(totalSeconds));
@@ -80,6 +82,8 @@
       return '<button type="button" class="dk-stat' + (n ? ' has' : '') + '" data-lane="' + lane + '" data-jump="' + lane +
         '"><i></i><b>' + n + '</b><span>' + LANE_NAME[lane] + '</span></button>';
     }).join('');
+    const due = all.filter((c) => c.lane === 'due').length;
+    document.title = (due ? '(' + due + ') ' : '') + baseTitle;          // a result is waiting, even in another tab
     $$('[data-tab-count="live"]').forEach((el) => { el.textContent = all.length; });
     $$('[data-tab-count="recent"]').forEach((el) => { el.textContent = recentRows().length; });
   }
@@ -262,6 +266,29 @@
       '<a href="/change_name?event_id=' + e.id + '&fight_id=' + g.id + '">Open in Fight View</a></div>';
   }
 
+  /* Spectate: the Fight View (live video, pools, Meron / Wala) in a pop-out window next to the desk. One window is
+     reused; while it is open it follows the event's current game, so the declarator is always watching what they will
+     have to declare. */
+  const watchUrl = (e, g) => '/change_name?event_id=' + e.id + '&fight_id=' + g.id;
+  const follow = { win: null, ev: 0, game: 0 };
+  const watching = () => !!(follow.win && !follow.win.closed);
+  function openSpectate(e, g) {
+    if (!g) return;
+    const url = watchUrl(e, g);
+    if (watching()) { follow.win.location.href = url; follow.win.focus(); }
+    else follow.win = window.open(url, 'snx-spectate', 'popup=yes,width=1180,height=780');
+    if (!follow.win) { toast('Your browser blocked the pop-up. Allow pop-ups for this site, then press S again.', 'warning'); return; }
+    follow.ev = e.id; follow.game = g.id;
+  }
+  function followCurrent() {
+    if (!watching()) return;
+    const e = data.events.find((x) => x.id === follow.ev), g = e && e.games.find((x) => x.id === e.cur);
+    if (!g || g.id === follow.game) return;
+    follow.game = g.id;
+    follow.win.location.href = watchUrl(e, g);
+    toast('Spectate window moved to Game #' + g.n + '.', 'info', { ttl: 4000 });
+  }
+
   function sabongStage(c) {
     const e = c.e;
     if (e.st === 'draft') return draftStage(e);
@@ -277,7 +304,9 @@
       (ph.since ? ' <time data-since="' + ph.since + '"></time>' : '') + '</span>';
 
     let html = '<div class="dk-panel"><div class="dk-head"><div><span class="dk-kicker">' + esc(e.venue || 'Sabong') + ' · ' + esc(e.date) +
-      '</span><h3>' + esc(e.title) + '</h3></div>' + pill + '</div>' +
+      '</span><h3>' + esc(e.title) + '</h3></div><div class="dk-head-r">' + pill +
+      '<button type="button" class="btn btn-sm dk-watch' + (watching() && follow.game === g.id ? ' is-on' : '') + '" data-act="watch" title="Open the live video and pools in a pop-out window">' +
+      '<span aria-hidden="true">&#9654;</span> Watch live <kbd>S</kbd></button></div></div>' +
       '<div class="dk-duel' + (ended ? ' has-result' : '') + '">' +
       '<div class="dk-side m' + (win === 'meron' ? ' is-win' : '') + '" style="--wc:var(--meron)"><small>MERON</small><strong>' + esc(g.nm) + '</strong>' +
       (lbl('meron') ? '<span class="dk-tag">' + lbl('meron') + '</span>' : '') + '</div>' +
@@ -287,7 +316,7 @@
       (ended ? verdict(g, e) : '') +
       '<div><div class="dk-beads" data-beads>' + e.games.map((x) => '<button type="button" class="' + beadClass(x, e) + '" data-bead="' + x.id +
         '" title="Game ' + esc(x.n) + (x.res ? ' · ' + (RES[x.res] || x.res) : '') + '">' + esc(x.n) + '</button>').join('') + '</div>' +
-      '<div class="dk-legend"><span style="--bc:var(--green)"><i></i>pre-show</span><span style="--bc:var(--red);--fill:var(--red)"><i></i>on air</span>' +
+      '<div class="dk-legend"><span style="--bc:var(--green)"><i></i>pre-show</span><span style="--bc:var(--air);--fill:var(--air)"><i></i>on air</span>' +
       '<span style="--bc:var(--amber)"><i></i>betting closed</span><span style="--bc:#b82a3d;--fill:#b82a3d"><i></i>Meron</span>' +
       '<span style="--bc:#2f7fd1;--fill:#2f7fd1"><i></i>Wala</span><span style="--bc:#8266d6;--fill:#8266d6"><i></i>Draw</span>' +
       '<span style="--bc:#6c675a;--fill:#6c675a"><i></i>Cancelled</span></div></div></div>';
@@ -355,7 +384,8 @@
       'data-f="' + key + '" aria-label="' + label + '" placeholder="–" value="' + esc(d[key]) + '"' + (locked ? ' disabled' : '') + '><label>' + label + '</label></div>';
     return '<div class="dk-panel" data-bola data-at="' + dw.at + '" data-due="' + (due ? 1 : 0) + '"><div class="dk-head"><div><span class="dk-kicker">' + esc(dw.venue || 'Bola') +
       ' · draw at ' + esc(at(dw.at)) + '</span><h3>Slot ' + esc(dw.slot) + ' draw</h3></div>' +
-      '<span class="dk-pill" data-lane="' + lane + '"><i></i>' + (dw.due ? 'Result due' : 'Draw in') + ' <time data-until="' + dw.at + '" data-done="now"></time></span></div>' +
+      '<div class="dk-head-r"><span class="dk-pill" data-lane="' + lane + '"><i></i>' + (dw.due ? 'Result due' : 'Draw in') + ' <time data-until="' + dw.at + '" data-done="now"></time></span>' +
+      '<a class="btn btn-sm" href="/bola/draws/' + dw.id + '" title="Open the full draw page">Draw page</a></div></div>' +
       (!data.can.bola ? '<p class="dk-hint">Your account can follow this draw but not declare it.</p>'
         : !due && !early ? '<div class="dk-warn">The draw time has not come yet. You can enter the balls from ' + esc(at(dw.at)) + '.</div>'
           : early ? '<div class="dk-warn">This draw has not reached its time. You may declare early, but you must write the reason.</div>' : '') +
@@ -495,6 +525,11 @@
       renderStage(true);
       return;
     }
+    if (c.kind === 'sabong' && t.dataset.act === 'watch') {   // before the block below, which returns on any act it does not know
+      openSpectate(c.e, viewGame(c.e));
+      render();
+      return;
+    }
     if (c.kind === 'sabong' && c.e.st !== 'draft') {
       const g = viewGame(c.e), d = g ? draft('f' + g.id) : null;
       if (t.dataset.arm) { d.armed = d.armed === t.dataset.arm ? '' : t.dataset.arm; st.error = ''; renderStage(true); return; }
@@ -596,7 +631,11 @@
       select(next.key, false);
       return;
     }
-    if (key === 'm') press('[data-arm="meron"]');
+    if (key === 's') press('[data-act="watch"]');
+    else if (key === 'n') {                                 // jump to the next game waiting for a result
+      const dueNow = cards().filter((c) => c.lane === 'due');
+      if (dueNow.length) { ev.preventDefault(); select(dueNow[(dueNow.findIndex((c) => c.key === st.sel) + 1) % dueNow.length].key, false); }
+    } else if (key === 'm') press('[data-arm="meron"]');
     else if (key === 'w') press('[data-arm="wala"]');
     else if (key === 'd') press('[data-arm="draw"]');
     else if (key === 'x') press('[data-arm="canceled"]');
@@ -607,6 +646,8 @@
   /* ---------------------------------------------------------------- timers */
   function tick() {
     const t = now();
+    const wall = $('[data-clock]');
+    if (wall) wall.textContent = clockFmt.format(new Date(t));
     $$('[data-since]').forEach((el) => { el.textContent = (el.dataset.pre || '') + clock((t - Number(el.dataset.since)) / 1000); });
     $$('[data-until]').forEach((el) => {
       const left = (Number(el.dataset.until) - t) / 1000;
@@ -635,6 +676,7 @@
     }
     first = false;
     render();
+    followCurrent();
   }
 
   async function poll(force) {

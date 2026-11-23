@@ -83,7 +83,9 @@ def _count(client, path):
 
 
 # Pages whose query count must NOT grow with the number of rows they list (N+1 guard).
-LISTS = ["/agents", "/commissions", "/clp", "/wallet", "/cashflow", "/betlogs", "/events", "/history"]
+LISTS = ["/agents", "/records?tab=commissions", "/clp", "/wallet", "/cashflow", "/records?tab=tickets&game=sabong",
+         "/records?tab=tickets&game=all", "/records?tab=cancelled&game=all", "/events", "/records?tab=history&game=all",
+         "/records?tab=reports&view=archive&game=sabong"]
 
 
 def _grow(world, n):
@@ -111,7 +113,8 @@ def test_list_pages_do_not_issue_a_query_per_row(busy):
     for path in LISTS:
         assert isinstance(before[path], int) and isinstance(after[path], int), (path, before[path], after[path])
         # 6 more rows each: an N+1 would add 6 or more queries; allow 1 for incidental differences
-        assert after[path] <= before[path] + 1, f"{path}: {before[path]} -> {after[path]} queries (N+1?)"
+        # (+2: the once-per-10-seconds CSP stream-host snapshot query may land in either measurement)
+        assert after[path] <= before[path] + 2, f"{path}: {before[path]} -> {after[path]} queries (N+1?)"
 
 
 def test_batch_balance_helpers_match_single_row_lookups(busy):
@@ -149,7 +152,8 @@ def test_dashboard_cache_serves_then_clears_on_commit(busy, monkeypatch):
     events.create_event(busy.db, busy.admin, title="Cache probe", event_date=dt.date.today(),
                         settings=busy.store, fight_count=1)
     busy.db.commit()
-    assert _count(c, "/dashboard") >= cold - 3
+    # (-5, not -3: the cold view also pays the once-per-10-seconds CSP stream-host snapshot query)
+    assert _count(c, "/dashboard") >= cold - 5
 
 
 def test_ttlcache_returns_independent_copies_and_expires(monkeypatch):
@@ -236,4 +240,4 @@ def test_commission_lines_paginate_across_both_games(busy):
     assert first + second == everything[:4]                 # slices tile the merged, newest-first list
     assert commissions.list_scope(db, busy.admin, limit=2, offset=10_000) == []
     c = _login("admin")
-    assert c.get("/commissions?page=1").status_code == 200
+    assert c.get("/commissions?page=1", follow_redirects=True).status_code == 200

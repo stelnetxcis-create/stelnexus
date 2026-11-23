@@ -22,12 +22,12 @@
   const undoWindow = Number(root.dataset.undo);          // -1 = this account cannot undo
   const canUndo = undoWindow >= 0;
 
-  const S = { eventId: Number(root.dataset.event), fights: [], fightId: 0, side: "", amount: "", playerId: 0, hide: false, busy: false, key: "", poll: null };
+  const S = { eventId: Number(root.dataset.event), fights: [], fightId: 0, side: "", amount: "", stack: [], last: 0, playerId: 0, hide: false, busy: false, key: "", poll: null };
   const el = {
     event: sl("event"), player: sl("player"), games: sl("games"), name: sl("name"), state: sl("state"),
     amt: $("span", sl("amt")), amtBox: sl("amt"), go: sl("go"), goMain: sl("go-main"), goSub: sl("go-sub"),
     split: sl("split"), barM: sl("bar-m"), barW: sl("bar-w"), closed: sl("closed"), closedText: sl("closed-text"),
-    next: sl("next"), recent: sl("recent"),
+    next: sl("next"), recent: sl("recent"), stack: sl("stack"), clear: root.querySelector("[data-clear]"),
   };
   const fight = () => S.fights.find((f) => f.id === S.fightId);
   const newKey = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
@@ -127,6 +127,7 @@
       if (el.next) el.next.hidden = !S.fights.some((x) => x.st === "open");
     }
     el.amt.textContent = Number(S.amount || 0).toLocaleString("en-PH");
+    renderStack();
     // the big sell button says exactly what it will do, or what is still missing
     const amount = Number(S.amount || 0);
     let lack = "";
@@ -140,19 +141,59 @@
     el.goSub.textContent = lack ? "" : "Game " + f.n + " \u00B7 " + (S.side === "meron" ? f.nm : S.side === "wala" ? f.nw : "Draw");
   }
 
+  /* ---- amount: chips ADD up. The taps are kept as a stack of tokens so one can be taken back out; typing on the
+     keypad replaces the stack with the typed number. With nothing entered, the row offers to repeat the last bet. */
+  const MAXAMT = 9999999;
+  const fromStack = () => { const n = S.stack.reduce((a, b) => a + b, 0); S.amount = n ? String(n) : ""; };
+  function addChip(v) {
+    if (!S.stack.length && Number(S.amount)) S.stack = [Number(S.amount)];     // a typed number becomes the first token
+    if (S.stack.reduce((a, b) => a + b, 0) + v > MAXAMT) { toast("That is the largest amount you can bet at once.", { level: "warning" }); return; }
+    S.stack.push(v); fromStack(); bump();
+  }
+  function resetAmount() { S.amount = ""; S.stack = []; }
+  function renderStack() {
+    const box = el.stack, amount = Number(S.amount || 0);
+    if (el.clear) el.clear.hidden = !amount;
+    if (!box) return;
+    box.textContent = "";
+    const mk = (cls, text, attr, val) => {
+      const b = document.createElement("button"); b.type = "button"; b.className = cls; b.textContent = text; b.setAttribute(attr, val); return b;
+    };
+    if (S.stack.length) {
+      const groups = [];
+      S.stack.forEach((v) => { const g = groups.find((x) => x.v === v); if (g) g.n += 1; else groups.push({ v, n: 1 }); });
+      groups.forEach((g) => {
+        const t = mk("amt-tok", "\u20B1" + g.v.toLocaleString("en-PH") + (g.n > 1 ? " \u00D7" + g.n : ""), "data-tok", String(g.v));
+        t.title = "Tap to take one off"; box.appendChild(t);
+      });
+    } else if (!amount && S.last) {
+      box.appendChild(mk("amt-repeat", "\u21BB Repeat last \u20B1" + S.last.toLocaleString("en-PH"), "data-repeat", String(S.last)));
+    }
+    box.hidden = !box.childNodes.length;
+  }
+
   /* ---- input: sides, chips, numpad, keyboard */
   root.addEventListener("click", (e) => {
     const side = e.target.closest("[data-side]");
     if (side && !side.disabled) { S.side = S.side === side.dataset.side ? "" : side.dataset.side; Sound.play("tick"); render(); return; }
     const chip = e.target.closest("[data-amt]");
-    if (chip) { S.amount = chip.dataset.amt; bump(); return; }
+    if (chip) { addChip(Number(chip.dataset.amt) || 0); return; }
+    if (e.target.closest("[data-clear]")) { resetAmount(); bump(); return; }
+    const tok = e.target.closest("[data-tok]");
+    if (tok) {                                                 // take one of that value back out
+      const i = S.stack.lastIndexOf(Number(tok.dataset.tok));
+      if (i >= 0) { S.stack.splice(i, 1); fromStack(); bump(); }
+      return;
+    }
+    const again = e.target.closest("[data-repeat]");
+    if (again) { S.stack = [Number(again.dataset.repeat)]; fromStack(); bump(); return; }
     const key = e.target.closest("[data-key]");
     if (key) { press(key.dataset.key); }
   });
   function press(k) {
-    if (k === "C") S.amount = "";
-    else if (k === "back") S.amount = S.amount.slice(0, -1);
-    else if (/^\d$/.test(k) && (S.amount + k).length <= 7) S.amount = (S.amount + k).replace(/^0+/, "");
+    if (k === "C") resetAmount();
+    else if (k === "back") { S.stack = []; S.amount = S.amount.slice(0, -1); }
+    else if (/^\d$/.test(k) && (S.amount + k).length <= 7) { S.stack = []; S.amount = (S.amount + k).replace(/^0+/, ""); }
     bump();
   }
   function bump() {
@@ -166,7 +207,7 @@
     const k = e.key.toLowerCase();
     if (/^\d$/.test(k)) { press(k); e.preventDefault(); }
     else if (k === "backspace") { press("back"); e.preventDefault(); }
-    else if (k === "escape") { S.amount = ""; S.side = ""; render(); }
+    else if (k === "escape") { resetAmount(); S.side = ""; render(); }
     else if (k === "m") { const b = sl("side-meron"); if (b && !b.disabled) { S.side = "meron"; render(); } }
     else if (k === "w") { const b = sl("side-wala"); if (b && !b.disabled) { S.side = "wala"; render(); } }
     else if (k === "enter" && !el.go.disabled) { sell(); e.preventDefault(); }
@@ -202,7 +243,7 @@
     body.set("idempotency_key", S.key); body.set("csrf_token", csrf);
     try {
       const d = await api(PLACE_URL, body);
-      S.key = ""; S.amount = "";
+      S.last = Number(S.amount) || S.last; S.key = ""; resetAmount();
       showBalance(d.balance);
       pushRow(d.row);
       addRecent(d.ticket);
@@ -263,7 +304,7 @@
     root.classList.remove("is-loading");
     render();
   }
-  function setLive(on) { if (S.live === !!on) return; S.live = !!on; if (S.live) { S.side = ""; S.key = ""; S.amount = ""; } render(); }
+  function setLive(on) { if (S.live === !!on) return; S.live = !!on; if (S.live) { S.side = ""; S.key = ""; resetAmount(); } render(); }
   function select(id) {
     if (S.fightId === id) return;
     S.fightId = id; S.side = ""; S.key = ""; render();

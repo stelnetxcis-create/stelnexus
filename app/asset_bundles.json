@@ -20,7 +20,9 @@
     "fightchat": ["js/floatpanel.js", "js/fightchat.js", "js/betcore.js", "js/betpanel.js"],
     "fightview": ["js/fightview.js"],
     "referrals": ["js/referrals.js"],
-    "stream": ["js/stream.js"]
+    "hls": ["js/vendor/hls.min.js"],
+    "stream": ["js/stream.js"],
+    "streams-admin": ["js/streams-admin.js"]
   },
   "preload": ["fonts/manrope-latin-wght-normal.woff2", "fonts/cormorant-garamond-latin-600-normal.woff2"],
   "shell": [["css", "site"], ["js", "site"], ["js", "nav-init"]]

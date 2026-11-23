@@ -1,0 +1,8 @@
+{# Game switcher + the five tabs; shared with the Commissions page when it is shown as a Records tab. #}
+{% from "_gamebar.html" import gamebar %}
+<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;justify-content:space-between">
+  <div class="subtabs" role="tablist" aria-label="Records">
+    {% for key in tabs %}<a class="subtab {{ 'is-active' if tab == key }}" href="/records?tab={{ key }}&amp;game={{ game }}">{{ tab_labels[key] }}</a>{% endfor %}
+  </div>
+  {{ gamebar(game, game_choices, '/records?tab=' ~ tab ~ '&') }}
+</div>

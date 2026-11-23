@@ -143,6 +143,10 @@ class SecurityHeadersMiddleware:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
 
+        from starlette.concurrency import run_in_threadpool
+        from app.services import streams
+        if streams.snapshot_stale():
+            await run_in_threadpool(streams.refresh)
         csp = (
             "default-src 'self'; "
             "script-src 'self'; "
@@ -155,6 +159,7 @@ class SecurityHeadersMiddleware:
             "form-action 'self'; "
             f"frame-ancestors {_cfg.FRAME_ANCESTORS}"
         )
+        csp = streams.extend_csp(csp, streams.csp_extras(scope["path"]))
         is_static = scope["path"].startswith("/static/")
         # Build output is content-hashed (tools/build_static.mjs): a name never changes meaning, so cache for good.
         is_hashed = scope["path"].startswith("/static/dist/")

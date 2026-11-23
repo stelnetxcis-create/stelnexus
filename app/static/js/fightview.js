@@ -357,7 +357,7 @@
     if (push !== false) { try { history.pushState({ fv: id }, '', url(id)); } catch (e) { /* ignore */ } }
     fights.forEach((g) => { const a = chipOf(g.id); if (a) paintChip(a, g); });
     centerActive();
-    if (player) player.dispatchEvent(new CustomEvent('snx:game', { detail: { n: f.n, left: f.nm, right: f.nw, ended: ended(f) } }));
+    if (player) player.dispatchEvent(new CustomEvent('snx:game', { detail: { id: f.id, n: f.n, left: f.nm, right: f.nw, ended: ended(f) } }));
     if (snx.fightChat) snx.fightChat.switchFight(f);
     if (bp) bp.select(id);
     lastPh = null;                                  // a different game: not a "going live" event
@@ -420,7 +420,7 @@
     if (changed) {
       const what = changed.res ? 'was declared ' + changed.res.toUpperCase() : changed.st === 'locked' ? 'betting is now closed' : changed.st === 'open' ? 'betting is open again' : 'changed';
       if (snx.toast) snx.toast('Game ' + changed.n + ' ' + what + '. Updating…', { level: 'info', ttl: 2000 });
-      if (player) player.dispatchEvent(new CustomEvent('snx:game', { detail: { n: changed.n, left: changed.nm, right: changed.nw, ended: ended(changed) } }));
+      if (player) player.dispatchEvent(new CustomEvent('snx:game', { detail: { id: changed.id, n: changed.n, left: changed.nm, right: changed.nw, ended: ended(changed) } }));
       setTimeout(() => refreshPanel(false), 1200);
     } else if (first && active) { /* first paint is server-rendered */ }
     if (first) { centerActive(); first = false; }

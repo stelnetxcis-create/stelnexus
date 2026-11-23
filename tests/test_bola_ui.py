@@ -166,9 +166,9 @@ def _active_nav_label(html: str) -> list[str]:
 
 def test_sidebar_highlights_the_page_you_are_on():
     c, _ = login("admin")
-    for path, label in (("/bola", "Bola"), ("/bola/betlogs", "Bola Tickets"),
-                        ("/bola/reports", "Bola Reports")):
-        assert _active_nav_label(c.get(path).text) == [label], path
+    for path, label in (("/bola", "Number game"), ("/bola/betlogs", "Records"),
+                        ("/bola/reports", "Records")):
+        assert _active_nav_label(c.get(path, follow_redirects=True).text) == [label], path
 
 
 # --------------------------------------------------------------------------- JSON API

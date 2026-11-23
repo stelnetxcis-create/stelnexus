@@ -58,7 +58,7 @@ def test_teller_without_gcash_cannot_approve(world):
         cashdesk.review(db, teller, request_id=req.id, approve=True, settings=store)
 
 
-def test_declarator_opens_an_event_but_cannot_close_it(world):
+def test_declarator_opens_and_closes_an_event_but_cannot_draft_or_cancel_it(world):
     db, admin, store = world.db, world.admin, world.store
     decl = _mk(db, admin, store, Role.DECLARATOR, "dc")
     events.set_event_status(db, admin, world.event.id, EventStatus.DRAFT)
@@ -66,13 +66,20 @@ def test_declarator_opens_an_event_but_cannot_close_it(world):
     c, _ = login(decl.username)
     assert "Open event" in c.get(f"/events/{world.event.id}").text
     token = c.cookies.get("snx_csrf").split(".")[0]
-    bad = c.post(f"/events/{world.event.id}/status", data={"status": "closed", "csrf_token": token})
-    db.expire_all()
-    assert events.get_event(db, world.event.id).status == EventStatus.DRAFT   # refused, not closed
-    ok = c.post(f"/events/{world.event.id}/status", data={"status": "open", "csrf_token": token})
+
+    def post(status):
+        r = c.post(f"/events/{world.event.id}/status", data={"status": status, "csrf_token": token})
+        db.expire_all()
+        return r, events.get_event(db, world.event.id).status
+
+    ok, state = post("open")
     assert ok.status_code == 303, ok.text[:300]
-    db.expire_all()
-    assert events.get_event(db, world.event.id).status == EventStatus.OPEN
+    assert state == EventStatus.OPEN
+    for refused in ("draft", "canceled"):                    # only the Admin side may do these
+        _, state = post(refused)
+        assert state == EventStatus.OPEN, refused
+    ok, state = post("closed")                               # "Open / close an event" is what the permission says
+    assert ok.status_code == 303 and state == EventStatus.CLOSED
 
 
 def test_cancel_logs_are_admin_only_and_nba_tile_is_on_the_dashboard(world):
@@ -81,8 +88,8 @@ def test_cancel_logs_are_admin_only_and_nba_tile_is_on_the_dashboard(world):
     master = _mk(db, admin, store, R.MASTER, "ms")
     db.commit()
     m, _ = login(master.username)
-    assert m.get("/cancelT").status_code == 403 and m.get("/bola/cancelled").status_code == 403
+    assert m.get("/cancelT", follow_redirects=True).status_code == 403 and m.get("/bola/cancelled", follow_redirects=True).status_code == 403
     a, _ = login("admin")
-    assert a.get("/cancelT").status_code == 200 and a.get("/bola/cancelled").status_code == 200
+    assert a.get("/cancelT", follow_redirects=True).status_code == 200 and a.get("/bola/cancelled", follow_redirects=True).status_code == 200
     html = a.get("/dashboard").text
     assert 'data-game="nba"' in html and "Coming soon" in html

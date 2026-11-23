@@ -9,6 +9,7 @@
     python -m app.cli unban-ip 203.0.113.9            # lift an IP ban from the server shell (lock-out recovery)
     python -m app.cli bola-generate --days 2          # create the number-game draws from schedules
     python -m app.cli bola-tick                       # cron, every minute: open/lock draws on time
+    python -m app.cli streams-check --repeat 2        # cron, every minute: health of the video sources (about every 30 s)
     python -m app.cli sqlite-to-postgres --source sqlite:///./dev.db --target postgresql+psycopg://... [--apply]
     python -m app.cli refresh-reports [--only flows,top,integrity]   # timer: precompute heavy reports
     python -m app.cli bola-convert-cuts --rates r.csv # legacy % -> Volume/SOP bps (prints; --apply writes)
@@ -227,6 +228,25 @@ def bola_tick(_args) -> None:
         print(f"Opened {out['opened']}, locked {out['locked']}.")
 
 
+def streams_check(args) -> None:
+    """Health-check the video sources that are in use. Run by the timer; --repeat/--interval make one run check
+    several times (the timer fires every minute, so 2 x 30 s = a check about every 30 seconds)."""
+    import time
+    from app.services import streams
+    for i in range(max(1, args.repeat)):
+        with session_scope() as db:
+            if not SettingsStore(db).get("stream.enabled"):
+                print("The Streams page is switched off: nothing to check.")
+                return
+            changes = streams.check_all(db)
+        for c in changes:
+            print(f"{c['name']}: now {c['now']} ({c['why']})")
+        if not changes:
+            print("No change.")
+        if i + 1 < args.repeat:
+            time.sleep(max(1, args.interval))
+
+
 def bola_convert_cuts(args) -> None:
     """CSV with header: username,com_percentage,sop_perc   (old values, e.g. 0.25 and 0.10)."""
     import csv
@@ -346,6 +366,10 @@ def main() -> None:
     sp.add_argument("--apply", action="store_true", help="write; without it only the source is counted")
     sp.set_defaults(fn=sqlite_to_postgres)
     sub.add_parser("bola-tick").set_defaults(fn=bola_tick)
+    sc = sub.add_parser("streams-check")
+    sc.add_argument("--repeat", type=int, default=1, help="checks per run (default 1)")
+    sc.add_argument("--interval", type=int, default=30, help="seconds between checks when repeating")
+    sc.set_defaults(fn=streams_check)
     sub.add_parser("bola-preflight").set_defaults(fn=bola_preflight)
     bc = sub.add_parser("bola-convert-cuts")
     bc.add_argument("--rates", required=True, help="CSV: username,com_percentage,sop_perc")

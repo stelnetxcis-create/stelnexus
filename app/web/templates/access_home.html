@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Access · {{ brand }}{% endblock %}
+{% block heading %}Admin Panel{% endblock %}
+{% block content %}
+{% include "_access_nav.html" %}
+<div class="ax-kpis">
+  <div class="ax-kpi"><b>{{ total_accounts }}</b><span>accounts in total</span></div>
+  <div class="ax-kpi"><b>{{ custom_types }}</b><span>custom account types</span></div>
+  <div class="ax-kpi"><b>{{ roles_customised }}</b><span>types with changed defaults</span></div>
+  <div class="ax-kpi"><b>{{ individual }}</b><span>accounts with their own Allow / Deny</span></div>
+</div>
+<p class="notice">Rights are worked out in this order: <b>the account type's defaults</b>, then a <b>custom type</b> if the account is in one, then a Pawn's grants, then the account's <b>own Allow / Deny</b>. Deny always wins. Only you can change any of this.</p>
+<div class="ax-grid">
+  {% for g in tree_groups %}
+  <section class="ax-tree" style="--ax:{{ g.tree.accent }}">
+    <h2>{{ g.tree.label }}</h2>
+    <p>{{ g.tree.tagline }}</p>
+    {% for c in g.cards %}
+    <a class="ax-row" href="{{ c.kind.href }}">
+      <span><strong>{{ c.kind.label }}</strong><small>{{ c.kind.blurb }}</small></span>
+      <span class="ax-meta">
+        {% if c.kind.is_custom %}<span class="ax-chip custom">custom</span>{% elif c.customised %}<span class="ax-chip hot">edited</span>{% endif %}
+        <span class="ax-chip">{{ c.members }} account{{ '' if c.members == 1 else 's' }}</span>
+        <span class="ax-chip">{{ c.rights }} rights</span>
+      </span>
+    </a>
+    {% endfor %}
+  </section>
+  {% endfor %}
+</div>
+{% endblock %}

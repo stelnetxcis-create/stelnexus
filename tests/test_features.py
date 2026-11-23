@@ -100,9 +100,17 @@ def test_cash_is_not_a_payment_method(world):
         betting.place_bet(world.db, world.admin, fight_id=g.id, side=Side.MERON, stake_cents=2000,
                           settings=world.store, player_id=world.player.id, funded_by="cash")
     # no player = the logged-in account bets for itself from its own credit: no credit, no bet (never walk-in cash)
-    with pytest.raises(InsufficientFunds):
-        betting.place_bet(world.db, world.admin, fight_id=g.id, side=Side.MERON, stake_cents=2000,
-                          settings=world.store)
+    # (the shared admin wallet may hold credit from earlier tests, so bet one centavo more than it has)
+    from app.services import accounts, ledger
+    have = ledger.balance_of(world.db, accounts.wallet_for_user(world.db, world.admin))
+    old_max = str(world.store.get("payout.max_stake_cents"))
+    world.store.set("payout.max_stake_cents", str(have + 10_000), world.admin.id)
+    try:
+        with pytest.raises(InsufficientFunds):
+            betting.place_bet(world.db, world.admin, fight_id=g.id, side=Side.MERON, stake_cents=have + 2000,
+                              settings=world.store)
+    finally:
+        world.store.set("payout.max_stake_cents", old_max, world.admin.id)
     with pytest.raises(ValidationError):
         cashdesk.create_request(world.db, world.admin, direction=RequestDirection.IN,
                                 amount_cents=5000, settings=world.store, player_id=world.player.id,

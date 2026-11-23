@@ -1,0 +1,10 @@
+{# Sidebar (Games Standard 4.2): Games hub, ONE entry per game, and Records. Replaces the nine scattered links. #}
+{% set nav_games = visible_games(ctx) %}
+{% if nav_games %}
+<div class="nav-title"><span>Games</span></div>
+<a class="nav-link {{ 'is-active' if active == 'games' }}" href="/games" title="Games"><svg class="ico"><use href="#i-grid"/></svg><span>All games</span></a>
+{% for g in nav_games %}
+<a class="nav-link {{ 'is-active' if active in g.nav_active }}" href="/games/{{ g.key }}/live" title="{{ g.label }}"><svg class="ico"><use href="#{{ g.icon }}"/></svg><span>{{ g.label }}{% if g.key == 'bola' and bola_dev_only() %} · dev only{% endif %}</span></a>
+{% endfor %}
+<a class="nav-link {{ 'is-active' if active in ('records', 'commissions', 'history', 'betlogs', 'cancelT', 'archives', 'bola_logs', 'bola_cancelled', 'bola_reports', 'bola_results') }}" href="/records" title="Records"><svg class="ico"><use href="#i-list"/></svg><span>Records</span></a>
+{% endif %}

@@ -63,7 +63,7 @@ def event_count():
 def test_master_has_no_house_money(master_c):
     c = master_c
     assert c.get("/cashflow").status_code == 403
-    assert c.get("/archives").status_code == 403
+    assert c.get("/archives", follow_redirects=True).status_code == 403
     html = c.get("/dashboard").text
     for hidden in ("Player balances", "House revenue", "Stake today", "Last 7 days"):
         assert hidden not in html, hidden
@@ -81,7 +81,7 @@ def test_admin_keeps_house_money_and_reports_live_in_account_menu(admin_c):
     menu = html[html.index('class="menu account-menu"'):]
     assert "Profile &amp; security" in menu and 'href="/cashflow"' in menu and 'href="/archives"' in menu
     assert menu.index("Profile &amp; security") < menu.index('href="/cashflow"') < menu.index("Sign out")
-    assert c.get("/cashflow").status_code == 200 and c.get("/archives").status_code == 200
+    assert c.get("/cashflow").status_code == 200 and c.get("/archives", follow_redirects=True).status_code == 200
 
 
 def test_games_events_label_and_install_in_sidebar(admin_c):
@@ -89,7 +89,7 @@ def test_games_events_label_and_install_in_sidebar(admin_c):
     for path in ("/dashboard", "/events", "/agents"):
         html = c.get(path).text
         aside = html[html.index('<aside class="sidebar"'):html.index("</aside>")]
-        assert "<span>Events</span>" in aside and "Sabong" in aside and "Games Events" not in html and "Main Event" not in html
+        assert "<span>Sabong</span>" in aside and "<span>All games</span>" in aside and "Games Events" not in html and "Main Event" not in html
         assert aside.count("data-install") >= 1 and "sidebar-install" in aside
         topbar = html[html.index('<header class="topbar">'):html.index("</header>")]
         assert "data-install" not in topbar

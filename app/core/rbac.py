@@ -93,6 +93,8 @@ class Perm(str, Enum):
     ACCOUNTS_EDIT = "accounts.edit"        # change name / username / contact / GCash of an account
     ACCOUNTS_REMOVE = "accounts.remove"    # close an account (never a delete; see account_admin)
     IPBANS_MANAGE = "ipbans.manage"        # ban / unban IP addresses
+    STREAMS_VIEW = "streams.view"          # Admin Panel -> Streams: see the video sources
+    STREAMS_MANAGE = "streams.manage"      # add / take live / stop video sources
     # Cancel Ticket and Bola Cancelled pages: dev-only (Admin account).
     CANCEL_LOG = "cancellog.view"
     # Staff Panel (below the Admin Panel): one section per staff role. Each section opens only for
@@ -145,6 +147,7 @@ _ADMIN_ONLY = {
     Perm.PLAYERS_VIEW, Perm.PLAYERS_CREATE, Perm.PLAYERS_EDIT,
     Perm.ONLINE_VIEW, Perm.PANEL_VIEW, Perm.PAWNS_MANAGE,
     Perm.ACCOUNTS_VIEW, Perm.ACCOUNTS_EDIT, Perm.ACCOUNTS_REMOVE, Perm.IPBANS_MANAGE,
+    Perm.STREAMS_VIEW, Perm.STREAMS_MANAGE,
     Perm.CANCEL_LOG,
     # Undoing / cancelling a placed bet (livestream Undo, ticket page, API) is dev-only: once a bet is in, players,
     # agents and Master cannot take it back. Only the Admin (or a Pawn it was explicitly granted to) can.
@@ -219,13 +222,13 @@ log = logging.getLogger("stelnexus.rbac")
 
 PLAYER_ROLE_KEY = "player"
 _ROLE_CACHE_TTL = 5.0            # seconds; other workers pick a change up within this time
-_role_cache: tuple[float, dict[str, tuple[set[Perm], set[Perm]]]] | None = None
+_role_cache: tuple[float, tuple[dict, dict]] | None = None
 _role_cache_lock = threading.Lock()
 
 
 def _parse_perm_keys(raw) -> set[Perm]:
     """Known, delegable permission keys only. NON_DELEGABLE and unknown keys are dropped, so even a tampered
-    row can never hand out the keys to the Pawns & Access manager."""
+    row can never hand out the keys to the Access manager."""
     out: set[Perm] = set()
     for key in (raw or []):
         try:
@@ -237,36 +240,49 @@ def _parse_perm_keys(raw) -> set[Perm]:
     return out
 
 
-def _load_role_overrides() -> dict[str, tuple[set[Perm], set[Perm]]]:
-    from app.db.models import RolePermOverride
+def _load_overrides() -> tuple[dict[str, tuple[set[Perm], set[Perm]]], dict[int, tuple[set[Perm], set[Perm]]]]:
+    from app.db.models import AccountProfile, RolePermOverride
     from app.db.session import SessionLocal
     session = SessionLocal()
     try:
-        rows = session.scalars(select(RolePermOverride)).all()
-        return {row.role: (_parse_perm_keys(row.perm_grants), _parse_perm_keys(row.perm_revokes)) for row in rows}
+        roles = {r.role: (_parse_perm_keys(r.perm_grants), _parse_perm_keys(r.perm_revokes))
+                 for r in session.scalars(select(RolePermOverride)).all()}
+        types = {t.id: (_parse_perm_keys(t.perm_grants), _parse_perm_keys(t.perm_revokes))
+                 for t in session.scalars(select(AccountProfile)).all()}
+        return roles, types
     finally:
         session.close()
 
 
-def role_overrides() -> dict[str, tuple[set[Perm], set[Perm]]]:
-    """{role: (extra, removed)} from the database, cached for a few seconds. On any database error the
-    built-in defaults apply (logged), so a hiccup never locks anybody out or opens anything up."""
+def _overrides_snapshot() -> tuple[dict, dict]:
+    """(role overrides, account-type overrides) from the database, cached for a few seconds. On any database
+    error the last good copy (or the built-in defaults) applies, logged, so a hiccup never locks anybody out
+    or opens anything up."""
     global _role_cache
-    now = time.monotonic()
     cached = _role_cache
-    if cached is not None and now - cached[0] < _ROLE_CACHE_TTL:
+    if cached is not None and time.monotonic() - cached[0] < _ROLE_CACHE_TTL:
         return cached[1]
     with _role_cache_lock:
         cached = _role_cache
         if cached is not None and time.monotonic() - cached[0] < _ROLE_CACHE_TTL:
             return cached[1]
         try:
-            data = _load_role_overrides()
+            data = _load_overrides()
         except Exception:                                    # noqa: BLE001 - never break authorization on a read error
-            log.exception("Could not read role_perm_overrides; using built-in role defaults")
-            data = cached[1] if cached is not None else {}
+            log.exception("Could not read role / account-type overrides; using the last good copy or built-ins")
+            data = cached[1] if cached is not None else ({}, {})
         _role_cache = (time.monotonic(), data)
         return data
+
+
+def role_overrides() -> dict[str, tuple[set[Perm], set[Perm]]]:
+    """{role: (extra, removed)} the Admin set on role defaults."""
+    return _overrides_snapshot()[0]
+
+
+def type_overrides() -> dict[int, tuple[set[Perm], set[Perm]]]:
+    """{account_profile_id: (extra, removed)} the Admin set on custom account types."""
+    return _overrides_snapshot()[1]
 
 
 def invalidate_role_overrides() -> None:
@@ -345,6 +361,9 @@ def _build_grants() -> tuple[Grant, ...]:
         Grant("ipbans:manage", "Ban and unban IP addresses",
               "Blocks an address or small range from the whole site. Cannot ban its own address or the Admin's.",
               "Security", frozenset({Perm.PANEL_VIEW, Perm.IPBANS_MANAGE})),
+        Grant("streams:manage", "Manage the livestream and videos",
+              "Paste a stream / video link, preview it, take it live for everyone or stop it.", "Security",
+              frozenset({Perm.PANEL_VIEW, Perm.STREAMS_VIEW, Perm.STREAMS_MANAGE})),
         Grant("audit:view", "See the audit trail and ledger integrity", "", "Reports",
               frozenset({Perm.PANEL_VIEW, Perm.AUDIT_VIEW})),
         Grant("cashflow:view", "See cashflow", "House position and money totals.", "Reports",
@@ -393,16 +412,32 @@ def normalize_grants(keys) -> list[str]:
     return [g.key for g in GRANTS if g.key in wanted]
 
 
-def permissions_for(role: Role | str) -> set[Perm]:
+def permissions_for(role: Role | str, *, gated: bool = True) -> set[Perm]:
     """The role's base permissions: the built-in defaults with the Admin's role-level changes applied (a Pawn's
-    per-account grants are added by permissions_of). The Admin role is never changed."""
+    per-account grants are added by permissions_of). The Admin role is never changed. `gated=False` ignores the
+    Bola dev-only gate (the editors use it so they can show what the gate hides)."""
     role = Role(role)
     perms = builtin_permissions_for(role, gated=False)
     if role != Role.ADMIN:
         perms = _apply_role_override(perms, role.value)
-    if bola_dev_only() and role != Role.ADMIN:
+    if gated and bola_dev_only() and role != Role.ADMIN:
         perms -= BOLA_PERMS
     return perms
+
+
+def default_permissions_for_key(kind_key: str, *, gated: bool = True) -> set[Perm]:
+    """Role defaults for a role value or ``player`` (Admin changes applied)."""
+    if kind_key == PLAYER_ROLE_KEY:
+        perms = _apply_role_override(builtin_player_perms(), PLAYER_ROLE_KEY)
+        return perms - BOLA_PERMS if gated and bola_dev_only() else perms
+    return permissions_for(kind_key, gated=gated)
+
+
+def type_permissions(type_id: int, base_role: str, *, gated: bool = True) -> set[Perm]:
+    """What a custom account type grants by default: its base role's defaults, then the type's own changes."""
+    extra, removed = type_overrides().get(type_id, (set(), set()))
+    perms = (permissions_for(base_role, gated=False) | extra) - removed
+    return perms - BOLA_PERMS if gated and bola_dev_only() else perms
 
 
 # ---------------------------------------------------------------------------
@@ -449,10 +484,11 @@ PERM_CATALOG: tuple[tuple[str, tuple[tuple[Perm, str], ...]], ...] = (
         (Perm.CUTS_MANAGE, "Change cuts"), (Perm.CASHFLOW_VIEW, "House cashflow"),
         (Perm.REPORTS_VIEW, "Report archives"), (Perm.HIDDEN_VIEW, "Hidden layer (house revenue, formula audit)"))),
     ("Admin Panel & security", (
-        (Perm.PANEL_VIEW, "Open the Admin Panel"), (Perm.PAWNS_MANAGE, "Pawns & Access manager (Admin only)"),
+        (Perm.PANEL_VIEW, "Open the Admin Panel"), (Perm.PAWNS_MANAGE, "Access manager (Admin only)"),
         (Perm.SETTINGS_VIEW, "See variables"), (Perm.SETTINGS_MANAGE, "Change variables"),
         (Perm.ACCOUNTS_VIEW, "Accounts page"), (Perm.ACCOUNTS_EDIT, "Edit account details"),
         (Perm.ACCOUNTS_REMOVE, "Close accounts"), (Perm.IPBANS_MANAGE, "Ban / unban IPs"),
+        (Perm.STREAMS_VIEW, "See livestream sources"), (Perm.STREAMS_MANAGE, "Manage the livestream and videos"),
         (Perm.AUDIT_VIEW, "Audit trail"), (Perm.TOKENS_MANAGE, "Manage tokens"),
         (Perm.CANCEL_LOG, "Cancel Ticket / Bola Cancelled pages"), (Perm.CHAT_USE, "Livestream chat"))),
     ("Staff Panel", (
@@ -487,7 +523,7 @@ def normalize_overrides(grants, revokes) -> tuple[list[str], list[str]]:
 
 
 def base_permissions_of(user: User) -> set[Perm]:
-    """The account's role plus, for a Pawn, the grants the Admin switched on -- before per-account overrides."""
+    """The account's role defaults, a Pawn's grants and its custom account type -- before per-account overrides."""
     if getattr(user, "preview_player_id", None) is not None:      # the DEV 'view as a player' stand-in
         return player_perms()
     perms = permissions_for(user.role)
@@ -495,8 +531,12 @@ def base_permissions_of(user: User) -> set[Perm]:
         grant = GRANT_BY_KEY.get(key)
         if grant is not None:
             perms |= set(grant.perms)
+    type_id = getattr(user, "account_profile_id", None)
+    if type_id is not None and user.role != Role.ADMIN:
+        extra, removed = type_overrides().get(type_id, (set(), set()))
+        perms = (perms | extra) - removed
     if bola_dev_only() and user.role != Role.ADMIN:
-        perms -= BOLA_PERMS   # no role or Pawn grant can lift the gate
+        perms -= BOLA_PERMS   # no role, type or Pawn grant can lift the gate
     return perms
 
 

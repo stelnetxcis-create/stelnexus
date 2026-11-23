@@ -896,7 +896,8 @@ def list_tickets(db: Session, actor: User, *, draw_id: int | None = None,
                  player_id: int | None = None, search: str | None = None,
                  canceled_only: bool = False, include_legacy: bool = True,
                  limit: int = 200, offset: int = 0, before_id: int | None = None,
-                 with_player: bool = False) -> list[BolaTicket]:
+                 with_player: bool = False, since: dt.datetime | None = None,
+                 until: dt.datetime | None = None) -> list[BolaTicket]:
     """Newest first. ``before_id`` is keyset paging (rows with a smaller id): unlike a deep OFFSET
     its cost does not grow with how far you have read, which is what exports use.
     ``with_player`` loads the players in one extra query instead of one per ticket."""
@@ -916,6 +917,10 @@ def list_tickets(db: Session, actor: User, *, draw_id: int | None = None,
         stmt = stmt.where(BolaTicket.status == status)
     if canceled_only:
         stmt = stmt.where(BolaTicket.status == TicketStatus.CANCELED)
+    if since is not None:
+        stmt = stmt.where(BolaTicket.placed_at >= since)
+    if until is not None:
+        stmt = stmt.where(BolaTicket.placed_at < until)
     if agent_id:
         stmt = stmt.where(BolaTicket.agent_id == agent_id)
     if player_id:

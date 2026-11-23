@@ -1,0 +1,33 @@
+{% import "_macros.html" as ui %}
+{% include "_access_css.html" %}
+{% include "_panel_nav.html" %}
+<div class="ax-bar">
+  <div class="subtabs" role="tablist" aria-label="Access">
+    <a class="subtab {{ 'is-active' if acc_tree == 'overview' }}" href="/admin/access">Overview</a>
+    {% for t in trees %}<a class="subtab {{ 'is-active' if acc_tree == t.key }}" href="/admin/access/{{ t.key }}"><span class="ax-dot" style="--ax:{{ t.accent }}"></span>{{ t.label }}</a>{% endfor %}
+    <a class="subtab {{ 'is-active' if acc_tree == 'matrix' }}" href="/admin/access/matrix">Compare all roles</a>
+  </div>
+  <button class="btn btn-sm btn-brand" type="button" data-modal="type-modal"><svg class="ico"><use href="#i-plus"/></svg>New account type</button>
+</div>
+{% if kinds_nav %}
+<nav class="ax-kinds" aria-label="Account types">
+  {% for item in kinds_nav %}<a class="ax-kind {{ 'is-active' if item.active }}" href="{{ item.kind.href }}">{{ item.kind.label }}{% if item.kind.is_custom %}<span class="ax-custom">custom</span>{% endif %}<small>{{ item.members }}</small></a>{% endfor %}
+</nav>
+{% endif %}
+{% call ui.modal('type-modal', 'New account type') %}
+<form method="post" action="/admin/access/types/create">{{ ui.csrf(csrf_token) }}
+  <p class="muted small">A custom type is a named set of rights built on one of the existing account types. Its accounts keep that role's wallet and network rules; only what they may do changes.</p>
+  <div class="form-grid">
+    {{ ui.field('Name', 'name', required=true, attrs='maxlength=40 placeholder="e.g. Senior Declarator"') }}
+    <label class="field"><span>Built on <em>*</em></span>
+      <select name="base_role" required>
+        <option value="">Choose…</option>
+        {% for t in trees %}{% set group = type_bases | selectattr(2, 'equalto', t.label) | list %}{% if group %}<optgroup label="{{ t.label }}">{% for key, label, _ in group %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</optgroup>{% endif %}{% endfor %}
+      </select>
+      <small>Starts with that type's current default rights.</small>
+    </label>
+    {{ ui.field('Description (optional)', 'description', attrs='maxlength=200') }}
+  </div>
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Create account type</button></div>
+</form>
+{% endcall %}

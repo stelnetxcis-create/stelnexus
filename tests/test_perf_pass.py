@@ -88,7 +88,7 @@ def test_page_past_the_end_still_has_a_way_back():
     "/admin/accounts?upage=2&ppage=2", "/referrals?page=3"])
 def test_paged_pages_render(path):
     c, _ = login("admin")
-    assert c.get(path).status_code == 200, path
+    assert c.get(path, follow_redirects=True).status_code == 200, path
 
 
 def test_player_history_pages_bets_and_ledger_separately(world):

@@ -61,7 +61,10 @@ def _numbers(data: dict) -> list[int]:
 def _qr_svg(payload: str) -> str:
     import segno
     buffer = io.BytesIO()
-    segno.make(payload, error="m").save(buffer, kind="svg", scale=3, border=1, xmldecl=False)
+    # scale=1 + omitsize gives a viewBox, so CSS can size it; a fixed width/height with no viewBox leaves the
+    # code at its native size in the corner of a bigger box
+    segno.make(payload, error="m").save(buffer, kind="svg", scale=1, border=1, xmldecl=False,
+                                        omitsize=True, svgclass="qr", lineclass="qrline")
     return buffer.getvalue().decode()
 
 
@@ -95,6 +98,9 @@ async def bola_lobby(request: Request, ctx: Ctx = Depends(require_ctx)):
 async def bola_results(request: Request, ctx: Ctx = Depends(require_ctx)):
     _need_view(ctx)
     loc = _int(request.query_params.get("location_id")) or None
+    if loc is None:               # the area filter has no Records equivalent yet, so those links stay here
+        from app.web.routes_records import legacy_redirect
+        return legacy_redirect(request, "history", "bola")
     pager, rows = paginate(request, 100, lambda limit, offset: bola.results(
         ctx.db, location_id=loc, limit=limit, offset=offset))
     return render(ctx, "bola_results.html", active="bola", rows=rows, pager=pager,
@@ -247,14 +253,8 @@ async def bola_betlogs(request: Request, ctx: Ctx = Depends(require_ctx)):
     if hides_totals(ctx.user):
         from app.core.errors import Forbidden
         raise Forbidden("Your role cannot see tickets.")
-    p = request.query_params
-    status = p.get("status") or None
-    pager, rows = paginate(request, 300, lambda limit, offset: bola.list_tickets(
-        ctx.db, ctx.user, draw_id=_int(p.get("draw_id")) or None, search=p.get("q", "")[:40] or None,
-        status=TicketStatus(status) if status in ("active", "canceled", "settled", "refunded") else None,
-        limit=limit, offset=offset))
-    return render(ctx, "bola_betlogs.html", active="bola_logs", rows=rows, pager=pager,
-                  filters={"q": p.get("q", ""), "status": status or "", "draw_id": p.get("draw_id", "")})
+    from app.web.routes_records import legacy_redirect
+    return legacy_redirect(request, "tickets", "bola", rename={"draw_id": "round"})
 
 
 @router.get("/bola/cancelled")
@@ -263,16 +263,8 @@ async def bola_cancelled(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.CANCEL_LOG)
     if hides_totals(ctx.user):
         raise Forbidden("Your role cannot see tickets.")
-    from sqlalchemy import select
-    from app.db.models import User
-    pager, rows = paginate(request, 300, lambda limit, offset: bola.list_tickets(
-        ctx.db, ctx.user, canceled_only=True,
-        search=request.query_params.get("q", "")[:40] or None, limit=limit, offset=offset))
-    ids = {t.canceled_by_id for t in rows if t.canceled_by_id}
-    users = {u.id: u for u in ctx.db.scalars(select(User).where(User.id.in_(ids))).all()} if ids else {}
-    names = {i: ("System" if u.is_hidden else u.username) for i, u in users.items()}
-    return render(ctx, "bola_cancelled.html", active="bola_cancelled", rows=rows, names=names, pager=pager,
-                  q=request.query_params.get("q", ""), local=bola.local)
+    from app.web.routes_records import legacy_redirect
+    return legacy_redirect(request, "cancelled", "bola")
 
 
 # ------------------------------------------------------------------ agent statements

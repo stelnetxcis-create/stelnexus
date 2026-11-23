@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Streams · {{ brand }}{% endblock %}
+{% block heading %}Admin Panel{% endblock %}
+{% block content %}
+{% include "_panel_nav.html" %}
+<p class="notice">Paste a link and decide what everyone watches in the fight video. <b>Take live</b> switches every open viewer within a few seconds, no reload. Nothing is taken live until you press it. With nothing taken live, viewers see the sample feed.{% if not stream_on %} <b>Right now the Streams page is switched off in Variables, so viewers see the sample feed regardless.</b>{% endif %}</p>
+
+<div class="card">
+  <div class="card-head"><h2>Now playing</h2></div>
+  <div class="card-body">
+  {% if live_src %}
+    <p><b>{{ live_src.name }}</b> {{ ui.badge(kind_label[live_src.kind], 'green') }}
+      {% if live_src.kind in native %}{{ ui.badge('Native player: Pass rules enforced', 'blue') }}{% else %}{{ ui.badge('Embed: Pass rules limited', 'amber') }}{% endif %}</p>
+    {% if can_manage %}<form method="post" action="/admin/streams/stop" class="inline-form" data-confirm="This changes what everyone watching sees: they go back to the sample feed. Stop it?">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm" type="submit">Stop (back to sample feed)</button></form>{% endif %}
+  {% else %}
+    {{ ui.empty('Nothing is live. Viewers see the sample feed.', compact=true) }}
+  {% endif %}
+  {% for f in failovers %}
+    <p class="st-bad" role="status"><b>Failover:</b> {{ f.scope|capitalize }}: the primary <b>{{ f.primary }}</b> is not playing because {{ f.why }}.
+      {% if f.playing %}Viewers get the backup <b>{{ f.playing }}</b>.{% else %}No backup can play, so viewers see the message.{% endif %}</p>
+  {% endfor %}
+  </div>
+</div>
+
+{% if can_manage %}
+<div class="card">
+  <div class="card-head"><h2>Add a source</h2></div>
+  <div class="card-body">
+    <form method="post" action="/admin/streams/create" data-st-form>{{ ui.csrf(csrf_token) }}
+      <div class="form-grid">
+        {{ ui.field('Paste the link', 'url', required=true, help='YouTube or Facebook video, a live stream ending in .m3u8, or a video file (.mp4 / .webm). Pasting an embed code works too: only its link is kept.', attrs='maxlength=1000 autocapitalize=none autocomplete=off spellcheck=false data-st-url') }}
+        {{ ui.field('Name', 'name', required=true, help='For you, e.g. Main YouTube or Arena camera.', attrs='maxlength=80') }}
+        <label class="field"><span class="field-label">Plays as</span>
+          <select name="mode"><option value="auto">Auto (a stream that ends turns into a replay)</option><option value="live">Live</option><option value="replay">Replay (video with a seek bar)</option></select></label>
+        {{ ui.field('Start at (seconds, optional)', 'start', 'number', attrs='min=0 max=86400') }}
+      </div>
+      <label class="check"><input type="checkbox" name="loop" value="1"> Loop (for a standby clip)</label>
+      <div class="st-result" data-st-result hidden></div>
+      <div class="form-actions">
+        <button class="btn" type="button" data-st-detect>Check link</button>
+        <button class="btn btn-primary" type="submit">Save source</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% if can_manage %}
+<div class="card">
+  <div class="card-head"><h2>What plays where</h2></div>
+  <div class="card-body">
+    <p class="muted">Decide what viewers of everything, one event or one game see. The most specific setting wins: game, then event, then everything. Times are Philippine time. Without any setting here, <b>Take live</b> from the sources list below applies to everything.</p>
+    <form method="post" action="/admin/streams/assign" data-st-assign>{{ ui.csrf(csrf_token) }}
+      <div class="form-grid">
+        <label class="field"><span class="field-label">Applies to</span>
+          <select name="scope" data-st-scope-pick><option value="global">Everything</option><option value="event">One event (all its games)</option><option value="fight">One game</option></select></label>
+        <label class="field" data-st-scope="event fight"><span class="field-label">Event</span>
+          <select name="event_id"><option value="">Choose…</option>{% for e in events %}<option value="{{ e.id }}">{{ e.title }} · {{ e.event_date }}</option>{% endfor %}</select></label>
+        <label class="field" data-st-scope="fight"><span class="field-label">Game number</span><input type="number" name="game_number" min="1" max="9999"></label>
+        <label class="field"><span class="field-label">How it plays</span>
+          <select name="mode" data-st-mode>{% for k, v in modes.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></label>
+      </div>
+      <div class="form-grid" data-st-chainbox>
+        {% for key, label in (('s1', 'Primary'), ('s2', 'Backup 1 (if the primary is down)'), ('s3', 'Backup 2')) %}
+        <label class="field"><span class="field-label">{{ label }}</span>
+          <select name="{{ key }}"><option value="">{{ 'Choose a source…' if key == 's1' else '(none)' }}</option>{% for s in usable %}<option value="{{ s.id }}">{{ s.name }} · {{ kind_label[s.kind] }}</option>{% endfor %}</select></label>
+        {% endfor %}
+      </div>
+      <div class="form-grid">
+        <label class="field"><span class="field-label">Starts (optional)</span><input type="datetime-local" name="starts"></label>
+        <label class="field"><span class="field-label">Ends (optional)</span><input type="datetime-local" name="ends"></label>
+        <label class="field"><span class="field-label">Message when nothing can play</span><input type="text" name="slate" maxlength="500" placeholder="Back soon…"></label>
+      </div>
+      <label class="check" data-st-chainbox><input type="checkbox" name="pin" value="1"> Force the primary even if a check says it is down</label>
+      <div class="st-result" data-st-impact hidden></div>
+      <div class="form-actions"><button class="btn" type="button" data-st-prev-primary>Preview primary</button> <button class="btn btn-primary" type="submit" data-st-save>Save setting</button></div>
+    </form>
+    {% if assignments %}
+    {{ ui.table_start(['Applies to', 'Plays', 'Sources, in order', 'When', '']) }}
+    {% for a in assignments %}
+    <tr>
+      <td><b>{{ a.scope }}</b></td>
+      <td>{{ a.mode }} {% if not a.active %}{{ ui.badge('Paused', 'slate') }}{% endif %}</td>
+      <td>{% if a.chain %}<div class="st-chain">{% for n in a.chain %}{% if not loop.first %}<b>→</b>{% endif %}<span>{{ n }}</span>{% endfor %}{% if a.pinned %} {{ ui.badge('forced', 'amber') }}{% endif %}</div>{% else %}<span class="muted">message only{% if a.slate %}: {{ a.slate }}{% endif %}</span>{% endif %}</td>
+      <td>{{ a.window }}</td>
+      <td class="st-actions">
+        <form method="post" action="/admin/streams/assignments/{{ a.id }}/undo" class="inline-form" data-confirm="Undo this setting? If it replaced another one, that one comes back.">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm" type="submit">Undo</button></form>
+        <form method="post" action="/admin/streams/assignments/{{ a.id }}/toggle" class="inline-form">{{ ui.csrf(csrf_token) }}<input type="hidden" name="on" value="{{ 0 if a.active else 1 }}"><button class="btn btn-sm" type="submit">{{ 'Pause' if a.active else 'Resume' }}</button></form>
+        <form method="post" action="/admin/streams/assignments/{{ a.id }}/delete" class="inline-form" data-confirm="Remove this setting? Viewers it applied to fall back to the next one.">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm btn-danger" type="submit">Remove</button></form>
+      </td>
+    </tr>
+    {% endfor %}
+    {{ ui.table_end() }}
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-head"><h2>Sources</h2></div>
+  <div class="card-body">
+  {% if sources %}
+    {{ ui.table_start(['Name', 'Type', 'Link', 'Status', 'Health', '']) }}
+    {% for s in sources %}
+    <tr>
+      <td><b>{{ s.name }}</b></td>
+      <td>{{ kind_label[s.kind] }}{% if s.kind in native %}<br><small class="muted">Pass rules enforced</small>{% else %}<br><small class="muted">Pass rules limited</small>{% endif %}</td>
+      <td><code class="st-url">{{ s.url }}</code></td>
+      <td>{% if s.is_active %}{{ ui.badge('LIVE for everyone', 'green') }}{% elif s.enabled %}{{ ui.badge('On', 'blue') }}{% else %}{{ ui.badge('Off', 'slate') }}{% endif %}</td>
+      <td>{% if s.health == 'up' %}{{ ui.badge('Up', 'green') }}{% elif s.health == 'down' %}{{ ui.badge('Down', 'red') }}{% else %}{{ ui.badge('Not checked', 'slate') }}{% endif %}
+        {% if s.health_detail %}<br><small class="muted">{{ s.health_detail }}</small>{% endif %}
+        {% if s.last_checked_at %}<br><small class="muted">Checked {{ fmt_time(s.last_checked_at) }}</small>{% endif %}</td>
+      <td class="st-actions">
+        <button class="btn btn-sm" type="button" data-st-preview="{{ s.id }}" data-kind="{{ s.kind }}" data-src="{{ s.url if s.kind in native else '' }}" data-embed="{{ s.embed_ref or '' }}">Preview</button>
+        {% if can_manage %}
+          <form method="post" action="/admin/streams/{{ s.id }}/check" class="inline-form">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm" type="submit">Check now</button></form>
+          {% if s.enabled and not s.is_active %}<form method="post" action="/admin/streams/{{ s.id }}/take" class="inline-form" data-confirm="This changes what everyone watching sees. Take '{{ s.name }}' live now?">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm btn-primary" type="submit">Take live</button></form>{% endif %}
+          <form method="post" action="/admin/streams/{{ s.id }}/toggle" class="inline-form">{{ ui.csrf(csrf_token) }}<input type="hidden" name="on" value="{{ 0 if s.enabled else 1 }}"><button class="btn btn-sm" type="submit">{{ 'Turn off' if s.enabled else 'Turn on' }}</button></form>
+          <form method="post" action="/admin/streams/{{ s.id }}/delete" class="inline-form" data-confirm="Remove '{{ s.name }}'?{% if s.is_active %} It is live now: viewers go back to the sample feed.{% endif %}">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm btn-danger" type="submit">Remove</button></form>
+        {% endif %}
+      </td>
+    </tr>
+    <tr class="st-preview-row" data-st-prow="{{ s.id }}" hidden><td colspan="6"><div class="st-preview" data-st-pbox></div></td></tr>
+    {% endfor %}
+    {{ ui.table_end() }}
+  {% else %}{{ ui.empty('No sources yet. Paste a link above.') }}{% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<div hidden data-hls-url="{{ asset_urls('js', 'hls')[0] }}" data-st-boot></div>{{ js('streams-admin') }}{% endblock %}

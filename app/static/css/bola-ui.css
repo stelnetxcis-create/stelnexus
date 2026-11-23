@@ -53,14 +53,29 @@
 .bs-manual summary{cursor:pointer;color:var(--ink-3)}
 
 .bs-stake{display:grid;gap:10px;margin:14px 0 6px;padding:14px;border-radius:14px;border:1px solid var(--line-2);background:#0d0c10}
-.bs-seg{display:inline-flex;border:1px solid var(--line-2);border-radius:999px;overflow:hidden;width:max-content;max-width:100%}
-.bs-seg button{cursor:pointer;font:inherit;font-size:12.5px;font-weight:700;padding:7px 14px;color:var(--ink-3);background:transparent;border:0}
-.bs-seg button[aria-pressed="true"]{color:#1a1208;background:var(--gold-grad)}
 .bs-chips{display:flex;gap:7px;flex-wrap:wrap}
 .bs-chip{cursor:pointer;font:inherit;font-size:13px;font-weight:800;min-width:56px;padding:8px 12px;border-radius:999px;color:var(--ink);border:1px solid var(--line-2);background:#17151b;
   transition:transform .15s var(--ease),border-color .2s,background .2s}
 .bs-chip:hover{border-color:var(--gold);transform:translateY(-1px)}
 .bs-chip:active{transform:scale(.95)}
+
+/* ---------- unified amount: two pills (Tumbok / Sahod), the lit one takes the next tap ---------- */
+.bs-amt{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.bs-pill{cursor:pointer;font:inherit;display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:10px;align-items:center;
+  text-align:left;padding:10px 14px;border-radius:14px;color:var(--ink-3);border:1.5px solid var(--line-2);background:#141217;
+  transition:border-color .2s,background .25s,transform .15s var(--ease),box-shadow .25s}
+.bs-pill small{grid-column:1/-1;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}
+.bs-pill b{font-size:22px;line-height:1.15;font-weight:800;color:var(--ink)}
+.bs-pill i{font-style:normal;font-size:11.5px;font-weight:700;color:#f2cd7c;justify-self:end}
+.bs-pill i:empty{display:none}
+.bs-pill.is-off b{color:var(--ink-3)}
+.bs-pill:hover{border-color:var(--gold)}
+.bs-pill:active{transform:scale(.98)}
+.bs-pill.is-live{border-color:var(--gold);color:#f2cd7c;background:linear-gradient(135deg,rgba(217,177,85,.2),rgba(217,177,85,.04));box-shadow:0 12px 28px -18px var(--gold-glow)}
+.bs-pill:focus-visible{outline:2px solid var(--gold-hi);outline-offset:2px}
+.bs-amt-hint{margin:0;color:var(--ink-3);min-height:1.3em}
+.bs-chip-none{min-width:0;color:var(--ink-3);background:transparent;border-style:dashed}
+@media (max-width:520px){.bs-pill b{font-size:19px}}
 
 .bs-preview{margin:10px 0 0}
 .bs-lines{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px;margin-top:8px}
@@ -157,7 +172,6 @@ form.is-sending .bs-bar{animation:bs-send .6s var(--ease)}
 .bs-kind:active{transform:scale(.97)}
 .bs-kind[aria-pressed="true"]{animation:bs-pop-soft .35s var(--ease)}
 @keyframes bs-pop-soft{0%{transform:scale(.96)}60%{transform:scale(1.03)}100%{transform:none}}
-.bs-seg button{transition:background .25s,color .25s}
 
 /* ---------- preview cards: staggered cascade ---------- */
 .bs-line{animation-delay:calc(var(--i,0) * 45ms)}

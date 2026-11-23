@@ -1,0 +1,9 @@
+<form method="get" class="inline-form" style="margin:0 0 12px">
+  <input type="hidden" name="tab" value="{{ tab }}"><input type="hidden" name="game" value="{{ game }}">
+  <label class="field"><span>From</span><input type="date" name="start" value="{{ filters.start }}"></label>
+  <label class="field"><span>To</span><input type="date" name="end" value="{{ filters.end }}"></label>
+  {% if tab == 'tickets' %}<label class="field"><span>Status</span><select name="status">
+    {% for s in ['', 'active', 'settled', 'canceled', 'refunded'] %}<option value="{{ s }}" {{ 'selected' if filters.status == s }}>{{ s or 'any' }}</option>{% endfor %}</select></label>{% endif %}
+  {% if tab != 'history' %}<label class="field"><span>Search</span><input name="q" value="{{ filters.q }}" placeholder="code, note"></label>{% endif %}
+  <button class="btn btn-sm" type="submit">Filter</button>
+</form>

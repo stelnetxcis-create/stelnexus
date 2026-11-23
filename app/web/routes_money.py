@@ -59,6 +59,9 @@ async def commissions_page(request: Request, ctx: Ctx = Depends(require_ctx)):
     """Statements and commission in one place: the account's own money, a statement row for every
     account in its network (both games), and every commission line in that network."""
     _need_statement(ctx)
+    if request.url.path == "/commissions":          # moved: Records > Commissions (the account page stays)
+        from app.web.routes_records import legacy_redirect
+        return legacy_redirect(request, "commissions")
     params = request.query_params
     start, end = _range(params)
     game, wanted = _game(params), _status(params)
@@ -71,7 +74,15 @@ async def commissions_page(request: Request, ctx: Ctx = Depends(require_ctx)):
         ctx.db, ctx.user, game="sabong" if (not bola_on and game == "all") else game,
         status=wanted, start=start, end=end, limit=limit, offset=offset))
     store = ctx.store
-    return render(ctx, "commissions.html", active="commissions", stmt=stmt, lines=lines, pager=pager,
+    bar: dict = {}
+    if request.url.path == "/records":         # shown as the Commissions tab of Records
+        from app import games as _games
+        from app.games import TAB_LABELS
+        from app.web.routes_records import allowed_tabs
+        bar = dict(records_bar=True, tab="commissions", tabs=allowed_tabs(ctx), tab_labels=TAB_LABELS,
+                   game_choices=_games.visible_games(ctx),
+                   show_game=False)
+    return render(ctx, "commissions.html", active="records" if bar else "commissions", stmt=stmt, lines=lines, pager=pager, **bar,
                   game=game, status=params.get("status") or "", bola_on=bola_on,
                   totals=commissions.totals_for(ctx.db, ctx.user), tier_label=TIER_LABEL,
                   defaults={g: {"volume": int(store.get(k[0])), "sop": int(store.get(k[1])),

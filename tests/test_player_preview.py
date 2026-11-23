@@ -18,8 +18,8 @@ from tests.test_web import login
 ADMIN_ONLY_LINKS = ('title="Admin Panel"', 'title="Staff Panel"', 'title="Users"', 'title="Players"',
                     'title="Cancel Ticket"', 'title="Bola Reports"', 'title="Bola Cancelled"', 'title="Dashboard"',
                     'title="Store"')
-PLAYER_MENU = ('title="Events"', 'title="Fight View"', 'title="Game History"', 'title="Betting List"',
-               'title="Bola"', 'title="Bola Tickets"')
+# Games Standard sidebar: the hub, one entry per game, and Records (replaces the nine scattered links)
+PLAYER_MENU = ('title="Games"', 'title="Sabong"', 'title="Number game"', 'title="Records"')
 
 
 @pytest.fixture(scope="module")
@@ -106,7 +106,7 @@ def test_every_player_menu_page_stays_in_the_player_preview(admin_c, scene):
     preview(c, scene)
     for path in ("/events", "/change_name", "/history", "/betlogs", "/bola", "/bola/betlogs", "/bola/results",
                  "/wallet"):
-        r = c.get(path)
+        r = c.get(path, follow_redirects=True)
         assert r.status_code == 200, (path, r.status_code)
         assert f'Previewing as <b>{scene["stella_name"]}</b> (Player)' in r.text, path
         for link in ADMIN_ONLY_LINKS:
@@ -129,9 +129,9 @@ def test_top_bar_shows_the_players_credit_not_the_admins(admin_c, scene):
 def test_player_sees_only_their_own_tickets(admin_c, scene):
     c = admin_c
     preview(c, scene)
-    page = c.get("/betlogs").text
+    page = c.get("/betlogs", follow_redirects=True).text
     assert scene["mine"] in page and scene["theirs"] not in page
-    r = c.get("/bola/betlogs")
+    r = c.get("/bola/betlogs", follow_redirects=True)
     assert r.status_code == 200 and scene["bsub"] not in r.text
     assert c.get(f"/tickets/{scene['theirs_id']}").status_code == 403
     assert c.get(f"/bola/tickets/{scene['bsub_id']}").status_code == 403

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Games · {{ brand }}{% endblock %}
+{% block heading %}Games{% endblock %}
+{% block content %}
+{% if cards %}
+<div class="grid grid-2">
+  {% for c in cards %}
+  {% set g = c.game %}{% set s = c.summary %}
+  <div class="card game-card" data-game="{{ g.key }}">
+    <div class="card-head">
+      <h2><svg class="ico"><use href="#{{ g.icon }}"/></svg> {{ g.label }}</h2>
+      {{ ui.badge({'live': 'live now', 'open': 'open', 'closed': 'closed'}[s.state], 'green' if s.state == 'live' else ('amber' if s.state == 'open' else 'slate')) }}
+    </div>
+    <div class="card-body">
+      <p class="muted small" style="margin:0 0 10px">
+        {{ s.rounds }} {{ g.vocabulary.round | lower }}{{ '' if s.rounds == 1 else 's' }} open{% if s.next %} · next: {{ s.next }}{% endif %}
+        {% if s.tickets is not none %} · {{ s.tickets }} ticket{{ '' if s.tickets == 1 else 's' }} today{% endif %}
+        {% if s.staked is not none %} · {{ s.staked | money }} staked{% endif %}
+      </p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        {% if c.play %}<a class="btn btn-brand" href="/games/{{ g.key }}/live">{{ 'Play' if 'bets.place' in perms or 'bola.place' in perms else 'Watch' }}</a>{% endif %}
+        {% if c.manage %}<a class="btn" href="/games/{{ g.key }}/schedule">Manage</a>{% endif %}
+        {% if c.urls.tickets %}<a class="btn btn-ghost" href="/records?tab=tickets&amp;game={{ g.key }}">Tickets</a>{% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card"><div class="card-body">{{ ui.empty('No games are available to your account right now.') }}</div></div>
+{% endif %}
+{% endblock %}

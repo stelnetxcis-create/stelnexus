@@ -251,23 +251,15 @@ async def chat_send(request: Request, ctx: Ctx = Depends(require_ctx)):
 @router.get("/history")
 async def history_page(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.FIGHTS_VIEW)
-    pager, fights = paginate(request, 150, lambda limit, offset: reports.history(ctx.db, limit=limit, offset=offset))
-    hide = hides_totals(ctx.user)
-    totals = {} if hide else betting.pool_snapshots(ctx.db, [f.id for f in fights])     # one query
-    ev_ids = {f.event_id for f in fights}
-    event_by_id = {e.id: e for e in ctx.db.scalars(select(Event).where(Event.id.in_(ev_ids))).all()} if ev_ids else {}
-    return render(ctx, "history.html", active="history", fights=fights, events=event_by_id, pager=pager,
-                  hide_totals=hide, totals=totals, role_of=events.role_of)
+    from app.web.routes_records import legacy_redirect
+    return legacy_redirect(request, "history", "sabong")
 
 
 @router.get("/archives")
 async def archives_page(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.REPORTS_VIEW)
-    pager, rows = paginate(request, 50, lambda limit, offset: reports.archived_events(
-        ctx.db, limit=limit, offset=offset))
-    summaries = reports.event_summaries(ctx.db, [e.id for e in rows])        # 4 queries, not 4 per row
-    return render(ctx, "archives.html", active="archives", pager=pager,
-                  rows=[(e, summaries[e.id]) for e in rows])
+    from app.web.routes_records import legacy_redirect
+    return legacy_redirect(request, "reports", "sabong", extra={"view": "archive"})
 
 
 @router.get("/events/{event_id}/report.csv")

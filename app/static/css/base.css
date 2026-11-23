@@ -188,7 +188,7 @@ textarea{min-height:80px;resize:vertical}
 .ticket .t-sep{border-top:1px dashed #000;margin:7px 0}
 .ticket .t-code{text-align:center;font-size:17px;font-weight:700;letter-spacing:.14em}
 .ticket .t-qr{display:flex;justify-content:center;padding:6px 0}
-.ticket .t-qr svg{width:96px;height:96px}
+.ticket .t-qr svg{width:96px;height:96px;display:block;box-sizing:border-box;shape-rendering:crispEdges}
 .ticket .t-foot{text-align:center;font-size:9.5px;margin-top:6px}
 
 /* mobile */

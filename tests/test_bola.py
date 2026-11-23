@@ -433,7 +433,7 @@ def test_bola_pages_and_full_bet_flow_over_http():
     try:
         c, _ = login("admin")
         for path in ["/bola", "/bola/results", "/bola/betlogs", f"/bola/draws/{ids['draw']}"]:
-            assert c.get(path).status_code == 200, path
+            assert c.get(path, follow_redirects=True).status_code == 200, path
         assert "Bola" in c.get("/dashboard").text                       # nav entry is present
 
         q = f"/bola/draws/{ids['draw']}/preview?kind=casas3&numbers=12,5,36&tumbok=5&sahod=5"
@@ -455,6 +455,6 @@ def test_bola_pages_and_full_bet_flow_over_http():
         assert r.status_code == 303, r.text[:600]
         assert "SETTLED" in c.get(f"/bola/draws/{ids['draw']}").text
         assert c.get("/cashflow").status_code == 200
-        assert c.get("/commissions").status_code == 200
+        assert c.get("/commissions", follow_redirects=True).status_code == 200
     finally:
         _web_teardown(ids)

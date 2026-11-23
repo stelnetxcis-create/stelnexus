@@ -367,6 +367,7 @@ def list_tickets(
     db: Session, actor: User, *, event_id: int | None = None, fight_id: int | None = None,
     player_id: int | None = None, status: TicketStatus | None = None, search: str | None = None,
     canceled_only: bool = False, limit: int = 100, offset: int = 0,
+    since: dt.datetime | None = None, until: dt.datetime | None = None,
 ) -> list[Ticket]:
     stmt = select(Ticket)
     preview_pid = getattr(actor, "preview_player_id", None)
@@ -384,6 +385,10 @@ def list_tickets(
         stmt = stmt.where(Ticket.status == TicketStatus.CANCELED)
     elif status:
         stmt = stmt.where(Ticket.status == status)
+    if since is not None:
+        stmt = stmt.where(Ticket.placed_at >= since)
+    if until is not None:
+        stmt = stmt.where(Ticket.placed_at < until)
     if search:
         term = f"%{search.strip()[:40]}%"
         stmt = stmt.where(or_(Ticket.code.ilike(term), Ticket.kubrador.ilike(term), Ticket.cavo.ilike(term)))

@@ -274,3 +274,33 @@ def test_fight_page_gross_and_platform_rows_are_for_the_admin_only():
             from app.core.settings_registry import SettingsStore
             SettingsStore(db).set("payout.platform_cut_bps", "0", 1)
         _cleanup(event_id)
+
+
+# ---- the Admin can hand bet cancellation to a Pawn (Admin > Access) --------------------------------------------
+@pytest.mark.parametrize("granted", [False, True])
+def test_a_pawn_can_cancel_a_bet_only_when_the_admin_grants_it(granted):
+    event_id, fight_id, _ = _setup()
+    try:
+        owner, tag = _funded_user(Role.SUB_AGENT)
+        oc, _ = login(owner)
+        tid = _place(oc, fight_id, "100", f"pawn-{tag}").json()["ticket"]["id"]
+        with session_scope() as db:
+            store = SettingsStore(db)
+            admin = db.scalar(select(User).where(User.role == Role.ADMIN))
+            pawn = agents.create_agent(db, admin, username=f"pw{tag}", password=PASSWORD, role=Role.PAWN,
+                                       full_name="P", settings=store)
+            if granted:
+                pawn.perm_grants = ["bets.view", "bets.cancel"]      # what Admin > Access writes for one account
+            name = pawn.username
+        c, r = login(name)
+        assert r.status_code == 303
+        t = _csrf(c)
+        res = c.post(f"/bets/live/undo/{tid}", data={"csrf_token": t}, headers={**JSON, "X-CSRF-Token": t})
+        with session_scope() as db:
+            status = db.get(Ticket, tid).status
+        if granted:
+            assert res.status_code == 200 and status == TicketStatus.CANCELED
+        else:
+            assert res.status_code == 403 and status == TicketStatus.ACTIVE
+    finally:
+        _cleanup(event_id)

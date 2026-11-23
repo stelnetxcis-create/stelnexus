@@ -1,0 +1,20 @@
+# /etc/systemd/system/stelnexus-streams-check.service  (adjust User, paths)
+# Health-checks the video sources that are in use (Admin Panel -> Streams). Two checks per run, 30 s apart; the timer
+# fires every minute. A source that fails twice in a row is marked Down and viewers move to the next source in the chain.
+# Does nothing when there are no sources in use or the Streams page is switched off.
+[Unit]
+Description=StelNexus: health-check the livestream sources
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=stelnexus
+WorkingDirectory=/opt/stelnexus
+EnvironmentFile=/opt/stelnexus/.env
+ExecStart=/opt/stelnexus/.venv/bin/python -m app.cli streams-check --repeat 2 --interval 30
+TimeoutStartSec=120
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/stelnexus/var

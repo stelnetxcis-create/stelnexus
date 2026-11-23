@@ -77,12 +77,19 @@
       </details>
 
       <div class="bs-step" data-step="3"><b>3</b>Set your amount</div>
-      <div class="bs-stake">
-        <div class="bs-seg" role="group" aria-label="Apply amount to"><button type="button" data-target="both" aria-pressed="true">Tumbok + Sahod</button><button type="button" data-target="tumbok" aria-pressed="false">Tumbok</button><button type="button" data-target="sahod" aria-pressed="false">Sahod</button></div>
-        <div class="bs-chips" aria-label="Quick amounts">{% for v in [5, 10, 20, 50, 100, 200] %}<button type="button" class="bs-chip" data-chip="{{ v }}">₱{{ v }}</button>{% endfor %}</div>
+      <div class="bs-stake" data-stake>
+        {# One amount control. The two pills show what each side will play per line; the lit one takes the next tap.
+           Tumbok is filled first and Sahod follows it, so one tap = the same amount on both; a second tap changes
+           Sahod alone. The real fields are hidden and unchanged for the server. #}
+        <div class="bs-amt" role="group" aria-label="Amount per line">
+          <button type="button" class="bs-pill is-live" data-slot="tumbok" aria-pressed="true"><small>Tumbok</small><b data-slot-val="tumbok">₱0</b><i data-slot-note="tumbok"></i></button>
+          <button type="button" class="bs-pill" data-slot="sahod" aria-pressed="false"><small>Sahod</small><b data-slot-val="sahod">₱0</b><i data-slot-note="sahod"></i></button>
+        </div>
+        <p class="bs-amt-hint small" data-amt-hint role="status"></p>
+        <div class="bs-chips" aria-label="Quick amounts">{% for v in [5, 10, 20, 50, 100, 200] %}<button type="button" class="bs-chip" data-chip="{{ v }}">₱{{ v }}</button>{% endfor %}<button type="button" class="bs-chip bs-chip-none" data-chip="0" title="Leave this side out">None</button></div>
+        <input type="hidden" name="tumbok" value=""><input type="hidden" name="sahod" value="">
         <div class="inline-form">
-          {{ ui.field('Tumbok ₱ (per line)', 'tumbok', 'number', '', false, attrs='min=0 step=1 inputmode=decimal') }}
-          {{ ui.field('Sahod ₱ (per line)', 'sahod', 'number', '', false, attrs='min=0 step=1 inputmode=decimal') }}
+          <label class="field"><span>Other amount ₱ <small class="muted">(per line, for the lit side)</small></span><input type="number" data-other min="0" step="1" inputmode="decimal" placeholder="e.g. 35"></label>
           {{ ui.field('Note (optional)', 'note', 'text', '', false, attrs='maxlength=60') }}
         </div>
       </div>
@@ -270,7 +277,7 @@
     <div class="bt-actions">
       <button class="btn btn-brand" type="button" data-bt-print>Print</button>
       <a class="btn" href="/bola/tickets/{{ sold.ticket.id }}">Open ticket</a>
-      <button class="btn btn-ghost" type="button" data-bt-close>Sell another</button>
+      <button class="btn btn-ghost" type="button" data-bt-close>Bet again</button>
     </div>
   </div>
 </div>

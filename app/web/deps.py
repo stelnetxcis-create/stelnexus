@@ -46,6 +46,12 @@ templates.env.globals.update(
     dayfmt=lambda value: value.strftime("%Y-%m-%d") if value else "—",
 )
 templates.env.globals.update(css=assets.css, js=assets.js, asset_urls=assets.asset_urls, preload_fonts=assets.preload_fonts)
+def _visible_games(ctx):
+    from app import games
+    return games.visible_games(ctx) if ctx is not None and ctx.user is not None else []
+
+
+templates.env.globals["visible_games"] = _visible_games
 templates.env.filters["money"] = fmt
 templates.env.filters["datetime"] = lambda v, p="%Y-%m-%d %H:%M": v.strftime(p) if v else "—"
 templates.env.filters["date"] = lambda v: v.strftime("%Y-%m-%d") if v else "—"

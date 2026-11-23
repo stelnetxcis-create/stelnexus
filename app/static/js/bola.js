@@ -83,7 +83,11 @@
   const sum = { lines: form.querySelector('[data-sum-lines]'), stake: form.querySelector('[data-sum-stake]'), win: form.querySelector('[data-sum-win]') };
   const submits = Array.from(form.querySelectorAll('button[type=submit]'));
   const balls = [];
-  let timer = null, target = 'both', valid = false, closed = false, seq = 0, busy = false;
+  let timer = null, valid = false, closed = false, seq = 0, busy = false;
+  // Unified amount: Tumbok is filled first, Sahod follows it until you change Sahod on its own.
+  let slot = 'tumbok', linked = true;
+  const pills = Array.from(form.querySelectorAll('[data-slot]')), other = form.querySelector('[data-other]');
+  const amtHint = form.querySelector('[data-amt-hint]');
   const shown = { lines: 0, stake: 0, win: 0 };
   const why = form.querySelector('[data-bola-why]'), hint = form.querySelector('[data-bola-hint]'), picksBox = form.querySelector('.bs-picks');
   const bar = form.querySelector('.bs-bar');
@@ -148,8 +152,45 @@
     if (bar) bar.classList.toggle('is-ready', valid);
     const done = { 2: left === 0, 3: stake > 0 };
     form.querySelectorAll('[data-step]').forEach((el) => { const st = el.dataset.step; if (done[st] !== undefined) el.classList.toggle('is-done', done[st]); });
-    const cur = target !== 'sahod' ? tumbok.value : sahod.value;
-    form.querySelectorAll('[data-chip]').forEach((c) => c.setAttribute('aria-pressed', String(cur !== '' && parseFloat(cur) === parseFloat(c.dataset.chip))));
+    paintAmount();
+  }
+
+  /* ---- unified amount ---- */
+  const amt = (el) => parseFloat(el.value) || 0;
+  const money = (v) => '\u20B1' + (Number.isInteger(v) ? String(v) : v.toFixed(2));
+  function put(which, v) { (which === 'tumbok' ? tumbok : sahod).value = v > 0 ? String(v) : ''; }
+  function paintAmount() {
+    const t = amt(tumbok), s = amt(sahod), both = t > 0 && s > 0 && t === s;
+    pills.forEach((p) => {
+      const on = p.dataset.slot === slot, v = p.dataset.slot === 'tumbok' ? t : s;
+      p.setAttribute('aria-pressed', String(on)); p.classList.toggle('is-live', on); p.classList.toggle('is-off', !(v > 0));
+      p.querySelector('[data-slot-val]').textContent = v > 0 ? money(v) : '\u2014';
+      const note = p.querySelector('[data-slot-note]');
+      note.textContent = p.dataset.slot === 'sahod' ? (linked && t > 0 ? 'same as Tumbok' : (v > 0 ? '' : 'none')) : (t > 0 ? '' : 'none');
+    });
+    const cur = slot === 'tumbok' ? t : s;
+    form.querySelectorAll('[data-chip]').forEach((c) => {
+      const v = parseFloat(c.dataset.chip);
+      c.setAttribute('aria-pressed', String(v > 0 && cur === v));
+    });
+    if (amtHint) {
+      amtHint.textContent = slot === 'tumbok'
+        ? (t > 0 ? 'Tumbok ' + money(t) + (linked ? ' and Sahod follow it' : '') + ' \u2014 tap an amount to change Tumbok'
+          : 'Tap an amount to start with Tumbok')
+        : (both ? 'Sahod matches Tumbok \u2014 tap another amount to change Sahod, or None to drop it'
+          : 'Now tap the amount for Sahod, or None for a Tumbok-only bet');
+    }
+  }
+  function chooseAmount(v, typed) {
+    if (slot === 'tumbok') {
+      put('tumbok', v);
+      if (linked) put('sahod', v);
+      if (!typed) slot = 'sahod';                       // next tap is for Sahod
+    } else {
+      put('sahod', v);
+      linked = v > 0 && v === amt(tumbok);
+      if (!typed) slot = 'tumbok';
+    }
   }
 
   function buildGrid() {
@@ -277,22 +318,25 @@
       }, 50);
       return;
     }
-    const seg = ev.target.closest('[data-target]');
-    if (seg) {
-      target = seg.dataset.target;
-      form.querySelectorAll('[data-target]').forEach((b) => b.setAttribute('aria-pressed', b === seg ? 'true' : 'false'));
+    const pill = ev.target.closest('[data-slot]');
+    if (pill) {
+      slot = pill.dataset.slot;
+      if (slot === 'tumbok' && !(amt(sahod) > 0)) linked = true;     // an empty Sahod follows again
+      if (other) other.value = '';
       play('tick'); gate();
       return;
     }
     const chip = ev.target.closest('[data-chip]');
     if (chip) {
-      const v = chip.dataset.chip;
-      if (target !== 'sahod') tumbok.value = v;
-      if (target !== 'tumbok') sahod.value = v;
+      chooseAmount(parseFloat(chip.dataset.chip) || 0, false);
+      if (other) other.value = '';
       play('tick'); buzz(8); refresh();
     }
   });
-  form.addEventListener('input', () => { paint(); refresh(); });
+  form.addEventListener('input', (ev) => {
+    if (ev.target === other) chooseAmount(parseFloat(other.value) || 0, true);   // typing edits the lit side only
+    paint(); refresh();
+  });
   form.addEventListener('submit', (ev) => {
     if (form.classList.contains('is-sending')) { ev.preventDefault(); return; }   // no double taps
     form.classList.add('is-sending'); play('ok'); try { sessionStorage.setItem('bola-fresh', String(Date.now())); } catch (e) { /* optional */ }

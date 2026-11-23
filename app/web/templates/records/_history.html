@@ -1,0 +1,14 @@
+<div class="card"><div class="card-body tight">
+{% if rows %}
+<div class="table-wrap"><table class="table"><thead><tr>
+  <th>Time</th>{% if show_game %}<th>Game</th>{% endif %}<th>Session</th><th>Location</th><th>Round</th><th>Result</th>{% if can_see_money %}<th>Pools / balls</th>{% endif %}
+</tr></thead><tbody>
+{% for r in rows %}
+  <tr><td class="small nowrap">{{ r.at | datetime }}</td>{% if show_game %}<td class="small">{{ r.game }}</td>{% endif %}
+    <td class="small"><a href="{{ r.url }}">{{ r.session }}</a></td><td class="small">{{ r.location or '—' }}</td><td>{{ r.round_label }}</td><td>{{ r.result }}</td>
+    {% if can_see_money %}<td class="small">{{ r.detail }}</td>{% endif %}</tr>
+{% endfor %}
+</tbody></table></div>
+{{ ui.pager(pager) }}
+{% else %}{{ ui.empty('Declared rounds and their results will be listed here.') }}{% endif %}
+</div></div>

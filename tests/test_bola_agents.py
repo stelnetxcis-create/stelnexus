@@ -170,13 +170,13 @@ def net(monkeypatch):
 
 def test_cancelled_page_lists_the_cancel_with_who_and_why(net):
     c, _ = login("admin")
-    page = c.get("/bola/cancelled")
+    page = c.get("/bola/cancelled", follow_redirects=True)
     assert page.status_code == 200
     assert net["gone"] in page.text and "typo at the desk" in page.text
     row = page.text.split(net["gone"], 1)[1].split("</tr>", 1)[0]
     assert "System" in row and "admin" not in row.lower()          # the hidden Admin is masked
-    assert net["gone"] in c.get("/bola/cancelled?q=" + net["gone"]).text
-    assert net["gone"] not in c.get("/bola/cancelled?q=zzzz-no-such").text
+    assert net["gone"] in c.get("/bola/cancelled?q=" + net["gone"], follow_redirects=True).text
+    assert net["gone"] not in c.get("/bola/cancelled?q=zzzz-no-such", follow_redirects=True).text
 
 
 def test_cancelled_page_is_dev_only(net):
@@ -184,8 +184,8 @@ def test_cancelled_page_is_dev_only(net):
     for who in ("kub", "cavo", "master", "rival"):
         c, r = login(net["names"][who])
         assert r.status_code == 303
-        assert c.get("/bola/cancelled").status_code == 403, who
-        assert c.get("/cancelT").status_code == 403, who
+        assert c.get("/bola/cancelled", follow_redirects=True).status_code == 403, who
+        assert c.get("/cancelT", follow_redirects=True).status_code == 403, who
         assert 'href="/bola/cancelled"' not in c.get("/dashboard").text, who
 
 
@@ -195,7 +195,7 @@ def test_agent_statement_pages_scope_and_csv(net):
     kub, cavo, rival = net["names"]["kub"], net["names"]["cavo"], net["names"]["rival"]   # Sub Agent, Agent, rival
 
     a, _ = login("admin")
-    page = a.get("/commissions" + q)
+    page = a.get("/commissions" + q, follow_redirects=True)
     assert page.status_code == 200 and kub in page.text and cavo in page.text
     csv_resp = a.get("/commissions.csv" + q)
     assert csv_resp.status_code == 200 and csv_resp.headers["content-type"].startswith("text/csv")
@@ -208,18 +208,18 @@ def test_agent_statement_pages_scope_and_csv(net):
     assert a.get("/bola/agents.csv" + q).headers["location"].startswith("/commissions.csv?")
 
     k, _ = login(kub)
-    page = k.get("/commissions" + q).text
+    page = k.get("/commissions" + q, follow_redirects=True).text
     assert kub in page
     assert f'/commissions/{net["cavo"]}?' not in page      # the Agent above is only named as upline, never a row
     assert k.get(f"/commissions/{net['cavo']}" + q).status_code == 403   # not below a Sub Agent
 
     r, _ = login(rival)
-    assert kub not in r.get("/commissions" + q).text
+    assert kub not in r.get("/commissions" + q, follow_redirects=True).text
     assert r.get(f"/commissions/{net['kub']}" + q).status_code == 403
 
     c, _ = login(cavo)
     assert c.get(f"/commissions/{net['kub']}" + q).status_code == 200
-    assert kub in c.get("/commissions" + q).text      # an Agent sees the Sub Agent's commission lines too
+    assert kub in c.get("/commissions" + q, follow_redirects=True).text      # an Agent sees the Sub Agent's commission lines too
 
 
 def test_declarator_cannot_see_statements_or_cancelled_tickets(net):
@@ -231,10 +231,10 @@ def test_declarator_cannot_see_statements_or_cancelled_tickets(net):
 
 def test_bad_dates_fall_back_to_today_and_ranges_are_capped(net):
     a, _ = login("admin")
-    assert a.get("/commissions?start=not-a-date&end=also-bad").status_code == 200
-    swapped = a.get("/commissions?start=2030-02-01&end=2030-01-01")
+    assert a.get("/commissions?start=not-a-date&end=also-bad", follow_redirects=True).status_code == 200
+    swapped = a.get("/commissions?start=2030-02-01&end=2030-01-01", follow_redirects=True)
     assert swapped.status_code == 200 and "2030-01-01" in swapped.text
-    wide = a.get("/commissions?start=1990-01-01&end=2030-01-01")
+    wide = a.get("/commissions?start=1990-01-01&end=2030-01-01", follow_redirects=True)
     assert wide.status_code == 200 and "1990-01-01" not in wide.text
 
 
@@ -244,4 +244,4 @@ def test_sidebar_links_resolve(net):
     html = a.get("/dashboard").text
     for href in ("/bola/cancelled", "/commissions"):
         assert f'href="{href}"' in html
-        assert a.get(href).status_code == 200
+        assert a.get(href, follow_redirects=True).status_code == 200

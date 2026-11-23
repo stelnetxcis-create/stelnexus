@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}{{ kind.label }} · Access · {{ brand }}{% endblock %}
+{% block heading %}Admin Panel{% endblock %}
+{% block content %}
+{% include "_access_nav.html" %}
+
+<section class="ax-hero" style="--ax:{{ kind.tree.accent }}">
+  <div>
+    <h2>{{ kind.label }}{% if kind.is_custom %} <span class="ax-chip custom">custom · built on {{ kind_labels[kind.base] }}</span>{% endif %}</h2>
+    <p>{{ kind.blurb }}</p>
+    <div class="ax-meta">
+      <span class="ax-chip">{{ member_total }} account{{ '' if member_total == 1 else 's' }}</span>
+      <span class="ax-chip">{{ held|length }} of {{ catalog|map('last')|map('length')|sum }} rights by default</span>
+      {% if kind.base == 'admin' %}<span class="ax-chip hot">fixed</span>{% elif customised %}<span class="ax-chip hot">defaults edited</span>{% else %}<span class="ax-chip">starting defaults</span>{% endif %}
+    </div>
+  </div>
+  <div class="table-actions">
+    {% if pawns is defined %}<button class="btn btn-sm btn-brand" type="button" data-modal="pawn-modal"><svg class="ico"><use href="#i-plus"/></svg>Create pawn</button>{% endif %}
+    {% if kind.base != 'admin' and customised and not kind.is_custom or (kind.is_custom and customised) %}
+    <form method="post" action="{{ kind.href }}/reset" class="inline-form" data-confirm="Put {{ kind.label }} back to its starting defaults?">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm btn-ghost" type="submit">Reset to starting defaults</button></form>
+    {% endif %}
+  </div>
+</section>
+
+<div class="ax-cols">
+  <div class="card">
+    <div class="card-head"><h2>Default rights</h2>{% if kind.base != 'admin' %}<span class="muted small">for every {{ kind.label }} account</span>{% endif %}</div>
+    <div class="card-body">
+    {% if kind.base == 'admin' %}
+      <p class="notice">The Dev account always holds every right and cannot be limited. Nobody else can see it in their lists.</p>
+      {% for category, items in catalog %}<div class="ax-cat"><h4>{{ category }}</h4><div class="ax-perms">
+        {% for perm, label in items %}<div class="ax-perm"><span class="ax-yes">&#10003;</span><span>{{ label }}<small>{{ perm.value }}</small></span></div>{% endfor %}
+      </div></div>{% endfor %}
+    {% else %}
+      <p class="ax-howto">Tick what every {{ kind.label }} may do. <span class="ax-chip hot">gold outline</span> = different from the starting defaults.{% if bola_locked %} Bola rights are locked while Bola is dev-only.{% endif %}{% if kind.base == 'pawn' and not kind.is_custom %} Pawns start with nothing; their own switches are below.{% endif %}</p>
+      <form method="post" action="{{ kind.href }}/defaults" data-confirm="Change the default rights for every {{ kind.label }} account?">{{ ui.csrf(csrf_token) }}
+        {% for category, items in catalog %}
+        <div class="ax-cat"><h4>{{ category }}</h4><div class="ax-perms">
+          {% for perm, label in items %}{% set k = perm.value %}{% set off = k in locked %}
+          <label class="ax-perm {{ 'is-off' if off }} {{ 'is-diff' if (k in held) != (k in baseline) }}">
+            <input type="checkbox" name="p:{{ k }}" {{ 'checked' if k in held }} {{ 'disabled' if off }}>
+            <span>{{ label }}<small>{{ k }}</small>{% if off %}<span class="ax-note">{{ 'Admin only' if k in non_delegable else 'Locked: Bola is dev-only' }}</span>{% endif %}</span>
+          </label>
+          {% endfor %}
+        </div></div>
+        {% endfor %}
+        <div class="ax-save"><span class="muted small">Applies to everyone of this type within seconds.</span><button class="btn btn-primary" type="submit">Save default rights</button></div>
+      </form>
+    {% endif %}
+    </div>
+  </div>
+
+  <div>
+    <div class="card">
+      <div class="card-head"><h2>Accounts</h2><span class="muted small">{{ member_total }}</span></div>
+      <div class="card-body">
+      {% if kind.base == 'player' %}
+        {% for pl in players %}<div class="ax-member"><span><strong>{{ pl.full_name }}</strong><small>{{ pl.username or 'no username' }}</small></span>{{ ui.status_badge(pl.status) }}</div>
+        {% else %}{{ ui.empty('No players yet.', compact=true) }}{% endfor %}
+        {% if member_total > players|length %}<p class="muted small">Showing the newest {{ players|length }} of {{ member_total }}.</p>{% endif %}
+        <p class="muted small">Players share one set of rights; per-player rights are not supported.</p>
+      {% else %}
+        {% for m in members %}{% set u = m.user %}
+        <div class="ax-member">
+          <span><strong>{{ u.full_name }}</strong> <small style="display:inline">{{ u.username }}</small>
+            <small>{{ m.rights }} rights{% if m.type and type_names.get(m.type) and not kind.is_custom %} · <span class="ax-chip custom">{{ type_names[m.type] }}</span>{% endif %}{% if m.individual %} · <span class="ax-chip hot">own Allow/Deny</span>{% endif %}</small></span>
+          <span class="ax-meta">{{ ui.status_badge(u.status) }}{% if kind.base != 'admin' %}<a class="btn btn-sm" href="/admin/access/account/{{ u.id }}">Edit rights</a>{% endif %}</span>
+        </div>
+        {% else %}{{ ui.empty('No accounts of this type yet.', compact=true) }}{% endfor %}
+        {% if member_total > members|length %}<p class="muted small">Showing {{ members|length }} of {{ member_total }}. Search the Accounts page for the rest.</p>{% endif %}
+        {% if kind.is_custom and not members %}<p class="muted small">Open any {{ kind_labels[kind.base] }} account and choose this type to move it in.</p>{% endif %}
+      {% endif %}
+      </div>
+    </div>
+
+    {% if kind.is_custom %}
+    <div class="card">
+      <div class="card-head"><h2>About this type</h2></div>
+      <div class="card-body">
+        <form method="post" action="/admin/access/types/{{ kind.type.id }}/update">{{ ui.csrf(csrf_token) }}
+          <div class="form-grid">
+            {{ ui.field('Name', 'name', value=kind.type.name, required=true, attrs='maxlength=40') }}
+            {{ ui.field('Description', 'description', value=kind.type.description or '', attrs='maxlength=200') }}
+          </div>
+          <div class="form-actions"><button class="btn btn-primary" type="submit">Save</button></div>
+        </form>
+        <div class="hr"></div>
+        <form method="post" action="/admin/access/types/{{ kind.type.id }}/delete" class="inline-form" data-confirm="Delete {{ kind.label }}? Its {{ member_total }} account(s) keep their role and go back to the plain {{ kind_labels[kind.base] }} defaults.">{{ ui.csrf(csrf_token) }}
+          <button class="btn btn-sm btn-ghost" type="submit">Delete this account type</button></form>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if pawns is defined %}{% include "_access_pawns.html" %}{% endif %}
+{% endblock %}

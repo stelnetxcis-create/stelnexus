@@ -77,23 +77,13 @@
           ('store', '/store', 'i-crown', 'Store', 'wallet.transfer'),
           ('admin', '/admin', 'i-sliders', 'Admin Panel', 'panel.view'),
           ('staff', '/staff', 'i-users', 'Staff Panel', 'staff.view')]),
-        ('Sabong · Meron / Wala', [
-          ('events', '/events', 'i-calendar', 'Events', 'events.view'),
-          ('change_name', '/change_name', 'i-target', 'Fight View', 'fights.view'),
-          ('history', '/history', 'i-clock', 'Game History', 'fights.view'),
-          ('betlogs', '/betlogs', 'i-list', 'Betting List', 'bets.view'),
-          ('cancelT', '/cancelT', 'i-ban', 'Cancel Ticket', 'cancellog.view')]),
-        ('Number game', [
-          ('bola', '/bola', 'i-hash', 'Bola', 'bola.view'),
-          ('bola_logs', '/bola/betlogs', 'i-list', 'Bola Tickets', 'bola.place'),
-          ('bola_cancelled', '/bola/cancelled', 'i-ban', 'Bola Cancelled', 'cancellog.view'),
-          ('bola_reports', '/bola/reports', 'i-coins', 'Bola Reports', 'bola.exposure')]),
         ('Network', [
           ('agents', '/agents', 'i-users', 'Users', 'agents.view'),
           ('clp', '/clp', 'i-card', 'Players', 'players.view'),
           ]),
       ] %}
       {% for title, items in groups %}
+        {% if loop.index == 2 %}{% include "_nav_games.html" %}{% endif %}
         {% set shown = items | selectattr(4, 'in', perms) | list %}
         {% if shown %}
         {% if title %}<div class="nav-title {{ 'is-sabong' if title.startswith('Sabong') else 'is-number' if title == 'Number game' }}"><span>{{ title }}{% if title == 'Number game' and bola_dev_only() %} · dev only{% endif %}</span>{% if title.startswith('Sabong') %}<i class="nav-dots" aria-hidden="true"><b class="m"></b><b class="w"></b></i>{% endif %}</div>{% endif %}

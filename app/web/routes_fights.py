@@ -10,7 +10,7 @@ from app.core.errors import Forbidden, NotFound, ValidationError
 from app.core.money import to_cents
 from app.core.rbac import Perm, hides_totals, sees_house
 from app.db.models import EventStatus, PayoutModel, Result
-from app.services import accounts, betting, events, locations, proofs, reports, settlement
+from app.services import accounts, betting, events, locations, proofs, reports, settlement, streams
 from app.services import players as player_service
 from app.services import store as store_svc
 from app.web.deps import Ctx, form_data, flash_redirect, render, require_ctx
@@ -201,6 +201,7 @@ async def change_name(request: Request, ctx: Ctx = Depends(require_ctx)):
                   chat_access=store_svc.access(ctx.db, ctx.user, fight) if fight is not None else None,
                   chat_tokens=store_svc.tokens_for_fight(ctx.db, ctx.user, fight) if fight is not None else 0,
                   stream_pass=store_svc.has_stream_perks(ctx.db, ctx.user) if fight is not None else False,
+                  stream_payload=streams.payload(ctx.db, event_id=event.id, fight_id=fight.id) if fight is not None else None,
                   pending=settlement.pending_runs(ctx.db) if ctx.user.is_top else [])
 
 

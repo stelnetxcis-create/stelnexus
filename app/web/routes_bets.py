@@ -26,26 +26,17 @@ def _int(raw: str | None, default: int = 0) -> int:
 
 @router.get("/betlogs")
 async def betlogs(request: Request, ctx: Ctx = Depends(require_ctx)):
+    """Moved: Records > Tickets (Games Standard 4.8). Kept as a redirect so old links work."""
     ctx.need(Perm.BETS_VIEW)
-    params = request.query_params
-    status = params.get("status") or None
-    pager, rows = paginate(request, 300, lambda limit, offset: betting.list_tickets(
-        ctx.db, ctx.user, event_id=_int(params.get("event_id")) or None,
-        fight_id=_int(params.get("fight_id")) or None,
-        status=TicketStatus(status) if status in ("active", "canceled", "settled", "refunded") else None,
-        search=params.get("q", "")[:40] or None, limit=limit, offset=offset))
-    return render(ctx, "betlogs.html", active="betlogs", rows=rows, pager=pager,
-                  events=events.list_events(ctx.db, limit=50),
-                  filters={"event_id": params.get("event_id", ""), "q": params.get("q", ""),
-                           "status": status or ""})
+    from app.web.routes_records import legacy_redirect
+    return legacy_redirect(request, "tickets", "sabong", rename={"event_id": "session", "fight_id": "round"})
 
 
 @router.get("/cancelT")
 async def cancel_t(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.CANCEL_LOG)        # dev-only
-    pager, rows = paginate(request, 300, lambda limit, offset: betting.list_tickets(
-        ctx.db, ctx.user, canceled_only=True, limit=limit, offset=offset))
-    return render(ctx, "cancelT.html", active="cancelT", rows=rows, pager=pager)
+    from app.web.routes_records import legacy_redirect
+    return legacy_redirect(request, "cancelled", "sabong")
 
 
 @router.post("/bets/place")
@@ -79,7 +70,7 @@ async def cancel_bet(ticket_id: int, request: Request, ctx: Ctx = Depends(requir
     data = await form_data(request)
     ticket = betting.cancel_ticket(ctx.db, ctx.user, ticket_id=ticket_id,
                                    reason=data.get("reason", ""), settings=ctx.store)
-    return flash_redirect("/cancelT" if ctx.can(Perm.CANCEL_LOG) else "/betlogs",
+    return flash_redirect("/records?tab=cancelled&game=sabong" if ctx.can(Perm.CANCEL_LOG) else "/records?tab=tickets&game=sabong",
                           f"Ticket {ticket.code} cancelled and refunded.")
 
 
@@ -107,7 +98,10 @@ async def ticket_qr(ticket_id: int, ctx: Ctx = Depends(require_ctx)):
 def _qr_svg(payload: str) -> str:
     import segno
     buffer = io.BytesIO()
-    segno.make(payload, error="m").save(buffer, kind="svg", scale=3, border=1, xmldecl=False)
+    # scale=1 + omitsize gives a viewBox, so CSS can size it; a fixed width/height with no viewBox leaves the
+    # code at its native size in the corner of a bigger box
+    segno.make(payload, error="m").save(buffer, kind="svg", scale=1, border=1, xmldecl=False,
+                                        omitsize=True, svgclass="qr", lineclass="qrline")
     return buffer.getvalue().decode()
 
 

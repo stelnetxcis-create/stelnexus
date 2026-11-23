@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% from "_gamebar.html" import gamebar %}
+{% block title %}Records · {{ brand }}{% endblock %}
+{% block heading %}Records{% endblock %}
+{% block actions %}
+{% if tab != 'commissions' %}<a class="btn btn-sm" href="/records.csv?{{ request.url.query }}">CSV</a>{% endif %}
+{% endblock %}
+{% block content %}
+{% include "records/_bar.html" %}
+{% if tab == 'reports' %}{% include "records/_reports.html" %}
+{% else %}
+  {% include "records/_filters.html" %}
+  {% if kpis %}<div class="grid grid-3">
+    {{ ui.stat('Staked', kpis.staked | money, 'on this page') }}
+    {{ ui.stat('Paid out', kpis.paid | money, 'on this page') }}
+  </div>{% endif %}
+  {% if tab == 'history' %}{% include "records/_history.html" %}{% else %}{% include "records/_tickets.html" %}{% endif %}
+{% endif %}
+{% endblock %}

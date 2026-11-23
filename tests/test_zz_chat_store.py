@@ -227,7 +227,7 @@ def test_store_sits_next_to_dashboard_and_is_called_store():
     html = c.get("/dashboard").text
     nav = html[html.index('class="nav"'):]
     assert "Chat Store" not in html
-    assert nav.index('title="Dashboard"') < nav.index('title="Store"') < nav.index('title="Events"')
+    assert nav.index('title="Dashboard"') < nav.index('title="Store"') < nav.index('title="Games"')
     store_page = c.get("/store").text
     assert "<h1>Store</h1>" in store_page and "Chat Store" not in store_page
 
@@ -334,7 +334,7 @@ def test_nav_has_admin_panel_next_to_dashboard_and_no_livestream_chat_link():
     c, _ = login("admin")
     html = c.get("/dashboard").text
     nav = html[html.index('class="nav"'):html.index("</nav>")]
-    assert nav.index('title="Dashboard"') < nav.index('title="Store"') < nav.index('title="Admin Panel"') < nav.index('title="Events"')
+    assert nav.index('title="Dashboard"') < nav.index('title="Store"') < nav.index('title="Admin Panel"') < nav.index('title="Games"')
     assert 'title="Livestream Chat"' not in nav and "nav-exp" not in nav
     assert 'title="Commission"' not in nav and 'title="Referral Codes"' not in nav
 

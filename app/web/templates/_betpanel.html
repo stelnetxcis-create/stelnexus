@@ -34,9 +34,12 @@
       <div class="sell-closed" data-sl="closed" hidden><span data-sl="closed-text"></span><button class="btn btn-sm btn-brand" type="button" data-sl="next">Next open game</button></div>
       </div>
       <div class="bp-col">
-      <div class="sell-amt-wrap"><span class="muted small">Amount</span><div class="sell-amt" data-sl="amt"><i>&#8369;</i><span>0</span></div></div>
+      <div class="sell-amt-wrap"><span class="muted small">Amount</span><div class="sell-amt" data-sl="amt"><i>&#8369;</i><span>0</span></div><button type="button" class="amt-clear" data-clear hidden aria-label="Clear the amount">Clear</button></div>
+      {# Chips ADD to the amount. What you tapped is kept as a stack of tokens (tap one to take it back out); with
+         nothing entered the row offers to repeat your last bet. #}
+      <div class="amt-stack" data-sl="stack" aria-live="polite" hidden></div>
       <div class="sell-chips">
-        {% for v in [50, 100, 200, 500, 1000] %}<button class="chip-key" type="button" data-amt="{{ v }}">{{ v }}</button>{% endfor %}<button class="chip-key bp-other" type="button" data-bp-other aria-pressed="false">Other</button>
+        {% for v in [50, 100, 200, 500, 1000] %}<button class="chip-key" type="button" data-amt="{{ v }}" aria-label="Add {{ v }} pesos">+{{ v }}</button>{% endfor %}<button class="chip-key bp-other" type="button" data-bp-other aria-pressed="false">Other</button>
       </div>
       <div class="pad bp-pad">
         {% for k in ['1','2','3','4','5','6','7','8','9'] %}<button class="pad-key" type="button" data-key="{{ k }}">{{ k }}</button>{% endfor %}

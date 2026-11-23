@@ -1,0 +1,11 @@
+# /etc/systemd/system/stelnexus-streams-check.timer
+[Unit]
+Description=Run the StelNexus stream health check every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=5s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

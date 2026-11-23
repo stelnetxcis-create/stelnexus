@@ -1,6 +1,6 @@
 /* Declarator Desk (/staff/declarator): the live board, the stage and the result keys.
    Built on the site tokens (gold, meron red, wala blue). Loaded only on that page. */
-.dk{--lane-air:var(--red);--lane-due:var(--amber);--lane-open:var(--green);--lane-next:#8a8498;
+.dk{--air:#f4efe2;--lane-air:var(--air);--lane-due:var(--amber);--lane-open:var(--green);--lane-next:#8a8498;
   display:flex;flex-direction:column;gap:14px;min-width:0}
 .dk button{font-family:inherit}
 .dk kbd{font:700 11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:2px 6px;border-radius:5px;
@@ -25,6 +25,8 @@
 .dk-seg{display:inline-flex;border:1px solid var(--line-2);border-radius:999px;padding:3px;background:var(--input)}
 .dk-seg button{appearance:none;border:0;background:transparent;color:var(--ink-3);font-size:13px;font-weight:650;padding:6px 14px;border-radius:999px;cursor:pointer}
 .dk-seg button[aria-pressed="true"]{background:rgba(217,177,85,.18);color:var(--gold-hi)}
+.dk-clock{font:700 15px/1 var(--serif);font-variant-numeric:tabular-nums;letter-spacing:.03em;color:var(--ink-2);padding:6px 11px;
+  border-radius:10px;border:1px solid var(--line-2);background:var(--input)}
 .dk-live{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:800;letter-spacing:.12em;color:var(--ink-3)}
 .dk-live i{width:8px;height:8px;border-radius:50%;background:var(--green);animation:dk-ping 2.2s infinite}
 .dk-live.is-off i{background:var(--amber);animation:none}
@@ -72,6 +74,12 @@
   background:linear-gradient(180deg,var(--panel-2),var(--panel));display:grid;gap:14px;min-width:0}
 .dk-panel>h5{margin:0;font:800 11px var(--font);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
 .dk-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.dk-head-r{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.dk-watch{display:inline-flex;align-items:center;gap:8px;font-weight:700;color:var(--ink);border-color:var(--line-2);
+  background:linear-gradient(180deg,rgba(214,62,84,.22),rgba(214,62,84,.06))}
+.dk-watch:hover{border-color:var(--air);box-shadow:0 0 18px -8px var(--air)}
+.dk-watch.is-on{border-color:var(--air);box-shadow:0 0 0 1px var(--air)}
+.dk-watch span{font-size:10px;color:var(--air)}
 .dk-kicker{display:block;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
 .dk-head h3{font-size:24px;margin-top:2px;overflow-wrap:anywhere}
 .dk-pill{display:inline-flex;align-items:center;gap:8px;padding:6px 13px;border-radius:999px;font-size:12px;font-weight:800;letter-spacing:.1em;
@@ -112,7 +120,7 @@
 .dk-bead.is-wait{--bc:var(--line-2);color:var(--ink-3)}
 .dk-bead.is-open{--bc:var(--green)}
 .dk-bead.is-locked{--bc:var(--amber);color:var(--amber)}
-.dk-bead.is-air{--bc:var(--red);background:var(--red);color:#fff;animation:dk-ring 1.8s ease-out infinite}
+.dk-bead.is-air{--bc:var(--air);background:var(--air);color:#17120a;animation:dk-ring 1.8s ease-out infinite}   /* ivory: Meron is red, so on air must not be */
 .dk-bead.is-done{background:var(--bc);color:#fff}
 .dk-bead.is-done.res-meron{--bc:#b82a3d}.dk-bead.is-done.res-wala{--bc:#2f7fd1}
 .dk-bead.is-done.res-draw{--bc:#8266d6}.dk-bead.is-done.res-canceled{--bc:#6c675a}
@@ -203,9 +211,9 @@
 .dk [data-lane="air"]{--lc:var(--lane-air)}.dk [data-lane="due"]{--lc:var(--lane-due)}
 .dk [data-lane="open"]{--lc:var(--lane-open)}.dk [data-lane="next"]{--lc:var(--lane-next)}
 
-@keyframes dk-pulse{0%{box-shadow:0 0 0 0 rgba(229,56,79,.7)}80%,100%{box-shadow:0 0 0 8px rgba(229,56,79,0)}}
+@keyframes dk-pulse{0%{box-shadow:0 0 0 0 rgba(244,239,226,.75)}80%,100%{box-shadow:0 0 0 8px rgba(244,239,226,0)}}
 @keyframes dk-ping{0%{box-shadow:0 0 0 0 rgba(47,191,134,.6)}70%,100%{box-shadow:0 0 0 7px rgba(47,191,134,0)}}
-@keyframes dk-ring{0%{box-shadow:0 0 0 0 rgba(229,56,79,.6)}70%,100%{box-shadow:0 0 0 9px rgba(229,56,79,0)}}
+@keyframes dk-ring{0%{box-shadow:0 0 0 0 rgba(244,239,226,.65)}70%,100%{box-shadow:0 0 0 9px rgba(244,239,226,0)}}
 @keyframes dk-rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes dk-nudge{50%{transform:translateY(-2px)}}
 

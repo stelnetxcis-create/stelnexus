@@ -189,6 +189,8 @@ def test_permissions_master_is_admin_minus_admin_panel(monkeypatch):
                   Perm.CHAT_USE,
                   # account tools, IP bans
                   Perm.ACCOUNTS_VIEW, Perm.ACCOUNTS_EDIT, Perm.ACCOUNTS_REMOVE, Perm.IPBANS_MANAGE,
+                  # the Streams admin page (video sources): Admin only, Pawns by grant
+                  Perm.STREAMS_VIEW, Perm.STREAMS_MANAGE,
                   Perm.CANCEL_LOG,
                   # undoing / cancelling a placed bet is dev-only
                   Perm.BETS_CANCEL, Perm.BOLA_CANCEL,
@@ -245,7 +247,7 @@ def test_web_master_sees_ops_not_hidden_pages(chain):
     c = _login(w.master.username)
     for path in ["/dashboard", "/agents", "/referrals", "/commissions", "/change_name", "/wallet",
                  "/wallet?t=approvals", "/events"]:
-        assert c.get(path).status_code == 200, path
+        assert c.get(path, follow_redirects=True).status_code == 200, path
     # house money (cashflow, report archives) is dev-only now
     for path in ["/cashflow", "/archives", "/settings", "/audit", "/integrity", "/cuts", "/admin", "/admin/variables", "/admin/locations",
                  "/admin/cuts", "/admin/pawns", "/admin/audit", "/clp", "/clp/online"]:
@@ -261,7 +263,7 @@ def test_web_admin_sees_everything_and_dev_badge():
     c = _login("admin")
     for path in ["/admin", "/admin/variables", "/admin/locations", "/admin/cuts", "/admin/pawns", "/admin/audit",
                  "/admin/integrity", "/commissions", "/clp", "/clp/online", "/wallet?t=approvals"]:
-        assert c.get(path).status_code == 200, path
+        assert c.get(path, follow_redirects=True).status_code == 200, path
     for old in ["/settings", "/audit", "/integrity", "/cuts", "/cashin_out"]:
         assert c.get(old).status_code == 303, old
     assert ">DEV<" in c.get("/dashboard").text

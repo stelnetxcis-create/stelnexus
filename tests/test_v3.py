@@ -401,7 +401,7 @@ def test_history_shows_the_location(chain):
     game = events.fights_of(w.db, ev.id)[0]
     settlement.declare(w.db, w.admin, fight_id=game.id, result=events.resolve_result(game, "wala"), settings=w.store)
     w.db.commit()
-    html = _login("admin").get("/history").text
+    html = _login("admin").get("/history", follow_redirects=True).text
     assert "<th>Location</th>" in html and f"Coliseum {w.tag}" in html and "Lipa City" in html
 
 
