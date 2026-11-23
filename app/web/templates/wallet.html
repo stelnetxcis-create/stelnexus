@@ -61,8 +61,8 @@
   <div><div class="muted small">Your credit</div><strong>{{ balance | money }}</strong>
     {% if commission %}<div class="small muted">+ {{ commission | money }} commission · <a href="/records?tab=commissions">manage</a></div>{% endif %}</div>
   <div class="table-actions">
-    {% if 'requests.create' in perms %}<a class="btn btn-brand" href="/wallet?t=load">Load</a><a class="btn" href="/wallet?t=cashout">Cash out</a>{% endif %}
-    {% if 'wallet.transfer' in perms %}<a class="btn" href="/wallet?t=transfer">Transfer</a>{% endif %}
+    {% if 'requests.create' in perms %}<a class="btn btn-brand dup-nav" href="/wallet?t=load">Load</a><a class="btn dup-nav" href="/wallet?t=cashout">Cash out</a>{% endif %}
+    {% if 'wallet.transfer' in perms %}<a class="btn dup-nav" href="/wallet?t=transfer">Transfer</a>{% endif %}
   </div>
 </div></div>
 

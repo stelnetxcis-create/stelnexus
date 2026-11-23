@@ -118,3 +118,12 @@ def test_vocabulary_no_game_number_in_templates():
     bad = [p.name for p in pathlib.Path("app/web/templates").rglob("*.html")
            if re.search(r"\b[Gg]ame #|\bGame \{\{", p.read_text())]
     assert not bad, bad
+
+
+def test_hub_play_or_watch_follows_the_place_right():
+    from app.core.rbac import Perm
+    sabong = games.GAMES["sabong"]
+    assert sabong.can(_FakeCtx({Perm.BETS_PLACE.value}), "place")
+    assert not sabong.can(_FakeCtx({Perm.FIGHTS_VIEW.value}), "place")
+    c, _ = login("admin")
+    assert "Play" in c.get("/games").text or "Watch" in c.get("/games").text

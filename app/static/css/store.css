@@ -683,6 +683,7 @@
 .pbs-x b{font-size:34px;line-height:1}.pbs-x small{font-size:15px;color:var(--ink-3)}
 .pbs-side.meron .pbs-x b{color:#ff9aa8}.pbs-side.wala .pbs-x b{color:#9fceff}
 .pbs-side.is-low .pbs-x b{color:#f2cd7c}.pbs-side.is-low::after{content:"Below minimum odds: refunded if it wins";display:block;margin-top:3px;font-size:10.5px;color:#f2cd7c}
+.pbs-side.is-relief::after{content:"Cut lowered to keep the minimum odds";display:block;margin-top:3px;font-size:10.5px;color:#9fd3a8}
 .pbs-dir{margin-left:4px;font-size:13px;font-weight:800}.pbs-dir.up{color:#2fbf86;animation:pbsNudge .6s ease-out}.pbs-dir.down{color:#ff6b81;animation:pbsNudge .6s ease-out}
 @keyframes pbsNudge{from{transform:translateY(6px);opacity:0}}
 .pbs-pool{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-top:3px;font-variant-numeric:tabular-nums}
@@ -881,3 +882,64 @@
 .amt-repeat:hover{border-color:var(--gold);color:var(--gold-hi)}
 @keyframes amt-pop{from{transform:scale(.7);opacity:0}to{transform:none;opacity:1}}
 @media (prefers-reduced-motion:reduce){.amt-tok{animation:none}}
+
+
+/* =====================================================================================================
+   Payout card (dock mode = full screen or a wide stage): the scene is no longer a full-cover slide. It is a compact
+   glass card at the top of the picture, so the stream stays visible around it. The X on the card, the Payout tab on the
+   dock row, and the "hide all" button on that row (chat + bet + payout together) all toggle it. Narrow inline stage:
+   unchanged full-cover scene, with the X and a small Payout pill to bring it back.
+   ===================================================================================================== */
+.pbs-stage{position:relative}
+.pbs-hide{position:absolute;top:6px;right:6px;z-index:3;width:30px;height:30px;display:grid;place-items:center;padding:0;border-radius:50%;cursor:pointer;pointer-events:auto;touch-action:manipulation;
+  border:1px solid var(--line-2);background:rgba(20,18,23,.85);color:var(--ink-2)}
+.pbs-hide svg{width:15px;height:15px}
+.pbs-hide:hover{color:#fff;border-color:var(--gold)}
+.pbs.is-min{display:none}
+.pbs.is-min ~ .vp-big{display:grid}
+.pbs.is-min ~ .vp-badge{display:inline-flex}
+.pbs-fab{position:absolute;left:10px;bottom:10px;z-index:20;display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 13px;border-radius:999px;cursor:pointer;
+  border:1px solid rgba(217,177,85,.6);background:rgba(14,12,18,.88);color:var(--gold-hi,#f7de93);font:700 12.5px var(--sans,inherit);touch-action:manipulation}
+.pbs-fab[hidden]{display:none}
+.pbs-fab svg{width:16px;height:16px}
+
+.fc-stagewrap.dk-on .pbs{background:none;place-items:start center;align-items:start;pointer-events:none}
+.fc-stagewrap.dk-on .pbs-bg{display:none}
+.fc-stagewrap.dk-on .pbs-stage{width:min(100%,548px);padding:12px 14px 12px;box-sizing:border-box;pointer-events:auto;border-radius:20px;
+  border:1px solid rgba(217,177,85,.32);background:linear-gradient(160deg,rgba(26,22,32,.80),rgba(8,7,11,.82));
+  -webkit-backdrop-filter:blur(12px) saturate(1.2);backdrop-filter:blur(12px) saturate(1.2);box-shadow:0 14px 44px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.06)}
+.fc-stagewrap.dk-on .pbs-side{background:rgba(14,12,18,.55)}
+.fc-stagewrap.dk-on .pbs-side.meron{background:linear-gradient(150deg,rgba(229,56,79,.2),rgba(14,12,18,.55) 65%)}
+.fc-stagewrap.dk-on .pbs-side.wala{background:linear-gradient(150deg,rgba(74,163,255,.2),rgba(14,12,18,.55) 65%)}
+.fc-stagewrap.dk-on .pbs-kicker{padding-right:30px}
+.fc-stagewrap.dk-on .pbs-note{display:none}                                   /* the long explanation stays in the Bet panel */
+.fc-stagewrap.dk-on .pbs-end .pbs-crown{width:34px;height:34px}.fc-stagewrap.dk-on .pbs-end .pbs-crown .ico{width:18px;height:18px}
+.fc-stagewrap.dk-on .pbs-end{gap:5px}
+.fc-stagewrap.dk-on .pbs-result{font-size:clamp(22px,6cqh,34px)}
+.fc-stagewrap.dk-on .pbs-fx b{font-size:26px}
+.fc-stagewrap.dk-on .pbs-final{width:min(100%,360px)}
+.fc-stagewrap.dk-on .pbs-big{font-size:clamp(26px,7cqh,40px)}
+.fc-stagewrap.dk-on .pbs-wait{gap:6px}
+
+/* the new dock-row buttons */
+.dk-tab.dk-pay{border-color:rgba(217,177,85,.35)}
+@container fcstage (max-width:470px){
+  .dk-tab{padding:0 12px}
+  .dk-tab.dk-pay span{display:none}
+}
+
+/* a side drawer (chat / bet) is open: the card steps to the free side instead of sliding underneath it */
+.fc-stagewrap.dk-side.dk-drawer .pbs{place-items:start start}
+.fc-stagewrap.dk-side.dk-drawer .pbs-stage{width:min(548px,calc(100% - min(360px,50%) - 28px))}
+
+/* portrait full screen (bottom-sheet mode): a short card, the two sides side by side; it steps aside while a sheet is open */
+.fc-stagewrap.dk-sheet .pbs-stage{width:100%;padding:10px 12px}
+.fc-stagewrap.dk-sheet .pbs-duel{grid-template-columns:1fr 1fr;gap:8px;width:100%}
+.fc-stagewrap.dk-sheet .pbs-mid{grid-column:1 / -1}
+.fc-stagewrap.dk-sheet .pbs-x b{font-size:28px}
+.fc-stagewrap.dk-sheet .pbs-side{padding:7px 10px 8px}
+.fc-stagewrap.dk-sheet .pbs-name{font-size:13px}
+.fc-stagewrap.dk-sheet .pbs-pool{flex-direction:column;align-items:flex-start;gap:0}
+.fc-stagewrap.dk-sheet .pbs-bar,.fc-stagewrap.dk-sheet .pbs-note{display:none}
+.fc-stagewrap.dk-sheet .pbs-stage{transition:opacity .2s}
+.fc-stagewrap.dk-sheet.dk-drawer .pbs-stage{opacity:0;visibility:hidden;pointer-events:none}

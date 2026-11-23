@@ -90,7 +90,7 @@ async def register_submit(request: Request, ctx: Ctx = Depends(optional_ctx)):
 
 def _admin_uplines(ctx: Ctx) -> list[User]:
     """Every active Master Agent, Agent and Sub Agent the Admin may attach a new account to."""
-    if ctx.user.role != Role.ADMIN:
+    if not ctx.user.is_admin_tier:
         return []
     return list(ctx.db.scalars(
         select(User).where(User.role.in_(NETWORK_ROLES), User.status == Status.ACTIVE)

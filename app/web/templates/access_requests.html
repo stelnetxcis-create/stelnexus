@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Requests · Access · {{ brand }}{% endblock %}
+{% block heading %}Admin Panel{% endblock %}
+{% block content %}
+{% include "_access_nav.html" %}
+<p class="notice">When someone whose right is set to <b>✋ Ask first</b> tries the action, it does <b>not</b> run: it lands here and you are told. Approve it and they run it themselves (so you never act in their name). Choose how far your yes goes: this one action only, any such action for a while, a few uses, or for good. A changed amount or name voids a one-time approval. Passes are capped at {{ max_hours }} hours.</p>
+
+<h3 style="margin:0 0 10px">Waiting for you ({{ pending|length }})</h3>
+{% for x in pending %}{% set r = x.r %}
+<div class="ax-req">
+  <h3>{% if x.piece %}<span class="ax-piece">{{ x.piece.split(' ')[0] }}</span>{% endif %}{{ x.requester.full_name if x.requester else '?' }} <small class="muted">{{ x.requester.username if x.requester }}</small></h3>
+  <div>{{ 'Wants access to' if r.kind == 'access' else 'Tried to' }}: <b>{{ r.summary }}</b> <span class="ax-chip">{{ x.label }}</span></div>
+  {% if r.reason %}<p class="muted small" style="margin:4px 0">“{{ r.reason }}”</p>{% endif %}
+  {% if x.fields %}<table><tbody>{% for k, v in x.fields %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}</tbody></table>{% endif %}
+  <small class="muted">{{ r.method }} {{ r.path }} · asked {{ r.created_at.strftime('%d %b %H:%M') }}{% if r.expires_at %} · lapses {{ r.expires_at.strftime('%d %b %H:%M') }}{% endif %}</small>
+  {% if x.can_decide %}
+  <form method="post" action="/admin/access/requests/{{ r.id }}/decide" class="ax-answer">{{ ui.csrf(csrf_token) }}
+    <select name="choice" aria-label="Your answer">
+      <optgroup label="Approve">
+        <option value="once">{{ 'Let them in once' if r.kind == 'access' else 'This one action only' }}</option>
+        {% for t in timed %}<option value="{{ t }}">Any such action for {{ {'15m': '15 minutes', '1h': '1 hour', '4h': '4 hours', '8h': '8 hours', '24h': '24 hours', '3d': '3 days', '7d': '7 days'}[t] }}</option>{% endfor %}
+        <option value="uses">A number of uses →</option>
+        <option value="always">Switch it on for good (for this account)</option>
+      </optgroup>
+      <optgroup label="Refuse"><option value="deny">Deny</option></optgroup>
+    </select>
+    <input type="number" name="uses" value="3" min="1" max="50" style="width:70px" aria-label="Number of uses">
+    <input name="note" placeholder="Note to them (optional)" maxlength="300" style="flex:1;min-width:160px">
+    <button class="btn btn-primary" type="submit">Answer</button>
+  </form>
+  {% else %}<p class="muted small">You cannot answer this one.</p>{% endif %}
+</div>
+{% else %}{{ ui.empty('Nothing is waiting. You will be notified when something is asked.') }}{% endfor %}
+
+<h3 style="margin:22px 0 10px">Recently answered</h3>
+<div class="card"><div class="card-body tight table-wrap">
+  <table class="table">
+    <thead><tr><th>Who</th><th>What</th><th>Result</th><th>Answered by</th><th></th></tr></thead>
+    <tbody>
+    {% for x in history %}{% set r = x.r %}
+      <tr>
+        <td>{{ x.requester.username if x.requester else '?' }}</td>
+        <td>{{ r.summary }}<br><small class="muted">{{ r.created_at.strftime('%d %b %H:%M') }}</small></td>
+        <td><span class="badge {{ {'approved': 'badge-green', 'used': 'badge-gray', 'denied': 'badge-red', 'revoked': 'badge-red'}.get(r.status, 'badge-gray') }}">{{ r.status }}</span>{% if r.grant_mode %} <small class="muted">{{ r.grant_mode }}{% if r.uses_left is not none %} · {{ r.uses_left }} left{% endif %}{% if r.pass_until and r.status == 'approved' %} · until {{ r.pass_until.strftime('%d %b %H:%M') }}{% endif %}</small>{% endif %}</td>
+        <td>{{ x.decider or '—' }}{% if r.decision_note %}<br><small class="muted">{{ r.decision_note }}</small>{% endif %}</td>
+        <td class="right">{% if r.status == 'approved' and x.can_decide %}<form method="post" action="/admin/access/requests/{{ r.id }}/revoke" class="inline-form" data-confirm="Cancel this pass now?">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm btn-ghost" type="submit">Cancel pass</button></form>{% endif %}</td>
+      </tr>
+    {% else %}<tr><td colspan="5">{{ ui.empty('Nothing answered yet.', compact=true) }}</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div></div>
+{% endblock %}

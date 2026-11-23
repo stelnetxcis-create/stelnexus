@@ -3,7 +3,7 @@
 {% block title %}Dashboard · {{ brand }}{% endblock %}
 {% block heading %}Dashboard{% endblock %}
 {% block actions %}
-{% if 'events.manage' in perms %}<a class="btn btn-sm btn-brand" href="/events" title="New event"><svg class="ico"><use href="#i-plus"/></svg><span class="lbl">New event</span></a>{% endif %}
+{% if 'events.manage' in perms %}<a class="btn btn-sm btn-brand" href="/games/sabong/schedule?create=1" title="New event"><svg class="ico"><use href="#i-plus"/></svg><span class="lbl">New event</span></a>{% endif %}
 {% endblock %}
 
 {% macro spark(values) %}
@@ -71,14 +71,14 @@
     <p class="hero-kicker" data-today>{{ now | date }}</p>
     <h2><span data-greet>Welcome</span>, <span class="hero-name">{{ (user.full_name or user.username).split()[0] }}</span></h2>
     <p class="muted">
-      {{ stats.open_fights }} Sabong game{{ '' if stats.open_fights == 1 else 's' }} open
+      {{ stats.open_fights }} Sabong fight{{ '' if stats.open_fights == 1 else 's' }} open
       · {{ stats.tickets_today }} ticket{{ '' if stats.tickets_today == 1 else 's' }} sold today
       {% if stats.locked_fights %}· <b class="hero-warn">{{ stats.locked_fights }} waiting for a result</b>{% endif %}
     </p>
   </div>
   <div class="hero-actions">
     {% if 'requests.review' in perms %}<a class="btn btn-sm" href="/wallet?t=approvals"><svg class="ico"><use href="#i-check"/></svg>Review requests{% if stats.pending_requests %}<span class="pill">{{ stats.pending_requests }}</span>{% endif %}</a>{% endif %}
-    {% if 'wallet.view' in perms %}<a class="btn btn-sm" href="/wallet"><svg class="ico"><use href="#i-coins"/></svg>Wallet</a>{% endif %}
+    {% if 'wallet.view' in perms %}<a class="btn btn-sm dup-nav" href="/wallet"><svg class="ico"><use href="#i-coins"/></svg>Wallet</a>{% endif %}
   </div>
 </section>
 
@@ -95,7 +95,7 @@
       <span class="game-go" aria-hidden="true">→</span>
     </a>
     {{ game_menu('sabong', 'Sabong · where to?', [
-      ('/events', 'i-calendar', 'Events', 'Open an event and see its games', 'events.view'),
+      ('/games/sabong/schedule', 'i-calendar', 'Events', 'Open an event and see its fights', 'events.view'),
       ('/change_name', 'i-target', 'Fight View', 'Watch live, place bets, declare results', 'fights.view'),
       ('/records?tab=tickets&game=sabong', 'i-list', 'Tickets', 'Every ticket placed', 'bets.view'),
       ('/records?tab=history&game=sabong', 'i-clock', 'History', 'Declared fights and result pictures', 'fights.view'),
@@ -194,7 +194,7 @@
   <div class="card-head"><h2>Corrections awaiting a second approver</h2>{{ ui.badge(pending|length ~ ' pending', 'amber') }}</div>
   <div class="card-body tight">
     <div class="table-wrap"><table class="table">
-      <thead><tr><th>Game</th><th>Action</th><th>New result</th><th>Requested by</th><th>Reason</th><th class="right">Decision</th></tr></thead>
+      <thead><tr><th>Fight</th><th>Action</th><th>New result</th><th>Requested by</th><th>Reason</th><th class="right">Decision</th></tr></thead>
       <tbody>
       {% for run in pending %}
         <tr>
@@ -244,7 +244,7 @@
 
     {% call ui.region('live-games') %}
     <div class="card">
-      <div class="card-head"><h2>Live games</h2><span class="sect sect-sabong">Sabong</span>{% if 'fights.view' in perms %}<a class="btn btn-sm btn-ghost" href="/change_name">Fight view →</a>{% endif %}</div>
+      <div class="card-head"><h2>Live fights</h2><span class="sect sect-sabong">Sabong</span>{% if 'fights.view' in perms %}<a class="btn btn-sm btn-ghost" href="/change_name">Fight view →</a>{% endif %}</div>
       <div class="card-body tight">
         {% if stats.live_fights %}
         <ul class="live-list" data-live-list>
@@ -260,13 +260,13 @@
           </li>
           {% endfor %}
         </ul>
-        {% else %}{{ ui.empty('Open an event to start taking bets.', kind='rooster', title='No games are open', href='/events' if 'events.view' in perms else '', cta='See events', compact=true) }}{% endif %}
+        {% else %}{{ ui.empty('Open an event to start taking bets.', kind='rooster', title='No fights are open', href='/games/sabong/schedule' if 'events.view' in perms else '', cta='See events', compact=true) }}{% endif %}
       </div>
     </div>
     {% endcall %}
 
     <div class="card">
-      <div class="card-head"><h2>Recent events</h2><span class="sect sect-sabong">Sabong</span><a class="btn btn-sm btn-ghost" href="/events">All events →</a></div>
+      <div class="card-head"><h2>Recent events</h2><span class="sect sect-sabong">Sabong</span><a class="btn btn-sm btn-ghost" href="/games/sabong/schedule">All events →</a></div>
       <div class="card-body tight">
         {% if recent_events %}
         <div class="table-wrap"><table class="table">
@@ -283,7 +283,7 @@
           {% endfor %}
           </tbody>
         </table></div>
-        {% else %}{{ ui.empty('Create your first event to open betting.', kind='arena', title='No events yet', href='/events' if 'events.view' in perms else '', cta='Go to events', compact=true) }}{% endif %}
+        {% else %}{{ ui.empty('Create your first event to open betting.', kind='arena', title='No events yet', href='/games/sabong/schedule' if 'events.view' in perms else '', cta='Go to events', compact=true) }}{% endif %}
       </div>
     </div>
   </div>

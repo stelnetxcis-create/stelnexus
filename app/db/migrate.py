@@ -16,6 +16,9 @@ The project has no Alembic history, so ``Base.metadata.create_all`` only ever ad
   ``cash_requests.target`` are added, and the ``locations`` table is created;
 * ``bola_tickets.player_id`` becomes nullable and ``bola_tickets.user_id`` is added: the number game now
   lets the logged-in account bet from its own credit (like the fight game) instead of forcing a player;
+* one-time rollout of the new payout limits (minimum odds 1.50x -> 1.30x with cut relief, maximum bet
+  PHP 50,000 -> PHP 10,000): a stored value that still equals the OLD default is moved to the new default,
+  a value an admin chose is left alone, and it never runs twice (see ``_roll_out_payout_limits``);
 * retiring the teller role: the platform is online-only, so existing teller accounts are
   closed and their sessions revoked (rows, tickets and ledger history are kept).
 
@@ -48,6 +51,16 @@ CHECK_UPGRADES = (
      "role in ('admin','master','cavo','kubrador','teller','declarator','pawn')",
      "role in ('admin','master','cavo','kubrador','teller','declarator','pawn','agent','sub_agent')",
      "sub_agent"),
+    # The Bishop: a deputy admin below the King.
+    ("users", "role_valid",
+     "role in ('admin','master','cavo','kubrador','teller','declarator','pawn','agent','sub_agent')",
+     "role in ('admin','master','cavo','kubrador','teller','declarator','pawn','agent','sub_agent','bishop')",
+     "bishop"),
+    # ... and for databases created from the current models (no retired tier names in their CHECK text).
+    ("users", "role_valid",
+     "role in ('admin','master','teller','declarator','pawn','agent','sub_agent')",
+     "role in ('admin','master','teller','declarator','pawn','agent','sub_agent','bishop')",
+     "bishop"),
     ("tickets", "side_valid",
      "side in ('meron','wala')",
      "side in ('meron','wala','draw')", "draw"),
@@ -101,7 +114,8 @@ def _upgrade_checks_sqlite(engine: Engine) -> list[str]:
     raw = engine.raw_connection()
     try:
         dbapi = raw.driver_connection
-        dbapi.isolation_level = None  # manual transaction control
+        previous_isolation = dbapi.isolation_level
+        dbapi.isolation_level = None  # manual transaction control (restored below: the connection goes back to the pool)
         cur = dbapi.cursor()
         for table, name, old, new, _marker in CHECK_UPGRADES:
             row = cur.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
@@ -123,6 +137,9 @@ def _upgrade_checks_sqlite(engine: Engine) -> list[str]:
                 log.error("SQLite integrity_check after CHECK upgrade: %s", ok)
         cur.close()
     finally:
+        # A pooled connection left in manual-commit mode silently turns every later request on it into autocommit:
+        # a failed request then cannot roll back and leaves half-written data behind.
+        dbapi.isolation_level = previous_isolation
         raw.close()
     return changed
 
@@ -171,6 +188,7 @@ def _relax_not_null(engine: Engine) -> list[str]:
         raw = engine.raw_connection()
         try:
             dbapi = raw.driver_connection
+            previous_isolation = dbapi.isolation_level
             dbapi.isolation_level = None
             cur = dbapi.cursor()
             for table, column in pending:
@@ -194,6 +212,7 @@ def _relax_not_null(engine: Engine) -> list[str]:
                     log.error("SQLite integrity_check after NOT NULL upgrade: %s", ok)
             cur.close()
         finally:
+            dbapi.isolation_level = previous_isolation
             raw.close()
     else:
         with engine.begin() as conn:
@@ -320,6 +339,32 @@ def _seed_gcash_pool(engine: Engine) -> list[str]:
     return seeded
 
 
+# stored value still equal to the old default -> new default (only ever applied once)
+PAYOUT_LIMIT_ROLLOUT = (("payout.min_odds_bps", "15000", "13000"),
+                        ("payout.max_stake_cents", "5000000", "1000000"))
+
+
+def _roll_out_payout_limits(engine: Engine) -> list[str]:
+    """Settings are stored in ``app_settings`` and override the code defaults, so changing a default alone would not
+    reach an existing database. The first start after this upgrade moves a stored value that is still the old
+    default to the new one. ``payout.min_odds_mode`` is the marker: once its row exists this never runs again, so a
+    value an admin sets later (even the old one) is never overwritten."""
+    if not inspect(engine).has_table("app_settings"):
+        return []
+    done: list[str] = []
+    with engine.begin() as conn:
+        if conn.execute(text("SELECT 1 FROM app_settings WHERE key = 'payout.min_odds_mode'")).first():
+            return []
+        for key, old, new in PAYOUT_LIMIT_ROLLOUT:
+            res = conn.execute(text("UPDATE app_settings SET value = :new WHERE key = :key AND value = :old"),
+                               {"key": key, "old": old, "new": new})
+            if res.rowcount:
+                done.append(f"{key}: {old} -> {new}")
+        conn.execute(text("INSERT INTO app_settings (key, value, updated_at) "
+                          "VALUES ('payout.min_odds_mode', 'relief_all', CURRENT_TIMESTAMP)"))
+    return done
+
+
 def upgrade(engine: Engine) -> dict[str, list[str]]:
     import app.db.models  # noqa: F401  (register tables)
     Base.metadata.create_all(engine)
@@ -333,6 +378,7 @@ def upgrade(engine: Engine) -> dict[str, list[str]]:
     report["tiers"] = _merge_tiers(engine)
     report["tellers"] = _retire_tellers(engine)
     report["gcash_pool"] = _seed_gcash_pool(engine)
+    report["payout_limits"] = _roll_out_payout_limits(engine)
     inspector = inspect(engine)
     if inspector.has_table("accounts"):
         with engine.begin() as conn:

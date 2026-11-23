@@ -881,3 +881,12 @@ input[type=checkbox]{accent-color:var(--gold)}
 .wallet-chip.bal-up{animation:balUp 1.6s ease-out}.wallet-chip.bal-down{animation:balDown 1.6s ease-out}
 @keyframes balUp{0%{box-shadow:0 0 0 3px rgba(79,209,139,.55);background-color:rgba(79,209,139,.28)}100%{box-shadow:0 0 0 0 rgba(79,209,139,0)}}
 @keyframes balDown{0%{box-shadow:0 0 0 3px rgba(229,72,77,.55);background-color:rgba(229,72,77,.24)}100%{box-shadow:0 0 0 0 rgba(229,72,77,0)}}
+
+/* license: clickable header logo, footer line, public page */
+a.license-logo{text-decoration:none;border-radius:50%;transition:transform .15s}a.license-logo:hover,a.license-logo:focus-visible{transform:scale(1.06)}
+.foot-license{color:inherit;text-decoration:underline;text-underline-offset:3px;white-space:normal}
+.lic-card{max-width:520px}.lic-head{display:flex;align-items:center;gap:16px;margin-bottom:14px}.lic-head img{border-radius:50%;display:block;flex:0 0 auto}
+.lic-head h1{margin:0;font-size:22px}.lic-head p{margin:2px 0 0;opacity:.7}
+.lic-list{display:grid;gap:10px;margin:14px 0}.lic-list div{display:grid;gap:2px;padding:10px 12px;border:1px solid var(--line,#2a2a30);border-radius:10px}
+.lic-list dt{font-size:11px;letter-spacing:.08em;text-transform:uppercase;opacity:.65}.lic-list dd{margin:0;font-weight:700;word-break:break-word}
+.lic-text{line-height:1.55}.lic-notice{margin:14px 0 6px;font-size:13px;opacity:.8}.lic-foot{line-height:1.6}

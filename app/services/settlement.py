@@ -26,8 +26,10 @@ Payout model (pool / pari-mutuel, the standard Meron-Wala model):
     maximum odds: the winning side's multiple is capped (payout.max_llamado_bps for the Llamado side,
         payout.max_dehado_bps for the other); the capped-off surplus stays with the house
     remainder (0-2 centavos) -> house (or spread to winners, admin choice)
-    minimum odds: if net / winning_pool is below payout.min_odds_bps the fight is
-        cancelled automatically and every stake is refunded.
+    minimum odds: the winning side never pays less than payout.min_odds_bps. If net / winning_pool would be
+        below it, payout.min_odds_mode lowers the tong (then the platform cut) just enough to reach it
+        ("relief"); only if even the whole pool cannot reach it, or the mode is "refund", the fight is
+        cancelled automatically and every stake is refunded. See betting.settle_net.
 Draw is a separate fixed-odds side bet (payout.draw_odds_bps):
     result draw   -> Draw tickets win stake * draw_odds; Meron/Wala stakes are refunded
     result meron/wala -> Draw stakes go to the house
@@ -88,6 +90,7 @@ class Plan:
     refund_total: int = 0
     remainder: int = 0
     capped_surplus: int = 0
+    relief: int = 0          # centavos the tong / platform cut gave up to keep the minimum odds
     house_take: int = 0
     lines: list[PayoutLine] = field(default_factory=list)
 
@@ -96,7 +99,8 @@ class Plan:
             "result": str(self.result), "model": self.model, "meron": self.meron, "wala": self.wala,
             "draw": self.draw, "auto_cancel": self.auto_cancel, "total": self.total, "house_cut": self.house_cut, "platform_cut": self.platform_cut, "net_pool": self.net_pool,
             "payout_total": self.payout_total, "refund_total": self.refund_total,
-            "remainder": self.remainder, "capped_surplus": self.capped_surplus, "house_take": self.house_take,
+            "remainder": self.remainder, "capped_surplus": self.capped_surplus, "relief": self.relief,
+            "house_take": self.house_take,
             "tickets": len(self.lines),
             "winners": sum(1 for line in self.lines if line.outcome == "win"),
         }
@@ -174,15 +178,19 @@ def build_plan(db: Session, fight: Fight, result: Result, settings: SettingsStor
     # pool / pari-mutuel on Meron + Wala only
     main_total = snap["main"]
     cut_bps = events.house_cut_for(db, event, settings)
-    fig = betting.pool_figures(plan.meron, plan.wala, cut_bps, events.platform_cut_for(settings))
+    platform_bps = events.platform_cut_for(settings)
+    fig = betting.pool_figures(plan.meron, plan.wala, cut_bps, platform_bps)
     plan.platform_cut, plan.house_cut, plan.net_pool = fig["platform"], fig["house"], fig["net"]
     winning_pool = plan.meron if result == Result.MERON else plan.wala
 
-    # Minimum-odds rule: a winner that would pay under the floor cancels the fight.
-    min_odds = int(settings.get("payout.min_odds_bps"))
-    if main_total and min_odds and winning_pool and (plan.net_pool * 10000) // winning_pool < min_odds:
+    # Minimum-odds rule: the winners never get less than the minimum multiple. Lower the cuts to reach it
+    # (relief); refund the whole game only if the mode is "refund" or even the whole pool cannot reach it.
+    sn = betting.settle_net(main_total, winning_pool, cut_bps, platform_bps, settings)
+    if sn["refund"]:
         plan.auto_cancel = True
         return _refund_all(plan, tickets)
+    if sn["relief"]:
+        plan.platform_cut, plan.house_cut, plan.net_pool, plan.relief = sn["platform"], sn["house"], sn["net"], sn["relief"]
 
     if winning_pool == 0:
         if str(settings.get("payout.no_winner_policy")) == "refund":
@@ -426,7 +434,7 @@ def request_correction(
         run.reviewed_at = dt.datetime.now(dt.timezone.utc)
         return _apply(db, run, actor, settings)
 
-    for admin_id in db.scalars(select(User.id).where(User.role.in_([Role.ADMIN, Role.MASTER]),
+    for admin_id in db.scalars(select(User.id).where(User.role.in_([Role.ADMIN, Role.BISHOP, Role.MASTER]),
                                                       User.id != actor.id)).all():
         db.add(Notification(user_id=admin_id, level="warning",
                             message=f"{actor.username} requested a {action} on fight #{fight.number}",

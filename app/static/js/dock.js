@@ -13,24 +13,51 @@
   if (!stage || !screenEl) return;
   const chat = stage.querySelector('[data-fc-overlay]');
   const bet = stage.querySelector('[data-bp]');
-  if (!chat && !bet) return;
+  const pbs = stage.querySelector('[data-pbs]');
+  if (!chat && !bet && !pbs) return;
   const snx = (window.snx = window.snx || {});
   const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // ---- the bar ---------------------------------------------------------------------------------------------------
   const bar = document.createElement('div');
   bar.className = 'dk-bar';
+  const SVG = {
+    pay: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>'
+  };
   bar.innerHTML =
+    (pbs ? '<button type="button" class="dk-tab dk-pay" data-dk="pay" aria-expanded="true" title="Show / hide the payout">' + SVG.pay + '<span>Payout</span></button>' : '') +
     (chat ? '<button type="button" class="dk-tab dk-chat" data-dk="chat" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><span>Chat</span><i class="dk-badge" hidden>0</i></button>' : '') +
-    (bet ? '<button type="button" class="dk-tab dk-bet" data-dk="bet" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="7" rx="7" ry="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 7v5c0 1.7 3.1 3 7 3s7-1.3 7-3V7M5 12v5c0 1.7 3.1 3 7 3s7-1.3 7-3v-5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span data-dk-bet-label>Bet</span></button>' : '');
+    (bet ? '<button type="button" class="dk-tab dk-bet" data-dk="bet" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="7" rx="7" ry="3" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 7v5c0 1.7 3.1 3 7 3s7-1.3 7-3V7M5 12v5c0 1.7 3.1 3 7 3s7-1.3 7-3v-5" fill="none" stroke="currentColor" stroke-width="2"/></svg><span data-dk-bet-label>Bet</span></button>' : '') ;
+  const fab = document.createElement('button'); fab.type = 'button'; fab.className = 'pbs-fab'; fab.hidden = true;
+  fab.innerHTML = SVG.pay + '<span>Payout</span>'; fab.setAttribute('aria-label', 'Show payout');
   const scrim = document.createElement('div'); scrim.className = 'dk-scrim'; scrim.hidden = true;
   const feed = document.createElement('div'); feed.className = 'dk-feed'; feed.setAttribute('aria-hidden', 'true');
-  screenEl.append(scrim, feed, bar);
+  screenEl.append(scrim, feed, bar, fab);
   const tab = (k) => bar.querySelector('[data-dk="' + k + '"]');
   const panelOf = (k) => (k === 'chat' ? chat : bet);
   const toggleOf = (k) => (k === 'chat' ? chat && chat.querySelector('[data-fc-toggle]') : bet && bet.querySelector('[data-bp-toggle]'));
   const isShut = (el) => !el || el.classList.contains('is-collapsed') || getComputedStyle(el).display === 'none';
   const unavailable = (el) => !el || el.style.display === 'none';
+
+  // ---- payout card: shown / hidden by the user (remembered for this tab, so it stays hidden from game to game) ----------
+  const PKEY = 'snx.pbs.hidden';
+  const pbsOn = () => !!pbs && !pbs.classList.contains('is-min');
+  const pbsLive = () => !!pbs && !pbs.hidden;                       // the scene is itself hidden while the game is on air
+  function setPbs(show) {
+    if (!pbs) return;
+    pbs.classList.toggle('is-min', !show);
+    try { sessionStorage.setItem(PKEY, show ? '0' : '1'); } catch (e) { /* storage blocked */ }
+    if (snx.fitScene) snx.fitScene();
+    sync();
+  }
+  try { if (pbs && sessionStorage.getItem(PKEY) === '1') pbs.classList.add('is-min'); } catch (e) { /* ignore */ }
+  if (pbs) {
+    pbs.addEventListener('click', (ev) => { if (ev.target.closest('[data-pbs-hide]')) setPbs(false); });
+    fab.addEventListener('click', () => setPbs(true));
+    if (window.MutationObserver) new MutationObserver(() => sync()).observe(pbs, { attributes: true, attributeFilter: ['hidden', 'class'] });
+  }
+  const chatOpen = () => !!chat && !unavailable(chat) && !isShut(chat);
+  const betOpen = () => !!bet && !unavailable(bet) && !isShut(bet);
 
   let ready = false;
   // ---- mode: dock (side drawer / bottom sheet) or the old stacked layout -------------------------------------------
@@ -70,7 +97,9 @@
   }
   bar.addEventListener('click', (ev) => {
     const b = ev.target.closest('[data-dk]'); if (!b) return;
-    const k = b.dataset.dk, el = panelOf(k);
+    const k = b.dataset.dk;
+    if (k === 'pay') { if (pbsLive()) setPbs(!pbsOn()); return; }
+    const el = panelOf(k);
     if (unavailable(el)) return;
     if (isShut(el)) open(k); else setOpen(k, false);
   });
@@ -91,6 +120,10 @@
       b.disabled = gone;
     });
     const dock = stage.classList.contains('dk-on');
+    const pb = tab('pay');
+    if (pb) { const live = pbsLive(); pb.classList.toggle('is-open', live && pbsOn()); pb.classList.toggle('is-off', !live); pb.disabled = !live; pb.setAttribute('aria-expanded', String(live && pbsOn())); }
+    stage.classList.toggle('dk-drawer', chatOpen() || betOpen());
+    fab.hidden = dock || !pbs || !pbsLive() || pbsOn();
     scrim.hidden = !(dock && stage.classList.contains('dk-sheet') && (!isShut(chat) || !isShut(bet)));
     const lab = bar.querySelector('[data-dk-bet-label]');
     if (lab && bet) {

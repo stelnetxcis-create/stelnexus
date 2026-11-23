@@ -279,7 +279,7 @@ def test_only_admin_and_pawn_may_see_through_an_alias():
             store_svc.set_alias(db, u, store, "Mystery Man")
             assert store_svc.can_see_through_alias(_user(db, "admin"))
             assert not store_svc.can_see_through_alias(u)                 # a Master Agent cannot
-            assert store_svc.ALIAS_REVEAL_ROLES == (Role.ADMIN, Role.PAWN)
+            assert store_svc.ALIAS_REVEAL_ROLES == (Role.ADMIN, Role.BISHOP, Role.PAWN)
         c, _ = login(name)
         c.post("/store/pass", headers=_h(c), data={"idempotency_key": "p"})
         _send(c, fight_id, "psst")

@@ -59,7 +59,7 @@
       const now = fight();
       if (!first && now && before && (before.st !== now.st || before.res !== now.res)) {
         Sound.play(now.st === "locked" ? "lock" : now.res ? "win" : "open");
-        if (now.st !== "open") toast("Game " + now.n + ": betting " + (now.res ? "ended, " + now.res.toUpperCase() + " wins" : "is closed"), { level: "warning" });
+        if (now.st !== "open") toast("Fight " + now.n + ": betting " + (now.res ? "ended, " + now.res.toUpperCase() + " wins" : "is closed"), { level: "warning" });
       }
       // a new game opening elsewhere in the list is worth a quiet tick
       if (!first && d.fights.some((f) => f.st === "open" && prev.get(f.id) && prev.get(f.id) !== "open:" && f.id !== S.fightId)) Sound.play("tick");
@@ -98,8 +98,8 @@
       el.games.appendChild(b);
     });
     const on = el.games && $(".is-on", el.games); if (on) on.scrollIntoView({ inline: "center", block: "nearest" });
-    if (!f) { el.name.textContent = "No games yet"; el.go.disabled = true; el.goMain.textContent = "No game selected"; el.goSub.textContent = ""; return; }
-    el.name.textContent = "Game " + f.n;
+    if (!f) { el.name.textContent = "No fights yet"; el.go.disabled = true; el.goMain.textContent = "No fight selected"; el.goSub.textContent = ""; return; }
+    el.name.textContent = "Fight " + f.n;
     el.state.textContent = stateText(f);
     el.state.className = "sell-state s-" + (f.res ? "settled" : f.st);
     const sellable = f.st === "open" && !S.live;
@@ -123,7 +123,7 @@
     } else { ["pl-meron", "pl-wala", "sh-meron", "sh-wala"].forEach((q) => { sl(q).textContent = ""; }); }
     el.closed.hidden = sellable;
     if (!sellable) {
-      el.closedText.textContent = S.live ? "Betting is closed: this game has started." : f.res ? "Game " + f.n + " is finished: " + f.res.toUpperCase() + "." : "Betting is closed on game " + f.n + ".";
+      el.closedText.textContent = S.live ? "Betting is closed: this fight has started." : f.res ? "Fight " + f.n + " is finished: " + f.res.toUpperCase() + "." : "Betting is closed on fight " + f.n + ".";
       if (el.next) el.next.hidden = !S.fights.some((x) => x.st === "open");
     }
     el.amt.textContent = Number(S.amount || 0).toLocaleString("en-PH");
@@ -138,7 +138,7 @@
     el.go.className = "sell-go" + (S.side && !lack ? " " + S.side[0] : "") + (S.busy ? " is-busy" : "");
     el.go.disabled = !!lack || S.busy;
     el.goMain.textContent = lack || ((root.dataset.verb || "Sell") + " " + money(amount * 100).replace(/\.00$/, "") + " on " + S.side.toUpperCase());
-    el.goSub.textContent = lack ? "" : "Game " + f.n + " \u00B7 " + (S.side === "meron" ? f.nm : S.side === "wala" ? f.nw : "Draw");
+    el.goSub.textContent = lack ? "" : "Fight " + f.n + " \u00B7 " + (S.side === "meron" ? f.nm : S.side === "wala" ? f.nw : "Draw");
   }
 
   /* ---- amount: chips ADD up. The taps are kept as a stack of tokens so one can be taken back out; typing on the
@@ -248,7 +248,7 @@
       showBalance(d.balance);
       pushRow(d.row);
       addRecent(d.ticket);
-      toast("Ticket " + d.ticket.code + (root.dataset.verb ? " placed" : " sold"), { level: "success", sub: money(d.ticket.stake) + " on " + d.ticket.side.toUpperCase() + " \u00B7 Game " + d.ticket.fight });
+      toast("Ticket " + d.ticket.code + (root.dataset.verb ? " placed" : " sold"), { level: "success", sub: money(d.ticket.stake) + " on " + d.ticket.side.toUpperCase() + " \u00B7 Fight " + d.ticket.fight });
     } catch (err) {
       if (err.status && err.status < 500) S.key = "";   // a rejected sale is final; a network blip keeps its key
       toast(err.message, { level: "danger" });
@@ -265,7 +265,7 @@
     li.innerHTML = '<span class="code"></span><div><b></b><div class="meta"></div></div><span class="act"></span>';
     $(".code", li).textContent = t.code;
     $("b", li).textContent = money(t.stake) + " \u00B7 " + t.side.toUpperCase();
-    $(".meta", li).textContent = "Game " + t.fight + " \u00B7 " + when;
+    $(".meta", li).textContent = "Fight " + t.fight + " \u00B7 " + when;
     const act = $(".act", li);
     const link = document.createElement("a");
     link.href = "/tickets/" + t.id; link.target = "_blank"; link.rel = "noopener"; link.className = "btn btn-sm btn-ghost"; link.textContent = "Open";

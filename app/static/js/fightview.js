@@ -59,11 +59,11 @@
     const n = f ? f.n : '';
     const t = liveBar.querySelector('[data-fv-live-text]');
     if (t) t.textContent =
-      ph === 'open' ? 'Game #' + n + ' \u00B7 pre-show \u00B7 betting and chat are open'
-      : ph === 'onair' ? (f && f.sd ? 'Game #' + n + ' is on air \u00B7 betting and chat are closed until it is done'
-                                    : 'Game #' + n + ' \u00B7 betting is closed')
-      : ph === 'waiting' ? 'Game #' + n + ' opens after game #' + (numOf(curId) || '?') + ' is done'
-      : 'Game #' + n + ' \u00B7 ended';
+      ph === 'open' ? 'Fight #' + n + ' \u00B7 pre-show \u00B7 betting and chat are open'
+      : ph === 'onair' ? (f && f.sd ? 'Fight #' + n + ' is on air \u00B7 betting and chat are closed until it is done'
+                                    : 'Fight #' + n + ' \u00B7 betting is closed')
+      : ph === 'waiting' ? 'Fight #' + n + ' opens after fight #' + (numOf(curId) || '?') + ' is done'
+      : 'Fight #' + n + ' \u00B7 ended';
     liveBar.querySelectorAll('[data-fv-live-form]').forEach((form) => {
       form.hidden = form.dataset.fvLiveForm === 'start' ? ph !== 'open' : !(ph === 'onair' && f && f.sd);
       const fid = form.querySelector('input[name="fight_id"]'); if (fid && f) fid.value = f.id;
@@ -244,13 +244,15 @@
         q1('[data-pb-bar-w]').style.width = (f.pw / tot * 100).toFixed(1) + '%';
         q1('[data-pb-side="meron"]').classList.toggle('is-low', !!f.lm);
         q1('[data-pb-side="wala"]').classList.toggle('is-low', !!f.lw);
+        q1('[data-pb-side="meron"]').classList.toggle('is-relief', !!f.rm && !f.lm);
+        q1('[data-pb-side="wala"]').classList.toggle('is-relief', !!f.rw && !f.lw);
         const sm = q1('[data-pb-side="meron"]'), sw = q1('[data-pb-side="wala"]');
         sm.classList.toggle('is-max', !!f.xm); sw.classList.toggle('is-max', !!f.xw);
         sm.dataset.max = f.am ? (f.am / 10000).toFixed(2) + 'x' : ''; sw.dataset.max = f.aw ? (f.aw / 10000).toFixed(2) + 'x' : '';
       }
     } else if (st === 'waiting') {
       textOf('gn2', String(f.n)); textOf('nm2', f.nm); textOf('nw2', f.nw);
-      textOf('waitmsg', 'Betting opens after game #' + (numOf(curId) || '?') + ' is done');
+      textOf('waitmsg', 'Betting opens after fight #' + (numOf(curId) || '?') + ' is done');
     } else if (st === 'ended') {
       textOf('gn3', String(f.n));
       loadFinal(f);
@@ -264,7 +266,7 @@
   function paintChip(a, f) {
     a.className = 'fv-chip st-' + f.st + (f.res ? ' res-' + f.res : '') + (f.id === activeId ? ' is-active' : '') + (f.hot ? ' is-hot' : '') + (f.sd && !ended(f) ? ' is-air' : '') + ' ph-' + (f.ph || 'open');
     a.dataset.n = f.n; a.dataset.m = f.nm; a.dataset.w = f.nw; a.dataset.st = f.st; a.dataset.res = f.res || '';
-    a.title = 'Game ' + f.n + ' · ' + f.nm + ' vs ' + f.nw + ' · ' + (f.res || f.st).toUpperCase();
+    a.title = 'Fight ' + f.n + ' · ' + f.nm + ' vs ' + f.nw + ' · ' + (f.res || f.st).toUpperCase();
     if (f.id === activeId) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current');
   }
 
@@ -336,7 +338,7 @@
       ev.preventDefault();
       const n = Number(jumpI.value);
       const f = fights.find((x) => x.n === n);
-      if (!f) { if (snx.toast) snx.toast('There is no game #' + (jumpI.value || '?') + ' in this event.', { level: 'warning', ttl: 3000 }); return; }
+      if (!f) { if (snx.toast) snx.toast('There is no fight #' + (jumpI.value || '?') + ' in this event.', { level: 'warning', ttl: 3000 }); return; }
       jumpI.value = ''; jumpI.blur();
       if (f.id === activeId) centerActive(); else go(f.id, true);
     });
@@ -347,7 +349,7 @@
     if (!api || !api.refreshRegion) { location.reload(); return; }
     const r = await api.refreshRegion('fight-panel', { force: !!force });
     if (r === 'failed') location.reload();
-    else if (r === 'skipped' && snx.toast) snx.toast('This game changed.', { level: 'info', ttl: 12000, action: { label: 'Refresh', run: () => refreshPanel(true) } });
+    else if (r === 'skipped' && snx.toast) snx.toast('This fight changed.', { level: 'info', ttl: 12000, action: { label: 'Refresh', run: () => refreshPanel(true) } });
   }
 
   function go(id, push) {
@@ -403,7 +405,7 @@
     { const a = activeFight(); if (a) { setPhase(phaseOf(a), a); paintScene(a); } }
     // the next game just opened (the one before it was declared): say so, with a way to jump to it
     if (!first && prevCur && curId && curId !== prevCur && curId !== activeId && snx.toast) {
-      snx.toast('Game ' + numOf(curId) + ' is open for bets.', { level: 'info', ttl: 15000, action: { label: 'Go', run: () => go(curId, true) } });
+      snx.toast('Fight ' + numOf(curId) + ' is open for bets.', { level: 'info', ttl: 15000, action: { label: 'Go', run: () => go(curId, true) } });
       if (snx.Sound) snx.Sound.play('open');
     }
     if (bp) bp.setFights(fights, hide);
@@ -419,7 +421,7 @@
     });
     if (changed) {
       const what = changed.res ? 'was declared ' + changed.res.toUpperCase() : changed.st === 'locked' ? 'betting is now closed' : changed.st === 'open' ? 'betting is open again' : 'changed';
-      if (snx.toast) snx.toast('Game ' + changed.n + ' ' + what + '. Updating…', { level: 'info', ttl: 2000 });
+      if (snx.toast) snx.toast('Fight ' + changed.n + ' ' + what + '. Updating…', { level: 'info', ttl: 2000 });
       if (player) player.dispatchEvent(new CustomEvent('snx:game', { detail: { id: changed.id, n: changed.n, left: changed.nm, right: changed.nw, ended: ended(changed) } }));
       setTimeout(() => refreshPanel(false), 1200);
     } else if (first && active) { /* first paint is server-rendered */ }

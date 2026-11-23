@@ -1,0 +1,47 @@
+{# The per-right control. One row per right: a mode selector (radio pills) and, for the conditional modes, the fields
+   that appear only while that mode is selected (pure CSS :has(), no script needed). #}
+{% macro mode_radio(k, value, text, current) %}<label class="ax-m m-{{ value }}"><input type="radio" name="m:{{ k }}" value="{{ value }}" {{ 'checked' if current == value }}><span>{{ text }}</span></label>{% endmacro %}
+
+{% macro params(k, rule) %}
+<div class="ax-p ax-p-temp">
+  <label>For how long<select name="td:{{ k }}"><option value="">Use the end time →</option>
+    {% for key, text in [('15m','15 minutes'),('1h','1 hour'),('4h','4 hours'),('8h','8 hours'),('24h','24 hours'),('3d','3 days'),('7d','7 days')] %}<option value="{{ key }}">{{ text }} from now</option>{% endfor %}</select></label>
+  <label>Ends at<input type="datetime-local" name="tu:{{ k }}" value="{{ rule.tu or '' }}"></label>
+  <label>Starts at (optional)<input type="datetime-local" name="tf:{{ k }}" value="{{ rule.tf or '' }}"></label>
+  <label>Afterwards<select name="ta:{{ k }}"><option value="deny" {{ 'selected' if rule.ta != 'ask' }}>No</option><option value="ask" {{ 'selected' if rule.ta == 'ask' }}>Ask first</option></select></label>
+</div>
+<div class="ax-p ax-p-window">
+  <label style="grid-column:1/-1">Days<span class="ax-days">{% for i, d in [(0,'Mon'),(1,'Tue'),(2,'Wed'),(3,'Thu'),(4,'Fri'),(5,'Sat'),(6,'Sun')] %}{% set on = ((i|string) in rule.wd) if rule.wd else (i < 5) %}<label class="ax-day"><input type="checkbox" name="wd:{{ k }}" value="{{ i }}" {{ 'checked' if on }}>{{ d }}</label>{% endfor %}</span></label>
+  <label>From<input type="time" name="ws:{{ k }}" value="{{ rule.ws or '08:00' }}"></label>
+  <label>Until<input type="time" name="we:{{ k }}" value="{{ rule.we or '17:00' }}"></label>
+  <label>Outside these hours<select name="wo:{{ k }}"><option value="deny" {{ 'selected' if rule.wo != 'ask' }}>No</option><option value="ask" {{ 'selected' if rule.wo == 'ask' }}>Ask first</option></select></label>
+</div>
+<div class="ax-p ax-p-limit">
+  <label>Allowed this many times<input type="number" min="1" max="100000" name="lm:{{ k }}" value="{{ rule.lm or 10 }}"></label>
+  <label>Per<select name="lp:{{ k }}">{% for key, text in [('day','day'),('week','week'),('always','in total')] %}<option value="{{ key }}" {{ 'selected' if (rule.lp or 'day') == key }}>{{ text }}</option>{% endfor %}</select></label>
+  <label>After that<select name="lo:{{ k }}"><option value="deny" {{ 'selected' if rule.lo != 'ask' }}>No</option><option value="ask" {{ 'selected' if rule.lo == 'ask' }}>Ask first</option></select></label>
+</div>
+{% endmacro %}
+
+{% macro rights_editor(catalog, rows, allow_default=false) %}
+{% for category, items in catalog %}
+<div class="ax-cat"><h4>{{ category }}</h4><div class="ax-rlist">
+  {% for perm, label in items %}{% set k = perm.value %}{% set row = rows[k] %}
+  <div class="ax-r {{ 'is-diff' if row.diff }} {{ 'is-locked' if row.locked }}">
+    <div class="ax-r-head">
+      <div class="ax-r-name">{{ label }}<small>{{ k }}</small>{% if row.rule.text and row.mode in ('ask', 'temp', 'window', 'limit') %}<span class="ax-note">{{ row.rule.text }}</span>{% endif %}</div>
+      {% if row.locked %}<span class="muted small">{{ row.locked }}</span>
+      {% else %}<div class="ax-modes" role="radiogroup" aria-label="{{ label }}">
+        {% if allow_default %}{{ mode_radio(k, 'default', 'Default (' ~ ('yes' if row.inherited else 'no') ~ ')', row.mode) }}{% endif %}
+        {{ mode_radio(k, 'deny', '✕ No', row.mode) }}{{ mode_radio(k, 'allow', '✓ Yes', row.mode) }}
+        {% if not row.simple %}{% if row.askable %}{{ mode_radio(k, 'ask', '✋ Ask first', row.mode) }}{% endif %}
+          {{ mode_radio(k, 'temp', '⏱ Temporary', row.mode) }}{{ mode_radio(k, 'window', '🕒 Hours', row.mode) }}{{ mode_radio(k, 'limit', '# Limit', row.mode) }}{% endif %}
+      </div>{% endif %}
+      {% if row.result %}<span class="ax-now ax-now-{{ row.result }}" title="What this account can do right now">now: {{ {'allow': 'yes', 'deny': 'no', 'ask': 'ask first', 'limit': 'limited'}[row.result] }}</span>{% endif %}
+    </div>
+    {% if not row.locked and not row.simple %}{{ params(k, row.rule) }}{% endif %}
+  </div>
+  {% endfor %}
+</div></div>
+{% endfor %}
+{% endmacro %}

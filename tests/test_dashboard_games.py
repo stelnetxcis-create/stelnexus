@@ -55,7 +55,7 @@ def test_fight_view_button_is_gone_from_the_hero_but_the_page_still_links_to_it(
 def test_meron_wala_tile_is_a_live_link_to_the_games_lobby():
     tile = _tile(_dash(), "Meron")
     assert tile is not None
-    assert tile.startswith('<a class="game-tile is-live"') and 'href="/events"' in tile
+    assert tile.startswith('<a class="game-tile is-live"') and 'href="/games/sabong/schedule"' in tile
     assert "Wala" in tile and "game" in tile and "open" in tile
 
 
@@ -104,7 +104,7 @@ def test_non_dev_roles_get_no_number_game_tile_while_the_dev_gate_is_on_but_keep
                             full_name="K", settings=store)
     for who in (f"dm{tag}", f"dk{tag}"):
         html = _dash(who)
-        assert 'href="/events"' in _tile(html, "Meron"), who
+        assert 'href="/games/sabong/schedule"' in _tile(html, "Meron"), who
         # The Esports tile also says "Coming soon", so assert on the number-game tile itself.
         assert _tile(html, "Number game") is None and "Tumbok" not in html, who
 

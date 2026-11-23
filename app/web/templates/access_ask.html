@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Ask for access · {{ brand }}{% endblock %}
+{% block heading %}Ask for access{% endblock %}
+{% block content %}
+<div class="card" style="max-width:560px"><div class="card-body">
+  <p>You do not have access to <b>{{ label }}</b>. Ask an admin to allow it. They are notified right away and you will be told their answer.</p>
+  <form method="post" action="/access/ask">{{ ui.csrf(csrf_token) }}
+    <input type="hidden" name="perm" value="{{ perm }}"><input type="hidden" name="back" value="{{ back }}">
+    <label class="field"><span>Why do you need it? (optional)</span><input name="reason" maxlength="300" placeholder="A few words help them decide"></label>
+    <div class="form-actions"><button class="btn btn-primary" type="submit">Send request</button> <a class="btn btn-ghost" href="/dashboard">Cancel</a></div>
+  </form>
+</div></div>
+{% endblock %}

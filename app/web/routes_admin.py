@@ -46,6 +46,11 @@ SECTIONS = (
 def panel(ctx: Ctx, section: str, template: str, **extra):
     """Render an Admin Panel page with its section tabs (only the ones this account may open)."""
     tabs = [(key, url, label) for key, url, label, perm in SECTIONS if ctx.can(perm)]
+    if any(key == "access" for key, _u, _l in tabs):               # a live count of requests waiting for this admin
+        from app.services import access as _access
+        waiting = _access.pending_count(ctx.db, ctx.user)
+        if waiting:
+            tabs = [(k, u, f"{l} · {waiting}" if k == "access" else l) for k, u, l in tabs]
     return render(ctx, template, active="admin", panel_tabs=tabs, panel_active=section, **extra)
 
 
@@ -67,7 +72,7 @@ async def admin_home(ctx: Ctx = Depends(require_ctx)):
         n = int(db.scalar(select(func.count(Location.id)).where(Location.is_active.is_(True))) or 0)
         cards.append(("Locations", n, "active venues", "/admin/locations"))
     open_events = int(db.scalar(select(func.count(Event.id)).where(Event.status == EventStatus.OPEN)) or 0)
-    cards.append(("Open events", open_events, "taking bets", "/events"))
+    cards.append(("Open events", open_events, "taking bets", "/games/sabong/schedule"))
     if ctx.can(Perm.STAFF_TELLER):
         from app.services import gcash as _gcash
         live = sum(1 for a in _gcash.list_accounts(db) if a.is_active)
@@ -300,7 +305,7 @@ async def accounts_page(request: Request, ctx: Ctx = Depends(require_ctx)):
     found = account_admin.list_accounts(ctx.db, search=q.get("q", "")[:60] or None, kind=kind,
                                         include_removed=q.get("removed") == "1", limit=per + 1,
                                         user_offset=upage * per, player_offset=ppage * per)
-    viewer_is_admin = ctx.user.role == Role.ADMIN
+    viewer_is_admin = ctx.user.is_admin_tier
     # Pawns are the Admin's to manage; a Pawn never even sees the controls for another Pawn.
     users_pager = make_pager(request, per, upage, min(len(found["users"]), per),
                              len(found["users"]) > per, "upage")

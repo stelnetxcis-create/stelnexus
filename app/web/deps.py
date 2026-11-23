@@ -18,7 +18,7 @@ from app.core.errors import AuthError, Forbidden
 from app.core.middleware import CSRF_COOKIE, cookie_header, csrf_cookie_valid, make_csrf_cookie
 from app.core.money import fmt, pesos
 from app.core import assets
-from app.core.rbac import Perm, bola_dev_only, permissions_of
+from app.core.rbac import Perm, bola_dev_only, permissions_of, rights_of
 from app.core.settings_registry import SettingsStore
 from app.db.models import Notification, Player, Role, Status, User
 from app.db.models import Session as SessionRow
@@ -73,10 +73,24 @@ class Ctx:
     session_row: SessionRow | None = None
     csrf_token: str = ""
     flashes: list[dict] = field(default_factory=list)
+    _rights_cache: tuple | None = field(default=None, repr=False)
+
+    def rights(self):
+        """What the signed-in account may do right now (computed once per request)."""
+        cached = self._rights_cache
+        if cached is None or cached[0] is not self.user:
+            cached = (self.user, rights_of(self.user) if self.user else None)
+            self._rights_cache = cached
+        return cached[1]
 
     @property
     def perms(self) -> set[str]:
-        return {p.value for p in permissions_of(self.user)} if self.user else set()
+        """For templates: what to SHOW. Includes rights that must be asked for first, so their buttons appear
+        (pressing one sends the request). Never use this to authorize anything: use can() / need()."""
+        rights = self.rights()
+        if rights is None:
+            return set()
+        return {p.value for p in rights.allowed} | {p.value for p in rights.ask}
 
     @property
     def viewing_as(self) -> User | None:
@@ -84,18 +98,22 @@ class Ctx:
         return self.user if self.real_user is not None else None
 
     def can(self, perm: Perm | str) -> bool:
+        """May do it right now. A right that must be asked for first does NOT count: fail closed."""
         value = perm.value if isinstance(perm, Perm) else perm
-        return value in self.perms
+        rights = self.rights()
+        return rights is not None and any(p.value == value for p in rights.allowed)
 
     def need(self, perm: Perm) -> None:
-        if not self.can(perm):
-            raise Forbidden("Your role is not allowed to perform this action.")
+        """Enforce a right. Returns, or raises Forbidden, or raises ApprovalRequired (the action is parked and the
+        King / Bishops are asked; it does not run). See app.services.access."""
+        from app.services import access
+        access.gate(self, perm)
 
     def who(self, other: User | None, empty: str = "—") -> str:
         """Username to display for `other`. The hidden Admin shows as 'System' to everyone else."""
         if other is None:
             return empty
-        if other.is_hidden and not (self.user and self.user.role == other.role):
+        if other.is_hidden and not (self.user and (self.user.role == Role.ADMIN or self.user.id == other.id)):
             return "System"
         return other.username
 
@@ -210,6 +228,9 @@ def _fragment_name(ctx: Ctx) -> str | None:
     return name
 
 
+from app.services.license_info import license_info  # noqa: E402
+
+
 def wallet_snapshot(ctx: Ctx) -> tuple[int | None, int]:
     """(my credit in cents or None when this account holds none, requests waiting for me to review).
     The page header renders it and ``/_live/wallet`` repeats it, so both always agree."""
@@ -248,7 +269,7 @@ def render(ctx: Ctx, template: str, status_code: int = 200, **extra: Any):
     is_dev = bool(real is not None and real.role == Role.ADMIN)
     my_balance, wallet_pending = wallet_snapshot(ctx)
     context = {
-        "my_balance": my_balance, "wallet_pending": wallet_pending, "request": ctx.request, "ctx": ctx, "user": ctx.user, "perms": ctx.perms,
+        "license": license_info(store), "my_balance": my_balance, "wallet_pending": wallet_pending, "request": ctx.request, "ctx": ctx, "user": ctx.user, "perms": ctx.perms,
         "settings": settings, "brand": settings.get("brand.name", "StelNexus"),
         "tagline": settings.get("brand.tagline", ""), "csrf_token": ctx.csrf_token,
         "flashes": ctx.flashes, "notifications": notifications,
@@ -327,7 +348,7 @@ def home_for(user: User | None) -> str:
     if user is None:
         return "/login"
     if user.preview_player_id is not None:
-        return "/events"
+        return "/games/sabong/schedule"
     if user.role.value == "declarator":
         return "/change_name"
     if user.role.value == "teller":

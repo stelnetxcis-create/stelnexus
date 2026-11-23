@@ -99,3 +99,24 @@ def test_history_keeps_location_role_and_photo_columns(world, bet):
     for head in ("<th>Location</th>", "<th>Llamado / Dehado</th>", "<th>Photo</th>"):
         assert head in html
     assert f"Fight #{w.games[0].number}" in html
+
+
+def test_sabong_session_report_adds_up_to_the_event_line(world, bet):
+    from app.db.models import Result
+    from app.games import GAMES
+    w = world
+    settlement.declare(w.db, w.admin, fight_id=w.games[0].id, result=Result.MERON, settings=w.store)
+    w.db.commit()
+
+    class _Ctx:
+        db, store, user = w.db, w.store, w.admin
+        def can(self, _): return True
+        def who(self, u, empty="—"): return u.username if u else empty
+
+    rows = GAMES["sabong"].report_session(_Ctx, w.event.id)
+    summary = reports.event_summary(w.db, w.event.id)
+    assert sum(r.staked for r in rows) == summary["staked"]
+    assert sum(r.paid for r in rows) == summary["payouts"]
+    assert sum(r.house for r in rows) == summary["house"]
+    assert sum(r.commission for r in rows) == summary["commission"]
+    assert sum(r.net for r in rows) == summary["net"]

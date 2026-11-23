@@ -74,6 +74,12 @@ async def logout(request: Request, ctx: Ctx = Depends(optional_ctx)):
     return response
 
 
+@router.get("/preferences")
+async def settings_page(ctx: Ctx = Depends(require_ctx)):
+    """Per-device preferences (live sounds, animation level). Nothing here touches the account."""
+    return render(ctx, "preferences.html", active="preferences")
+
+
 @router.get("/profile")
 async def profile(ctx: Ctx = Depends(require_ctx)):
     return render(ctx, "profile.html", active="profile",

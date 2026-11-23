@@ -22,7 +22,7 @@ def _int(raw: str | None) -> int | None:
 
 def _uplines(ctx: Ctx, creatable: list[Role]) -> list[User]:
     """Accounts the Admin / a Pawn may attach a new Agent or Sub Agent to."""
-    if ctx.user.role not in (Role.ADMIN, Role.PAWN):
+    if ctx.user.role not in (Role.ADMIN, Role.BISHOP, Role.PAWN):
         return []
     wanted = {up for r in creatable if r.value in UPLINE_ROLES for up in UPLINE_ROLES[r.value]}
     if not wanted:

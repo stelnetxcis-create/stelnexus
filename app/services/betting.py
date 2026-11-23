@@ -36,6 +36,7 @@ from app.db.models import (
     Result,
     Role,
     Side,
+    Notification,
     Ticket,
     TicketStatus,
     User,
@@ -113,20 +114,63 @@ def combined_bps(house_bps: int, platform_bps: int) -> int:
     return 10000 - (10000 - platform_bps) * (10000 - house_bps) // 10000
 
 
-def side_multipliers(snapshot: dict, cut_bps: int, settings: SettingsStore, llamado: str | None = None) -> dict:
-    """Current pool multiple (bps) per side, capped at the Llamado / Dehado maximum, plus whether the minimum-odds
-    rule would cancel the fight if that side won. Informational; settlement recomputes."""
+def settle_net(main: int, winning: int, house_bps: int, platform_bps: int, settings: SettingsStore) -> dict:
+    """What the winning side of a Meron/Wala pool really shares, after the minimum-odds rule.
+
+    Normal case: net = main - platform cut - tong (``pool_figures``). If that would pay the winners less than
+    ``payout.min_odds_bps``, ``payout.min_odds_mode`` decides:
+      refund       -> nothing is paid, the game is cancelled and every stake refunded (``refund`` is True)
+      relief_tong  -> the tong is lowered just enough to reach the minimum (the platform cut is kept)
+      relief_all   -> the tong first, then the platform cut, lowered just enough; the whole pool is the limit
+    ``refund`` is also True when even that cannot reach the minimum. Everything here is integer centavos and
+    ``net`` never exceeds what the pool allows, so money still balances.
+    Returns net, platform, house (what each keeps), relief (centavos the house and platform gave up), refund.
+    """
+    platform = bps_of(main, platform_bps)
+    total = main - platform
+    net = main - bps_of(main, combined_bps(house_bps, platform_bps))
+    house = total - net
+    out = {"net": net, "platform": platform, "house": house, "relief": 0, "refund": False}
     min_odds = int(settings.get("payout.min_odds_bps"))
-    net = snapshot["main"] - bps_of(snapshot["main"], cut_bps)
+    if not (main and min_odds and winning) or (net * 10000) // winning >= min_odds:
+        return out
+    mode = str(settings.get("payout.min_odds_mode"))
+    need = -((-winning * min_odds) // 10000)          # smallest net whose multiple reaches the minimum
+    usable = main if mode == "relief_all" else total if mode == "relief_tong" else 0
+    if mode == "refund" or need > usable:
+        out["refund"] = True
+        return out
+    out["net"] = need
+    out["relief"] = need - net
+    if need <= total:                                  # the tong alone is enough
+        out["house"] = total - need
+    else:                                              # the tong is gone; the platform cut gives up the rest
+        out["house"] = 0
+        out["platform"] = main - need
+    return out
+
+
+def side_multipliers(snapshot: dict, cut_bps: int, settings: SettingsStore, llamado: str | None = None,
+                     house_bps: int | None = None) -> dict:
+    """Current pool multiple (bps) per side, capped at the Llamado / Dehado maximum, plus whether the minimum-odds
+    rule would REFUND the game if that side won (``below_min``) and whether the cut is being lowered to keep the
+    minimum (``relief``). Informational; settlement recomputes with the same ``settle_net``.
+    ``house_bps`` is the tong; when omitted it is derived from the combined ``cut_bps``."""
+    platform_bps = events.platform_cut_for(settings)
+    if house_bps is None:
+        house_bps = 10000 - ((10000 - cut_bps) * 10000) // max(1, 10000 - platform_bps) if platform_bps < 10000 else cut_bps
     out: dict[str, dict] = {}
     for side in ("meron", "wala"):
         pool = snapshot[side]
-        natural = (net * 10000) // pool if pool else 0
+        sn = settle_net(snapshot["main"], pool, house_bps, platform_bps, settings)
+        natural = (sn["net"] * 10000) // pool if pool else 0
         ceiling = max_odds_bps(settings, side, snapshot, llamado)
         bps = min(natural, ceiling) if ceiling else natural
         out[side] = {"bps": bps, "natural": natural, "max": ceiling, "capped": bool(ceiling and natural > ceiling),
-                     "below_min": bool(pool and min_odds and natural < min_odds)}
-    out["draw"] = {"bps": int(settings.get("payout.draw_odds_bps")), "below_min": False}
+                     "below_min": bool(pool and sn["refund"]), "relief": bool(pool and sn["relief"] > 0),
+                     "relief_cents": sn["relief"] if pool else 0}
+    out["draw"] = {"bps": int(settings.get("payout.draw_odds_bps")), "below_min": False, "relief": False,
+                   "relief_cents": 0}
     return out
 
 
@@ -142,9 +186,11 @@ def estimate_payout(db: Session, fight: Fight, side: Side, stake_cents: int,
         return odds_of(stake_cents, odds)
     snap = pool_snapshot(db, fight)
     main = snap["main"] + stake_cents
-    cut = bps_of(main, events.pool_cut_for(db, event, settings))
-    net = main - cut
     side_pool = snap[side.value] + stake_cents
+    sn = settle_net(main, side_pool, events.house_cut_for(db, event, settings), events.platform_cut_for(settings), settings)
+    if sn["refund"]:                       # the game would be refunded if this side won
+        return stake_cents
+    net = sn["net"]
     after = dict(snap, main=main, **{side.value: side_pool})
     ceiling = max_odds_bps(settings, side.value, after, fight.llamado_side)
     if ceiling and side_pool:
@@ -243,6 +289,7 @@ def place_bet(
         raise LockedState(f"Fight #{fight.number} only accepts {fight.bet_mode.upper()} bets right now.")
     if funded_by != "wallet":
         raise ValidationError("Bets are funded from player credit only.")
+    _check_bet_limits(db, fight, side, stake_cents, settings)
 
     player: Player | None = None
     agent_id: int | None = None
@@ -292,7 +339,63 @@ def place_bet(
     audit.record(db, actor, "bet.place", entity_type="ticket", entity_id=ticket.id,
                  after={"code": code, "fight": fight.number, "side": side.value,
                         "stake_cents": stake_cents, "player_id": player.id if player else None})
+    _big_bet_alert(db, actor, ticket, fight, player, settings)
     return ticket
+
+
+def _check_bet_limits(db: Session, fight: Fight, side: Side, stake_cents: int, settings: SettingsStore) -> None:
+    """Limits that depend on what is already in the game. The caller holds the game's row lock, so the numbers
+    read here cannot change under it.
+
+    Draw is paid by the house (not by the pool): one Draw ticket and the total Draw money on a game are capped.
+    Meron / Wala: one bet cannot be more than a share of the money already in the pool (bets up to a floor amount
+    are always fine, so early bets on an empty pool are not blocked)."""
+    if side == Side.DRAW:
+        one = int(settings.get("payout.draw_max_stake_cents") or 0)
+        if one and stake_cents > one:
+            raise ValidationError(f"A Draw bet can be at most {fmt(one)}.")
+        total = int(settings.get("payout.draw_max_exposure_cents") or 0)
+        if total:
+            taken = pool_snapshot(db, fight)["draw"]
+            if taken + stake_cents > total:
+                room = max(0, total - taken)
+                raise ValidationError("Draw is full for this fight." if room < int(settings.get("payout.min_stake_cents"))
+                                      else f"Draw is almost full: at most {fmt(room)} more can be bet on it.")
+        return
+    share = int(settings.get("payout.max_bet_pool_share_bps") or 0)
+    floor = int(settings.get("payout.max_bet_pool_floor_cents") or 0)
+    if share and stake_cents > floor:
+        main = pool_snapshot(db, fight)["main"]
+        allowed = max(floor, bps_of(main, share))
+        if stake_cents > allowed:
+            raise ValidationError(f"That bet is too big for this fight right now (more than {share / 100:g}% of the "
+                                  f"pool). The most you can bet is {fmt(allowed)}; it grows as more bets come in.")
+
+
+def _big_bet_alert(db: Session, actor: User, ticket: Ticket, fight: Fight, player: Player | None,
+                   settings: SettingsStore) -> None:
+    """A bet at or above ``payout.big_bet_alert_cents`` is logged and the Admin(s) and the bettor's Master are told.
+    It never blocks the bet."""
+    threshold = int(settings.get("payout.big_bet_alert_cents") or 0)
+    if not threshold or ticket.stake_cents < threshold:
+        return
+    who = player.username or player.full_name if player else actor.username
+    audit.record(db, actor, "bet.big", entity_type="ticket", entity_id=ticket.id,
+                 after={"code": ticket.code, "fight": fight.number, "side": ticket.side.value,
+                        "stake_cents": ticket.stake_cents, "bettor": who})
+    receivers = set(db.scalars(select(User.id).where(User.role.in_([Role.ADMIN, Role.BISHOP]), User.id != actor.id)).all())
+    current = db.get(User, ticket.agent_id) if ticket.agent_id else None
+    for _ in range(8):                                  # walk up to the Master
+        if current is None:
+            break
+        if current.role == Role.MASTER and current.id != actor.id:
+            receivers.add(current.id)
+        current = db.get(User, current.parent_id) if current.parent_id else None
+    for uid in receivers:
+        db.add(Notification(user_id=uid, level="warning", link=f"/change_name?event_id={fight.event_id}&fight_id={fight.id}",
+                            message=f"Big bet: {who} put {fmt(ticket.stake_cents)} on {ticket.side.value.upper()} "
+                                    f"in fight #{fight.number}"))
+    db.flush()
 
 
 def get_ticket(db: Session, ticket_id: int) -> Ticket:

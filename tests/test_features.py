@@ -104,6 +104,7 @@ def test_cash_is_not_a_payment_method(world):
     from app.services import accounts, ledger
     have = ledger.balance_of(world.db, accounts.wallet_for_user(world.db, world.admin))
     old_max = str(world.store.get("payout.max_stake_cents"))
+    world.store.set("payout.max_bet_pool_share_bps", "0", world.admin.id)     # this test is about credit, not bet size
     world.store.set("payout.max_stake_cents", str(have + 10_000), world.admin.id)
     try:
         with pytest.raises(InsufficientFunds):
@@ -230,6 +231,7 @@ def test_platform_cut_comes_out_of_every_bet_first_then_the_house_cut(world):
     world.store.set("payout.platform_cut_bps", "500", world.admin.id)
     world.store.set("payout.house_cut_bps", "500", world.admin.id)
     world.store.set("payout.min_odds_bps", "0", world.admin.id)
+    world.store.set("payout.max_bet_pool_share_bps", "0", world.admin.id)      # this test builds a pool of two big bets
     g = world.games[0]
     sell(world, g, Side.MERON, 500000); sell(world, g, Side.WALA, 1000000)
     t = declare(world, g, Result.MERON).totals

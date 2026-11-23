@@ -159,7 +159,7 @@ from app.services import betting
 def test_no_role_except_admin_holds_the_bet_cancel_permission():
     for role in Role:
         has = rbac.Perm.BETS_CANCEL in rbac.permissions_for(role)
-        assert has == (role == Role.ADMIN), f"{role} {'has' if has else 'lacks'} bets.cancel"
+        assert has == (role in (Role.ADMIN, Role.BISHOP)), f"{role} {'has' if has else 'lacks'} bets.cancel"   # the Admin tier
     assert rbac.Perm.BETS_CANCEL not in rbac.player_perms()      # online players
     assert rbac.Perm.BETS_CANCEL not in rbac.PLAYER_PERMS
 

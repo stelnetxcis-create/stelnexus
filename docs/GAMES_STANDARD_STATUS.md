@@ -89,3 +89,13 @@ Six dead templates deleted (done).
 - Full suite: **568 passed, 1 skipped**.
 - **Not redirected on purpose:** `/bola` and `/change_name`. They are the live play pages (bet panel, fight view), not schedules, so they stay as the Live tab.
 - Still open: the JS "Game #" strings + `dist` rebuild (needs your build), and the dead number-game player code (needs the SQL count on your live DB).
+
+## Update (round 9): everything left that could be done here
+- **JS wording:** all "Game #n" / "game" strings about fights in `betcore.js`, `declarator.js`, `fightchat.js`, `fightview.js`, `royale.js`, `stream.js` now say Fight. **`dist` rebuilt** with `npm run build` (`build:check` reports up to date) and 16 stale bundles removed.
+- **Templates:** the fight view, event detail, lobby strip and dashboard use "Fight(s)" in visible text, titles, aria-labels and confirm prompts.
+- **Hub:** Play/Watch now comes from the adapter's `place` right.
+- **Links:** dashboard, role home pages, admin cards and dev actions point straight at `/games/sabong/schedule` (the `/events` redirect remains for old bookmarks).
+- **Sabong session report:** now has per-fight commission and a separate "Event expenses" row, so its rows add up to the event line (tested).
+- **Dead number-game player code: kept on purpose.** `player_id` / `with_player` are not dead: the Admin "view as player" preview uses `preview_player_id`, and the live bets feed uses `with_player`. In the `dev.db` you sent, 0 of 10 Bola tickets have a `player_id`, but removing it would break the preview, so it stays.
+- Full suite: **570 passed, 1 skipped**.
+- Nothing else is open from the plan.

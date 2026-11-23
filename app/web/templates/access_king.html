@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}King desk · {{ brand }}{% endblock %}
+{% block heading %}Admin Panel{% endblock %}
+{% block content %}
+{% include "_access_nav.html" %}
+<p class="notice">♔ Only you see this page. Everything here takes effect within seconds and needs no restart or deploy, so you can act while the server stays up. Every change is written to the audit trail.</p>
+
+<form method="post" action="/admin/access/king/flags">{{ ui.csrf(csrf_token) }}
+<div class="ax-cols" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
+  <div class="card"><div class="card-head"><h2>Emergency switches</h2></div><div class="card-body">
+    <label class="ax-switch"><input type="checkbox" name="freeze_pawns" {{ 'checked' if flags.freeze_pawns }}><span><b>Freeze all Pawns</b><small>They keep looking, but every action is refused. Passes and "ask first" stop working for them.</small></span></label>
+    <label class="ax-switch"><input type="checkbox" name="freeze_bishops" {{ 'checked' if flags.freeze_bishops }}><span><b>Freeze all Bishops</b><small>The same, for Bishops. They are told nothing about you.</small></span></label>
+    <label class="ax-switch"><input type="checkbox" name="approvals_paused" {{ 'checked' if flags.approvals_paused }}><span><b>Pause approvals</b><small>"Ask first" counts as No for everyone, and nothing new can be approved, until you switch this off.</small></span></label>
+    <p class="muted small" style="margin:10px 0 0">{{ active_passes }} approved pass{{ '' if active_passes == 1 else 'es' }} running right now.</p>
+  </div></div>
+  <div class="card"><div class="card-head"><h2>Approval policy</h2></div><div class="card-body">
+    <label class="ax-switch"><input type="checkbox" name="bishops_may_approve" {{ 'checked' if flags.bishops_may_approve }}><span><b>Bishops may answer requests</b><small>From people below them. Off: only you answer. Requests from a Bishop always come to you alone.</small></span></label>
+    <div class="form-grid">
+      <label class="field"><span>A request lapses after (hours)</span><input type="number" name="request_ttl_hours" min="1" max="1440" value="{{ flags.request_ttl_hours }}"></label>
+      <label class="field"><span>Longest pass anyone may hand out (hours)</span><input type="number" name="max_pass_hours" min="1" max="1440" value="{{ flags.max_pass_hours }}"></label>
+    </div>
+  </div></div>
+</div>
+
+<div class="card"><div class="card-head"><h2>Sealed from Bishops and Pawns</h2></div><div class="card-body">
+  <p class="muted small">Rights ticked here are taken away from the whole Dev tree, even if a Bishop would otherwise hold them. Your own rights, appointing Bishops and this desk are always sealed.</p>
+  {% for category, items in catalog %}{% set shown = items | rejectattr('0.value', 'in', king_only) | list %}{% if shown %}
+  <div class="ax-cat"><h4>{{ category }}</h4><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:6px">
+    {% for perm, label in shown %}<label class="ax-switch" style="margin:0"><input type="checkbox" name="sealed_perm" value="{{ perm.value }}" {{ 'checked' if perm.value in sealed }}><span>{{ label }}<small class="mono">{{ perm.value }}</small></span></label>{% endfor %}
+  </div></div>{% endif %}{% endfor %}
+  <div class="ax-cat"><h4>Settings groups in the Variables page</h4><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px">
+    {% for g in var_groups %}<label class="ax-switch" style="margin:0"><input type="checkbox" name="sealed_group" value="{{ g }}" {{ 'checked' if g in sealed_groups }}><span>{{ g }}</span></label>{% endfor %}
+  </div></div>
+</div></div>
+<div class="ax-save"><span class="muted small">Applies within seconds to everyone.</span><button class="btn btn-primary" type="submit">Save King desk</button></div>
+</form>
+
+<div class="card" style="margin-top:16px"><div class="card-head"><h2>Panic button</h2></div><div class="card-body">
+  <p class="muted small">Ends every approved pass at once (one-time, timed and counted). People keep the rights their type gives them; nothing else changes.</p>
+  <form method="post" action="/admin/access/king/revoke-passes" class="inline-form" data-confirm="End every approved pass right now?">{{ ui.csrf(csrf_token) }}<button class="btn btn-ghost" type="submit">End all passes now</button></form>
+</div></div>
+{% endblock %}

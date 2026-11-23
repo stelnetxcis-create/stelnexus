@@ -4,7 +4,7 @@
 {% block title %}{{ event.title }} · {{ brand }}{% endblock %}
 {% block heading %}{{ event.title }}{% if event.location %} <small class="muted">· {{ event.location.name }}</small>{% endif %}{% endblock %}
 {% block actions %}
-<a class="btn btn-sm" href="/change_name?event_id={{ event.id }}"><svg class="ico"><use href="#i-target"/></svg>Game view</a>
+<a class="btn btn-sm" href="/change_name?event_id={{ event.id }}"><svg class="ico"><use href="#i-target"/></svg>Fight view</a>
 {% if 'events.manage' in perms %}
 <form method="post" action="/events/{{ event.id }}/status" class="inline-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -20,7 +20,7 @@
   <button class="btn btn-sm btn-primary">Open event</button>
 </form>
 {% elif 'events.open' in perms and event.status.value == 'open' %}
-<form method="post" action="/events/{{ event.id }}/status" class="inline-form" data-confirm="Close this event? Every game with bets must be declared first.">
+<form method="post" action="/events/{{ event.id }}/status" class="inline-form" data-confirm="Close this event? Every fight with bets must be declared first.">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <input type="hidden" name="status" value="closed">
   <button class="btn btn-sm">Close event</button>
@@ -44,7 +44,7 @@
 {% endcall %}
 
 <div class="card">
-  <div class="card-head"><h2>Games</h2><span class="muted small">tap a box to open that game</span></div>
+  <div class="card-head"><h2>Fights</h2><span class="muted small">tap a box to open that fight</span></div>
   <div class="card-body">
     {{ lobby.game_tiles(fights, event.id) }}
     <div class="tile-legend"><span class="lg st-open">Open</span><span class="lg st-locked">Locked</span><span class="lg res-meron">Meron</span><span class="lg res-wala">Wala</span><span class="lg res-draw">Draw</span><span class="lg st-void">Void / cancelled</span></div>
@@ -60,7 +60,7 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       {{ ui.idem() }}
       <div class="form-grid">
-        <label class="field"><span>Game <em>*</em></span>
+        <label class="field"><span>Fight <em>*</em></span>
           <select name="fight_id" required>
             {% for fight in fights %}
             <option value="{{ fight.id }}" {{ 'disabled' if fight.status.value != 'open' }}>
@@ -159,7 +159,7 @@
 <div class="card">
   <div class="card-head"><h2>Cancel whole event</h2>{{ ui.badge('refunds everyone', 'red') }}</div>
   <div class="card-body">
-    <p class="notice">Every game that is not yet settled is cancelled and all stakes are refunded in full (no tong, no commission). Games already settled are left as they are.</p>
+    <p class="notice">Every fight that is not yet settled is cancelled and all stakes are refunded in full (no tong, no commission). Fights already settled are left as they are.</p>
     <form method="post" action="/events/{{ event.id }}/cancel" class="inline-form" data-confirm="Cancel this entire event and refund all open tickets? This cannot be undone.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       {{ ui.field('Reason', 'reason', required=true, attrs='minlength=5 maxlength=200') }}
@@ -173,7 +173,7 @@
   <div class="card-head"><h2>Delete event</h2>{{ ui.badge('DEV only', 'red') }}</div>
   <div class="card-body">
     <p class="notice">Permanently removes it with its tickets, settlements and chat. Wallet and ledger history is kept untouched. Anything still holding live stakes is refused: cancel / void it first so players are refunded.</p>
-    <form method="post" action="/dev/purge/event/{{ event.id }}" class="inline-form" data-confirm="Permanently delete this event and ALL its games? This cannot be undone.">
+    <form method="post" action="/dev/purge/event/{{ event.id }}" class="inline-form" data-confirm="Permanently delete this event and ALL its fights? This cannot be undone.">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button class="btn btn-danger" type="submit">Delete event</button>
     </form>

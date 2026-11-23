@@ -48,9 +48,9 @@ def _user_target(db: Session, actor: User, user_id: int, perm: Perm) -> User:
         raise Forbidden("You are not allowed to do that.")
     target = db.get(User, user_id)
     # The Admin answers like a missing row, so its existence cannot be probed.
-    if target is None or target.role in (Role.ADMIN, Role.TELLER):
+    if target is None or target.role in (Role.ADMIN, Role.BISHOP, Role.TELLER):
         raise NotFound("Account not found.")
-    if target.role == Role.PAWN and actor.role != Role.ADMIN:
+    if target.role == Role.PAWN and not actor.is_admin_tier:
         raise Forbidden("Only the Admin can change a Pawn.")
     return target
 
@@ -243,7 +243,7 @@ def list_accounts(db: Session, *, search: str | None = None, kind: str = "all",
     plist: list[Player] = []
     term = f"%{search.strip()[:60]}%" if search and search.strip() else None
     if kind in ("all", "users"):
-        q = select(User).where(User.role.notin_([Role.ADMIN, Role.TELLER]))
+        q = select(User).where(User.role.notin_([Role.ADMIN, Role.BISHOP, Role.TELLER]))
         if not include_removed:
             q = q.where(User.status != Status.CLOSED)
         if term:

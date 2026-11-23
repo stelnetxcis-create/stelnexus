@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
+{% import "_access_rights.html" as rt %}
 {% block title %}{{ kind.label }} · Access · {{ brand }}{% endblock %}
 {% block heading %}Admin Panel{% endblock %}
 {% block content %}
@@ -7,17 +8,18 @@
 
 <section class="ax-hero" style="--ax:{{ kind.tree.accent }}">
   <div>
-    <h2>{{ kind.label }}{% if kind.is_custom %} <span class="ax-chip custom">custom · built on {{ kind_labels[kind.base] }}</span>{% endif %}</h2>
+    <h2>{% if kind.icon %}<span class="ax-piece">{{ kind.icon }}</span>{% endif %}{{ kind.label }}{% if kind.is_custom %} <span class="ax-chip custom">custom · built on {{ kind_labels[kind.base] }}</span>{% endif %}</h2>
     <p>{{ kind.blurb }}</p>
     <div class="ax-meta">
       <span class="ax-chip">{{ member_total }} account{{ '' if member_total == 1 else 's' }}</span>
-      <span class="ax-chip">{{ held|length }} of {{ catalog|map('last')|map('length')|sum }} rights by default</span>
+      <span class="ax-chip">{{ held|length }} of {{ catalog|map('last')|map('length')|sum }} rights on by default</span>
       {% if kind.base == 'admin' %}<span class="ax-chip hot">fixed</span>{% elif customised %}<span class="ax-chip hot">defaults edited</span>{% else %}<span class="ax-chip">starting defaults</span>{% endif %}
     </div>
   </div>
   <div class="table-actions">
     {% if pawns is defined %}<button class="btn btn-sm btn-brand" type="button" data-modal="pawn-modal"><svg class="ico"><use href="#i-plus"/></svg>Create pawn</button>{% endif %}
-    {% if kind.base != 'admin' and customised and not kind.is_custom or (kind.is_custom and customised) %}
+    {% if bishops is defined %}<button class="btn btn-sm btn-brand" type="button" data-modal="bishop-modal"><svg class="ico"><use href="#i-plus"/></svg>Appoint bishop</button>{% endif %}
+    {% if kind.base != 'admin' and customised %}
     <form method="post" action="{{ kind.href }}/reset" class="inline-form" data-confirm="Put {{ kind.label }} back to its starting defaults?">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm btn-ghost" type="submit">Reset to starting defaults</button></form>
     {% endif %}
   </div>
@@ -28,24 +30,15 @@
     <div class="card-head"><h2>Default rights</h2>{% if kind.base != 'admin' %}<span class="muted small">for every {{ kind.label }} account</span>{% endif %}</div>
     <div class="card-body">
     {% if kind.base == 'admin' %}
-      <p class="notice">The Dev account always holds every right and cannot be limited. Nobody else can see it in their lists.</p>
-      {% for category, items in catalog %}<div class="ax-cat"><h4>{{ category }}</h4><div class="ax-perms">
-        {% for perm, label in items %}<div class="ax-perm"><span class="ax-yes">&#10003;</span><span>{{ label }}<small>{{ perm.value }}</small></span></div>{% endfor %}
-      </div></div>{% endfor %}
+      <p class="notice">The King always holds every right and cannot be limited. It never appears in anyone else's lists, and nobody below it is told it exists.</p>
+      {% for category, items in catalog %}<div class="ax-cat"><h4>{{ category }}</h4>
+        {% for perm, label in items %}<div class="ax-r"><div class="ax-r-head"><div class="ax-r-name">{{ label }}<small>{{ perm.value }}</small></div><span class="ax-now ax-now-allow">✓ yes</span></div></div>{% endfor %}
+      </div>{% endfor %}
     {% else %}
-      <p class="ax-howto">Tick what every {{ kind.label }} may do. <span class="ax-chip hot">gold outline</span> = different from the starting defaults.{% if bola_locked %} Bola rights are locked while Bola is dev-only.{% endif %}{% if kind.base == 'pawn' and not kind.is_custom %} Pawns start with nothing; their own switches are below.{% endif %}</p>
+      <div class="ax-legend">Pick how each right works for every {{ kind.label }}: <span class="ax-chip">✕ No</span><span class="ax-chip">✓ Yes</span><span class="ax-chip">✋ Ask first</span><span class="ax-chip">⏱ Temporary</span><span class="ax-chip">🕒 Hours</span><span class="ax-chip"># Limit</span> A <span class="ax-chip hot">gold name</span> differs from the starting default.{% if bola_locked %} Bola rights are locked while Bola is dev-only.{% endif %}</div>
       <form method="post" action="{{ kind.href }}/defaults" data-confirm="Change the default rights for every {{ kind.label }} account?">{{ ui.csrf(csrf_token) }}
-        {% for category, items in catalog %}
-        <div class="ax-cat"><h4>{{ category }}</h4><div class="ax-perms">
-          {% for perm, label in items %}{% set k = perm.value %}{% set off = k in locked %}
-          <label class="ax-perm {{ 'is-off' if off }} {{ 'is-diff' if (k in held) != (k in baseline) }}">
-            <input type="checkbox" name="p:{{ k }}" {{ 'checked' if k in held }} {{ 'disabled' if off }}>
-            <span>{{ label }}<small>{{ k }}</small>{% if off %}<span class="ax-note">{{ 'Admin only' if k in non_delegable else 'Locked: Bola is dev-only' }}</span>{% endif %}</span>
-          </label>
-          {% endfor %}
-        </div></div>
-        {% endfor %}
-        <div class="ax-save"><span class="muted small">Applies to everyone of this type within seconds.</span><button class="btn btn-primary" type="submit">Save default rights</button></div>
+        {{ rt.rights_editor(catalog, rows) }}
+        <div class="ax-save"><span class="muted small">Applies to everyone of this type within seconds, no restart.</span><button class="btn btn-primary" type="submit">Save default rights</button></div>
       </form>
     {% endif %}
     </div>
@@ -64,7 +57,7 @@
         {% for m in members %}{% set u = m.user %}
         <div class="ax-member">
           <span><strong>{{ u.full_name }}</strong> <small style="display:inline">{{ u.username }}</small>
-            <small>{{ m.rights }} rights{% if m.type and type_names.get(m.type) and not kind.is_custom %} · <span class="ax-chip custom">{{ type_names[m.type] }}</span>{% endif %}{% if m.individual %} · <span class="ax-chip hot">own Allow/Deny</span>{% endif %}</small></span>
+            <small>{{ m.rights }} rights{% if m.type and type_names.get(m.type) and not kind.is_custom %} · <span class="ax-chip custom">{{ type_names[m.type] }}</span>{% endif %}{% if m.individual %} · <span class="ax-chip hot">own settings</span>{% endif %}</small></span>
           <span class="ax-meta">{{ ui.status_badge(u.status) }}{% if kind.base != 'admin' %}<a class="btn btn-sm" href="/admin/access/account/{{ u.id }}">Edit rights</a>{% endif %}</span>
         </div>
         {% else %}{{ ui.empty('No accounts of this type yet.', compact=true) }}{% endfor %}
@@ -95,4 +88,5 @@
 </div>
 
 {% if pawns is defined %}{% include "_access_pawns.html" %}{% endif %}
+{% if bishops is defined %}{% include "_access_bishops.html" %}{% endif %}
 {% endblock %}

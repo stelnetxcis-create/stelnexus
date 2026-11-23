@@ -100,7 +100,7 @@ def create_request(
                         "player_id": player_id, "agent_id": agent_id, "reference": reference,
                         "target": request.target,
                         "gcash_account_id": routed.id if routed else None})
-    for admin_id in db.scalars(select(User.id).where(User.role.in_([Role.ADMIN, Role.MASTER, Role.TELLER]),
+    for admin_id in db.scalars(select(User.id).where(User.role.in_([Role.ADMIN, Role.BISHOP, Role.MASTER, Role.TELLER]),
                                                       User.id != actor.id)).all():
         db.add(Notification(user_id=admin_id, level="info",
                             message=f"{actor.username} requested cash {direction} of {fmt(amount_cents)}",

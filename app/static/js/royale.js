@@ -270,7 +270,7 @@
     t.classList.toggle("has-pool", !hide && (f.st === "open" || f.st === "locked"));
     const label = f.res ? f.res.toUpperCase() : (STATE_TEXT[f.st] || f.st.toUpperCase());
     const st = $(".tile-state", t); if (st) st.textContent = label;
-    t.title = "Game " + f.n + " \u00B7 " + f.nm + " vs " + f.nw + " \u00B7 " + label;
+    t.title = "Fight " + f.n + " \u00B7 " + f.nm + " vs " + f.nw + " \u00B7 " + label;
     const sm = $("small", t); if (sm) sm.textContent = f.nm + " / " + f.nw;
     t.dataset.key = tileKey(f);
   }
@@ -329,7 +329,7 @@
           sound = f.res ? "win" : f.st === "open" ? "open" : "lock";
           if (t.classList.contains("is-active")) active = f;
           if (f.res && (f.res === "meron" || f.res === "wala")) {
-            toast("Game " + f.n + ": " + f.res.toUpperCase() + " wins", { level: "success", sub: f.nm + " vs " + f.nw });
+            toast("Fight " + f.n + ": " + f.res.toUpperCase() + " wins", { level: "success", sub: f.nm + " vs " + f.nw });
           }
         } else { paintTile(t, f, hide); }
         paintPool(t, f, hide);
@@ -337,7 +337,7 @@
       if (sound) Sound.play(sound);
       if (active) {
         const what = active.res ? "was declared " + active.res.toUpperCase() : active.st === "locked" ? "betting is now closed" : active.st === "open" ? "betting is open again" : "changed";
-        softReload("Game " + active.n + " " + what + ". Updating this view\u2026", ["event-head", "event-body", "fight-panel"]);
+        softReload("Fight " + active.n + " " + what + ". Updating this view\u2026", ["event-head", "event-body", "fight-panel"]);
       }
     });
   }
@@ -357,8 +357,8 @@
         const bar = $(".lobby-bar i", c); if (bar) { bar.style.setProperty("--w", e.pct + "%"); bar.style.width = e.pct + "%"; }
         const live = $(".lobby-live", c);
         if (e.live && e.st === "open") {
-          if (live) live.lastChild.textContent = "Game " + e.live + " up next";
-          else { const s = document.createElement("span"); s.className = "lobby-live"; s.innerHTML = "<i></i>Game " + e.live + " up next"; $(".lobby-top", c).appendChild(s); }
+          if (live) live.lastChild.textContent = "Fight " + e.live + " up next";
+          else { const s = document.createElement("span"); s.className = "lobby-live"; s.innerHTML = "<i></i>Fight " + e.live + " up next"; $(".lobby-top", c).appendChild(s); }
         } else if (live) live.remove();
         if (prevSt !== e.st) {
           c.className = c.className.replace(/\bst-\S+/, "st-" + e.st); c.dataset.status = e.st;
@@ -391,7 +391,7 @@
       });
       if (hasList() && !first) {
         const now = d.live.map((r) => r.id + ":" + r.st).sort().join();
-        if (now !== shown()) softReload("Games changed. Updating\u2026", ["live-games"]);
+        if (now !== shown()) softReload("Fights changed. Updating\u2026", ["live-games"]);
       }
     }, 8000);
   }

@@ -114,7 +114,7 @@ def test_pages_work_over_http_and_are_admin_only():
     assert page.status_code == 200 and f"ph{tag}" in page.text and "Admin only" in page.text
     token = c.cookies.get("snx_csrf").split(".")[0]
     r = c.post(f"/admin/access/account/{agent_id}",
-               data={"csrf_token": token, f"p:{Perm.CASHFLOW_VIEW.value}": "allow", f"p:{Perm.BETS_PLACE.value}": "deny"})
+               data={"csrf_token": token, f"m:{Perm.CASHFLOW_VIEW.value}": "allow", f"m:{Perm.BETS_PLACE.value}": "deny"})
     assert r.status_code == 303
     with session_scope() as db:
         a = db.get(User, agent_id)
@@ -193,8 +193,7 @@ def test_role_defaults_are_admin_only_and_the_admin_role_is_fixed(clean_roles):
         master = _mk(db, admin, store, Role.MASTER, f"rf{tag}")
         with pytest.raises(Forbidden):
             agents.set_role_defaults(db, master, "agent", [])
-        from app.core.errors import ValidationError
-        with pytest.raises(ValidationError):
+        with pytest.raises(Forbidden):                                                      # the King's rights are fixed
             agents.set_role_defaults(db, admin, "admin", [])
     assert permissions_for(Role.ADMIN) == set(Perm)
 
@@ -210,6 +209,8 @@ def test_role_default_pages_work_over_http(clean_roles):
         held = rbac.player_perms() if role_key == "player" else permissions_for(role_key)
         data.update({f"r:{role_key}:{p.value}": "on" for p in held})
     data[f"r:teller:{Perm.CASHFLOW_VIEW.value}"] = "on"
+    for role_key in agents.EDITABLE_DEFAULT_ROLES:                              # every cell was on the page
+        data.update({f"rr:{role_key}:{p.value}": "1" for p in Perm})
     assert c.post("/admin/access/matrix", data=data).status_code == 303
     rbac.invalidate_role_overrides()
     assert Perm.CASHFLOW_VIEW in permissions_for(Role.TELLER)
@@ -303,7 +304,7 @@ def test_access_pages_work_over_http(clean_types):
     for tree in ("dev", "staff", "users"):
         r = c.get(f"/admin/access/{tree}")                                                    # goes to the tree's first kind
         assert r.status_code == 303 and r.headers["location"].startswith(f"/admin/access/{tree}/")
-    for tree, kind in (("dev", "admin"), ("dev", "pawn"), ("staff", "declarator"), ("staff", "teller"), ("users", "master"),
+    for tree, kind in (("dev", "admin"), ("dev", "bishop"), ("dev", "pawn"), ("staff", "declarator"), ("staff", "teller"), ("users", "master"),
                        ("users", "agent"), ("users", "sub_agent"), ("users", "player")):
         assert c.get(f"/admin/access/{tree}/{kind}").status_code == 200, (tree, kind)
     assert c.get("/admin/access/users/declarator").status_code == 404                         # wrong tree
@@ -321,7 +322,7 @@ def test_access_pages_work_over_http(clean_types):
     assert shown.status_code == 200 and f"Lead {tag}" in shown.text
     token = c.cookies.get("snx_csrf").split(".")[0]                                           # refreshed by the page load
     held = {p.value for p in permissions_for(Role.DECLARATOR)} | {Perm.BETS_VIEW.value}
-    data = {"csrf_token": token, **{f"p:{k}": "on" for k in held}}
+    data = {"csrf_token": token, **{f"m:{p.value}": ("allow" if p.value in held else "deny") for p in Perm}}
     assert c.post(f"{page}/defaults", data=data).status_code == 303
     rbac.invalidate_role_overrides()
     token = c.cookies.get("snx_csrf").split(".")[0]

@@ -92,14 +92,14 @@ def _back(ctx: Ctx) -> str:
 async def purge_event(event_id: int, ctx: Ctx = Depends(require_ctx)):
     from app.services import purge
     title = purge.purge_event(ctx.db, _need_dev(ctx), event_id)
-    return flash_redirect("/events", f"Event “{title}” deleted.", "success")
+    return flash_redirect("/games/sabong/schedule", f"Event “{title}” deleted.", "success")
 
 
 @router.post("/purge/fight/{fight_id}")
 async def purge_fight(fight_id: int, ctx: Ctx = Depends(require_ctx)):
     from app.services import purge
     event_id = purge.purge_fight(ctx.db, _need_dev(ctx), fight_id)
-    return flash_redirect(f"/events/{event_id}" if event_id else "/events", "Game deleted.", "success")
+    return flash_redirect(f"/events/{event_id}" if event_id else "/games/sabong/schedule", "Fight deleted.", "success")
 
 
 @router.post("/purge/draw/{draw_id}")

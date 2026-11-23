@@ -169,7 +169,8 @@ async def change_name(request: Request, ctx: Ctx = Depends(require_ctx)):
             figs = None if event.payout_model.value == "fixed" else betting.pool_figures(snapshot["meron"], snapshot["wala"], events.house_cut_for(ctx.db, event, ctx.store),
                                         events.platform_cut_for(ctx.store))
             multipliers = betting.side_multipliers(
-                snapshot, events.pool_cut_for(ctx.db, event, ctx.store), ctx.store, fight.llamado_side)
+                snapshot, events.pool_cut_for(ctx.db, event, ctx.store), ctx.store, fight.llamado_side,
+                house_bps=events.house_cut_for(ctx.db, event, ctx.store))
         if fight.status.value in ("open", "locked") and ctx.user.is_top:
             plan = settlement.build_plan(ctx.db, fight, Result.MERON, ctx.store).as_dict()
     # Bet panel inside the video: any account that holds credit bets for ITSELF from its own wallet (no player picker).
@@ -295,8 +296,13 @@ async def declare(fight_id: int, request: Request, ctx: Ctx = Depends(require_ct
     where = f"/change_name?event_id={fight.event_id}&fight_id={fight_id}"
     if (run.totals or {}).get("auto_cancel"):
         floor = int(ctx.store.get("payout.min_odds_bps")) / 10000
-        return flash_redirect(where, f"Game {fight.number}: odds were below {floor:.2f}x, so it was "
-                              "cancelled and every stake refunded.", "warning")
+        return flash_redirect(where, f"Fight {fight.number}: the winning side would pay below {floor:.2f}x even "
+                              "with the cuts lowered, so it was cancelled and every stake refunded.", "warning")
+    if (run.totals or {}).get("relief"):
+        floor = int(ctx.store.get("payout.min_odds_bps")) / 10000
+        note = f" The cuts were lowered so winners are paid at least {floor:.2f}x."
+        if not hides_totals(ctx.user):
+            return flash_redirect(where, f"Fight {fight.number} declared {result.value} and settled.{note}")
     if hides_totals(ctx.user):
         return flash_redirect(where, f"Game {fight.number} declared {result.value} and settled.")
     label = events.role_of(fight, result.value)

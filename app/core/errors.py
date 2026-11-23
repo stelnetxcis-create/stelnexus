@@ -30,6 +30,18 @@ class Forbidden(StelError):
     code = "forbidden"
 
 
+class ApprovalRequired(StelError):
+    """The action was NOT run: this account must "ask first" and the request is now waiting for the King or a Bishop.
+    The exception handler parks the request (see app.services.access) and answers with a friendly notice."""
+    status_code = 202
+    code = "approval_required"
+
+    def __init__(self, message: str = "Sent for approval.", *, perm: str = "", user_id: int | None = None):
+        super().__init__(message)
+        self.perm = perm
+        self.user_id = user_id
+
+
 class NotFound(StelError):
     status_code = 404
     code = "not_found"

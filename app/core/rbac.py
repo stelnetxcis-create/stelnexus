@@ -7,10 +7,11 @@ passes through a downline scope check. UI hiding is cosmetic only.
 """
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from sqlalchemy import select
@@ -19,7 +20,8 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.errors import Forbidden
 from app.core.settings_registry import GROUPS
-from app.db.models import CHILD_ROLES, TOP_ROLES, Player, Role, Status, User
+from app.core import rules as rules_mod
+from app.db.models import ADMIN_TIER, CHILD_ROLES, TOP_ROLES, Player, Role, Status, User
 
 
 class Perm(str, Enum):
@@ -86,7 +88,10 @@ class Perm(str, Enum):
     WALLET_TRANSFER = "wallet.transfer"
     # Admin Panel and what lives in it.
     PANEL_VIEW = "panel.view"
-    PAWNS_MANAGE = "pawns.manage"          # only the Admin creates Pawns and sets what they may see
+    PAWNS_MANAGE = "pawns.manage"          # the Access manager: create Pawns, set what any account below may do
+    BISHOPS_MANAGE = "bishops.manage"      # KING ONLY: appoint, edit and remove Bishops
+    KING_DESK = "king.desk"                # KING ONLY: emergency switches, what is sealed from Bishops, approval policy
+    APPROVALS_DECIDE = "approvals.decide"  # answer other people's requests for a right (King and Bishops)
     ONLINE_VIEW = "online.view"            # who is signed in right now
     # Account tools in the Admin Panel. Admin always; a Pawn only through the matching grant.
     ACCOUNTS_VIEW = "accounts.view"        # the Accounts page (names, roles, status; no balances)
@@ -145,7 +150,7 @@ _ADMIN_ONLY = {
     Perm.SETTINGS_VIEW, Perm.SETTINGS_MANAGE, Perm.AUDIT_VIEW, Perm.HIDDEN_VIEW,
     Perm.CUTS_VIEW, Perm.CUTS_MANAGE,
     Perm.PLAYERS_VIEW, Perm.PLAYERS_CREATE, Perm.PLAYERS_EDIT,
-    Perm.ONLINE_VIEW, Perm.PANEL_VIEW, Perm.PAWNS_MANAGE,
+    Perm.ONLINE_VIEW, Perm.PANEL_VIEW, Perm.PAWNS_MANAGE, Perm.BISHOPS_MANAGE, Perm.KING_DESK, Perm.APPROVALS_DECIDE,
     Perm.ACCOUNTS_VIEW, Perm.ACCOUNTS_EDIT, Perm.ACCOUNTS_REMOVE, Perm.IPBANS_MANAGE,
     Perm.STREAMS_VIEW, Perm.STREAMS_MANAGE,
     Perm.CANCEL_LOG,
@@ -179,8 +184,16 @@ _DECLARATOR_PERMS = {Perm.EVENTS_VIEW, Perm.FIGHTS_VIEW, Perm.FIGHTS_LOCK, Perm.
 _TELLER_PERMS = {Perm.WALLET_VIEW, Perm.REQUESTS_VIEW, Perm.REQUESTS_REVIEW, Perm.AGENTS_VIEW,
                  Perm.STAFF_VIEW, Perm.STAFF_TELLER}
 
+# What only the King may ever hold: nobody below it can be given these, whatever is ticked anywhere.
+KING_ONLY: frozenset[Perm] = frozenset({Perm.BISHOPS_MANAGE, Perm.KING_DESK})
+# Page-access and look-only rights. A frozen account keeps exactly these; "ask first" is meaningless for them.
+VIEW_PERMS: frozenset[Perm] = frozenset(
+    {p for p in Perm if p.value.endswith(".view")} | {Perm.STAFF_TELLER, Perm.STAFF_DECLARATOR})
+
 ROLE_PERMS: dict[Role, set[Perm]] = {
     Role.ADMIN: set(Perm),
+    # The Bishop: every right except the King's own. What the King seals on top comes off live (see sealed_perms).
+    Role.BISHOP: set(Perm) - KING_ONLY,
     Role.MASTER: set(_OPERATOR),
     # Agent and Sub Agent recruit through referral codes; the cut itself is not theirs to change.
     Role.AGENT: _AGENT_PERMS | {Perm.REFERRALS_MANAGE},
@@ -207,27 +220,56 @@ def builtin_player_perms() -> set[Perm]:
     return set(PLAYER_PERMS)
 
 
-def player_perms() -> set[Perm]:
-    """What a player may do right now (Admin changes applied; the number game stays hidden while it is dev-only)."""
-    perms = _apply_role_override(builtin_player_perms(), PLAYER_ROLE_KEY)
-    if bola_dev_only():
-        perms -= BOLA_PERMS
-    return perms
-
-
 # ---------------------------------------------------------------------------
-# Role defaults the Admin can change (stored in role_perm_overrides, read through a short cache)
+# The engine: role defaults -> Pawn grants -> account type -> the account's own settings -> passes
+# Everything the King or a Bishop sets lives in the database and is read through a short cache, so a change
+# applies within seconds with no restart (and with no deploy).
 # ---------------------------------------------------------------------------
 log = logging.getLogger("stelnexus.rbac")
 
 PLAYER_ROLE_KEY = "player"
 _ROLE_CACHE_TTL = 5.0            # seconds; other workers pick a change up within this time
-_role_cache: tuple[float, tuple[dict, dict]] | None = None
-_role_cache_lock = threading.Lock()
+
+
+@dataclass
+class Layer:
+    """One level of settings: rights switched on, rights switched off, and conditional rules."""
+    grants: frozenset = frozenset()
+    revokes: frozenset = frozenset()
+    rules: dict = field(default_factory=dict)        # Perm -> clean rule (app.core.rules)
+
+    def is_empty(self) -> bool:
+        return not (self.grants or self.revokes or self.rules)
+
+
+EMPTY_LAYER = Layer()
+
+
+@dataclass
+class Snapshot:
+    roles: dict      # role key -> Layer
+    types: dict      # account profile id -> Layer
+    flags: dict      # King switches (access_flags)
+    passes: dict     # user id -> {Perm: datetime}: approved, time-boxed passes still running
+
+
+_snapshot_cache: tuple[float, Snapshot] | None = None
+_snapshot_lock = threading.Lock()
+
+FLAG_DEFAULTS: dict[str, object] = {
+    "freeze_pawns": False,            # Pawns keep only look-only rights
+    "freeze_bishops": False,          # Bishops keep only look-only rights
+    "approvals_paused": False,        # "ask first" counts as No while this is on, and no new passes work
+    "sealed_perms": [Perm.HIDDEN_VIEW.value],   # rights kept from the Dev tree (Bishops and Pawns) on top of KING_ONLY
+    "sealed_groups": ["Security"],    # Admin Panel variable groups kept from the Dev tree
+    "request_ttl_hours": 24,          # an unanswered request lapses after this long
+    "bishops_may_approve": True,      # off: only the King answers requests
+    "max_pass_hours": 168,            # the longest "for a while" pass anyone may hand out
+}
 
 
 def _parse_perm_keys(raw) -> set[Perm]:
-    """Known, delegable permission keys only. NON_DELEGABLE and unknown keys are dropped, so even a tampered
+    """Known, delegable permission keys only (grants). NON_DELEGABLE and unknown keys are dropped, so even a tampered
     row can never hand out the keys to the Access manager."""
     out: set[Perm] = set()
     for key in (raw or []):
@@ -240,69 +282,115 @@ def _parse_perm_keys(raw) -> set[Perm]:
     return out
 
 
-def _load_overrides() -> tuple[dict[str, tuple[set[Perm], set[Perm]]], dict[int, tuple[set[Perm], set[Perm]]]]:
-    from app.db.models import AccountProfile, RolePermOverride
+def _parse_revoke_keys(raw) -> set[Perm]:
+    """Revokes may name any known right: the King can take the Access manager away from a Bishop."""
+    out: set[Perm] = set()
+    for key in (raw or []):
+        try:
+            out.add(Perm(str(key)))
+        except ValueError:
+            continue
+    return out
+
+
+def parse_layer(grants, revokes, rules) -> Layer:
+    """A trustworthy Layer from stored JSON. Malformed rules are dropped; "ask" on a look-only right is dropped."""
+    clean: dict = {}
+    for key, raw in (rules or {}).items():
+        try:
+            perm = Perm(str(key))
+        except ValueError:
+            continue
+        rule = rules_mod.clean_rule(raw)
+        if rule is None or perm in NON_DELEGABLE or perm in KING_ONLY:
+            continue
+        if rule["mode"] == "ask" and perm in VIEW_PERMS:
+            continue
+        clean[perm] = rule
+    return Layer(frozenset(_parse_perm_keys(grants)), frozenset(_parse_revoke_keys(revokes)), clean)
+
+
+def _load_snapshot() -> Snapshot:
+    from app.db.models import AccessFlag, AccessRequest, AccountProfile, RolePermOverride
     from app.db.session import SessionLocal
     session = SessionLocal()
     try:
-        roles = {r.role: (_parse_perm_keys(r.perm_grants), _parse_perm_keys(r.perm_revokes))
+        roles = {r.role: parse_layer(r.perm_grants, r.perm_revokes, r.perm_rules)
                  for r in session.scalars(select(RolePermOverride)).all()}
-        types = {t.id: (_parse_perm_keys(t.perm_grants), _parse_perm_keys(t.perm_revokes))
+        types = {t.id: parse_layer(t.perm_grants, t.perm_revokes, t.perm_rules)
                  for t in session.scalars(select(AccountProfile)).all()}
-        return roles, types
+        flags = {f.key: f.value for f in session.scalars(select(AccessFlag)).all()}
+        now = rules_mod.utcnow()
+        passes: dict = {}
+        for row in session.scalars(select(AccessRequest).where(
+                AccessRequest.status == "approved", AccessRequest.pass_until.is_not(None),
+                AccessRequest.uses_left.is_(None), AccessRequest.bind_hash.is_(None))).all():
+            until = row.pass_until if row.pass_until.tzinfo else row.pass_until.replace(tzinfo=dt.timezone.utc)
+            if until <= now:
+                continue
+            try:
+                perm = Perm(row.perm)
+            except ValueError:
+                continue
+            slot = passes.setdefault(row.requester_id, {})
+            slot[perm] = max(until, slot.get(perm, until))
+        return Snapshot(roles, types, flags, passes)
     finally:
         session.close()
 
 
-def _overrides_snapshot() -> tuple[dict, dict]:
-    """(role overrides, account-type overrides) from the database, cached for a few seconds. On any database
-    error the last good copy (or the built-in defaults) applies, logged, so a hiccup never locks anybody out
-    or opens anything up."""
-    global _role_cache
-    cached = _role_cache
+def snapshot() -> Snapshot:
+    """The settings the King and Bishops made, cached for a few seconds. On a database error the last good copy
+    (or the built-in defaults) applies, logged, so a hiccup never locks anybody out or opens anything up."""
+    global _snapshot_cache
+    cached = _snapshot_cache
     if cached is not None and time.monotonic() - cached[0] < _ROLE_CACHE_TTL:
         return cached[1]
-    with _role_cache_lock:
-        cached = _role_cache
+    with _snapshot_lock:
+        cached = _snapshot_cache
         if cached is not None and time.monotonic() - cached[0] < _ROLE_CACHE_TTL:
             return cached[1]
         try:
-            data = _load_overrides()
+            data = _load_snapshot()
         except Exception:                                    # noqa: BLE001 - never break authorization on a read error
-            log.exception("Could not read role / account-type overrides; using the last good copy or built-ins")
-            data = cached[1] if cached is not None else ({}, {})
-        _role_cache = (time.monotonic(), data)
+            log.exception("Could not read access settings; using the last good copy or the built-in defaults")
+            data = cached[1] if cached is not None else Snapshot({}, {}, {}, {})
+        _snapshot_cache = (time.monotonic(), data)
         return data
 
 
-def role_overrides() -> dict[str, tuple[set[Perm], set[Perm]]]:
-    """{role: (extra, removed)} the Admin set on role defaults."""
-    return _overrides_snapshot()[0]
-
-
-def type_overrides() -> dict[int, tuple[set[Perm], set[Perm]]]:
-    """{account_profile_id: (extra, removed)} the Admin set on custom account types."""
-    return _overrides_snapshot()[1]
-
-
 def invalidate_role_overrides() -> None:
-    global _role_cache
-    with _role_cache_lock:
-        _role_cache = None
+    global _snapshot_cache
+    with _snapshot_lock:
+        _snapshot_cache = None
 
 
-def _apply_role_override(perms: set[Perm], role_key: str) -> set[Perm]:
-    extra, removed = role_overrides().get(role_key, (set(), set()))
-    return (perms | extra) - removed
+def role_overrides() -> dict:
+    """{role key: Layer} the Admin set on role defaults (a role with no row has the built-in defaults)."""
+    return snapshot().roles
 
 
-def builtin_permissions_for(role: Role | str, *, gated: bool = True) -> set[Perm]:
-    """A role's rights as written in code, before any change from the Admin."""
-    role = Role(role)
-    perms = set(ROLE_PERMS.get(role, set()))
-    if gated and bola_dev_only() and role != Role.ADMIN:
-        perms -= BOLA_PERMS
-    return perms
+def type_overrides() -> dict:
+    return snapshot().types
+
+
+def flag(name: str):
+    return snapshot().flags.get(name, FLAG_DEFAULTS[name])
+
+
+def sealed_perms() -> set[Perm]:
+    """Rights the King keeps from everyone in the Dev tree (Bishops and Pawns). KING_ONLY is always included."""
+    out = set(KING_ONLY)
+    for key in (flag("sealed_perms") or []):
+        try:
+            out.add(Perm(str(key)))
+        except ValueError:
+            continue
+    return out
+
+
+def sealed_groups() -> set[str]:
+    return {str(g) for g in (flag("sealed_groups") or [])}
 
 
 # ---------------------------------------------------------------------------
@@ -412,42 +500,10 @@ def normalize_grants(keys) -> list[str]:
     return [g.key for g in GRANTS if g.key in wanted]
 
 
-def permissions_for(role: Role | str, *, gated: bool = True) -> set[Perm]:
-    """The role's base permissions: the built-in defaults with the Admin's role-level changes applied (a Pawn's
-    per-account grants are added by permissions_of). The Admin role is never changed. `gated=False` ignores the
-    Bola dev-only gate (the editors use it so they can show what the gate hides)."""
-    role = Role(role)
-    perms = builtin_permissions_for(role, gated=False)
-    if role != Role.ADMIN:
-        perms = _apply_role_override(perms, role.value)
-    if gated and bola_dev_only() and role != Role.ADMIN:
-        perms -= BOLA_PERMS
-    return perms
-
-
-def default_permissions_for_key(kind_key: str, *, gated: bool = True) -> set[Perm]:
-    """Role defaults for a role value or ``player`` (Admin changes applied)."""
-    if kind_key == PLAYER_ROLE_KEY:
-        perms = _apply_role_override(builtin_player_perms(), PLAYER_ROLE_KEY)
-        return perms - BOLA_PERMS if gated and bola_dev_only() else perms
-    return permissions_for(kind_key, gated=gated)
-
-
-def type_permissions(type_id: int, base_role: str, *, gated: bool = True) -> set[Perm]:
-    """What a custom account type grants by default: its base role's defaults, then the type's own changes."""
-    extra, removed = type_overrides().get(type_id, (set(), set()))
-    perms = (permissions_for(base_role, gated=False) | extra) - removed
-    return perms - BOLA_PERMS if gated and bola_dev_only() else perms
-
-
-# ---------------------------------------------------------------------------
-# Per-account overrides: the Admin can allow or deny single permissions for any account
-# ---------------------------------------------------------------------------
-
 # Never delegable and never removable by an override: the keys to this very manager. Only the Admin holds it
 # (the Admin's own rights are not editable either), so nobody can grant themselves or a friend the power to
 # change permissions.
-NON_DELEGABLE: frozenset[Perm] = frozenset({Perm.PAWNS_MANAGE})
+NON_DELEGABLE: frozenset[Perm] = frozenset({Perm.PAWNS_MANAGE, Perm.BISHOPS_MANAGE, Perm.KING_DESK, Perm.APPROVALS_DECIDE})
 
 # (category, ((perm, plain-language label), ...)) -- drives the rights chart and the per-account editor.
 PERM_CATALOG: tuple[tuple[str, tuple[tuple[Perm, str], ...]], ...] = (
@@ -484,7 +540,9 @@ PERM_CATALOG: tuple[tuple[str, tuple[tuple[Perm, str], ...]], ...] = (
         (Perm.CUTS_MANAGE, "Change cuts"), (Perm.CASHFLOW_VIEW, "House cashflow"),
         (Perm.REPORTS_VIEW, "Report archives"), (Perm.HIDDEN_VIEW, "Hidden layer (house revenue, formula audit)"))),
     ("Admin Panel & security", (
-        (Perm.PANEL_VIEW, "Open the Admin Panel"), (Perm.PAWNS_MANAGE, "Access manager (Admin only)"),
+        (Perm.PANEL_VIEW, "Open the Admin Panel"), (Perm.PAWNS_MANAGE, "Access manager (admins only)"),
+        (Perm.APPROVALS_DECIDE, "Answer requests for rights (admins only)"),
+        (Perm.BISHOPS_MANAGE, "Appoint Bishops (King only)"), (Perm.KING_DESK, "King desk: emergency switches (King only)"),
         (Perm.SETTINGS_VIEW, "See variables"), (Perm.SETTINGS_MANAGE, "Change variables"),
         (Perm.ACCOUNTS_VIEW, "Accounts page"), (Perm.ACCOUNTS_EDIT, "Edit account details"),
         (Perm.ACCOUNTS_REMOVE, "Close accounts"), (Perm.IPBANS_MANAGE, "Ban / unban IPs"),
@@ -497,68 +555,212 @@ PERM_CATALOG: tuple[tuple[str, tuple[tuple[Perm, str], ...]], ...] = (
 )
 
 _PERM_ORDER = {p.value: i for i, p in enumerate(Perm)}
-
-
-def _override_sets(user: User) -> tuple[set[Perm], set[Perm]]:
-    """(extra, removed) permissions the Admin set on this account (see _parse_perm_keys for what is ignored)."""
-    return _parse_perm_keys(getattr(user, "perm_grants", None)), _parse_perm_keys(getattr(user, "perm_revokes", None))
+PERM_LABELS: dict[str, str] = {perm.value: label for _cat, items in PERM_CATALOG for perm, label in items}
 
 
 def normalize_overrides(grants, revokes) -> tuple[list[str], list[str]]:
-    """Clean what the editor posted: known, delegable keys only, stable order. Deny beats allow."""
-    def clean(raw) -> set[str]:
-        keys = set()
-        for key in (raw or []):
-            try:
-                perm = Perm(str(key))
-            except ValueError:
-                continue
-            if perm not in NON_DELEGABLE:
-                keys.add(perm.value)
-        return keys
-    deny = clean(revokes)
-    allow = clean(grants) - deny
+    """Clean what an editor posted: known keys, grants without the non-delegable ones, stable order. Deny beats allow."""
+    deny = {p.value for p in _parse_revoke_keys(revokes)}
+    allow = {p.value for p in _parse_perm_keys(grants)} - deny
     order = lambda keys: sorted(keys, key=_PERM_ORDER.__getitem__)  # noqa: E731
     return order(allow), order(deny)
 
 
-def base_permissions_of(user: User) -> set[Perm]:
-    """The account's role defaults, a Pawn's grants and its custom account type -- before per-account overrides."""
-    if getattr(user, "preview_player_id", None) is not None:      # the DEV 'view as a player' stand-in
-        return player_perms()
-    perms = permissions_for(user.role)
-    for key in user.grant_set:
+# ---- states: per right "allow", "deny" or "rule" ---------------------------------------------------------
+
+def _apply_layer(state: dict, layer: Layer | None) -> None:
+    """Lay one level of settings over the state. Inside a level: allow < rule < deny."""
+    if layer is None:
+        return
+    for perm in layer.grants:
+        state[perm] = ("allow", None)
+    for perm, rule in layer.rules.items():
+        state[perm] = ("rule", rule)
+    for perm in layer.revokes:
+        state[perm] = ("deny", None)
+
+
+def builtin_permissions_for(role: Role | str, *, gated: bool = True) -> set[Perm]:
+    """A role's rights as written in code, before any change from the King or a Bishop."""
+    role = Role(role)
+    perms = set(ROLE_PERMS.get(role, set()))
+    if gated and bola_dev_only() and role != Role.ADMIN:
+        perms -= BOLA_PERMS
+    return perms
+
+
+def role_state(role_key: str) -> dict:
+    """A role's starting rights (written in code) with the changes made on its page. Absent = denied."""
+    base = builtin_player_perms() if role_key == PLAYER_ROLE_KEY else set(ROLE_PERMS.get(Role(role_key), set()))
+    state = {perm: ("allow", None) for perm in base}
+    if role_key != Role.ADMIN.value:                       # the King's rights can never be edited
+        _apply_layer(state, snapshot().roles.get(role_key))
+    return state
+
+
+def type_state(type_id: int, base_role: str) -> dict:
+    state = role_state(base_role)
+    _apply_layer(state, snapshot().types.get(type_id))
+    return state
+
+
+def _evaluate(state: dict, now: dt.datetime) -> tuple[set, set, dict]:
+    """(allowed now, may start but must ask, limit rules in force) from a state map."""
+    allowed: set[Perm] = set()
+    ask: set[Perm] = set()
+    limits: dict = {}
+    for perm, (kind, rule) in state.items():
+        if kind == "allow":
+            allowed.add(perm)
+        elif kind == "rule":
+            verdict = rules_mod.rule_state(rule, now)
+            if verdict == "allow":
+                allowed.add(perm)
+            elif verdict == "ask":
+                ask.add(perm)
+            elif verdict == "limit":
+                allowed.add(perm)
+                limits[perm] = rule
+    return allowed, ask, limits
+
+
+def _apply_ceiling(role_key: str, allowed: set, ask: set, limits: dict, *, gated: bool = True) -> None:
+    """What nobody of this role can hold, whatever was ticked: the King's own rights, what the King sealed from the
+    Dev tree, and the number game while it is dev-only. "Ask first" never applies to look-only rights."""
+    if role_key != Role.ADMIN.value:
+        banned = set(sealed_perms()) if role_key in (Role.BISHOP.value, Role.PAWN.value) else set(KING_ONLY)
+        if gated and bola_dev_only():
+            banned |= BOLA_PERMS
+        allowed -= banned
+        ask -= banned
+        for perm in banned:
+            limits.pop(perm, None)
+    ask -= VIEW_PERMS
+
+
+def permissions_for(role: Role | str, *, gated: bool = True) -> set[Perm]:
+    """The role's rights right now: its built-in defaults with the changes made on its page (rules read at this
+    moment). A Pawn's own switches are added by permissions_of. `gated=False` ignores the Bola dev-only gate (the
+    editors use it so they can show what the gate hides)."""
+    key = role.value if isinstance(role, Role) else str(role)
+    allowed, ask, limits = _evaluate(role_state(key), rules_mod.utcnow())
+    _apply_ceiling(key, allowed, ask, limits, gated=gated)
+    return allowed
+
+
+def default_permissions_for_key(kind_key: str, *, gated: bool = True) -> set[Perm]:
+    """Role defaults for a role value or ``player`` (Admin changes applied)."""
+    return permissions_for(kind_key, gated=gated)
+
+
+def type_permissions(type_id: int, base_role: str, *, gated: bool = True) -> set[Perm]:
+    """What a custom account type grants by default: its base role's defaults, then the type's own changes."""
+    allowed, ask, limits = _evaluate(type_state(type_id, base_role), rules_mod.utcnow())
+    _apply_ceiling(base_role, allowed, ask, limits, gated=gated)
+    return allowed
+
+
+def player_perms() -> set[Perm]:
+    """What a player may do right now (Admin changes applied; the number game stays hidden while it is dev-only)."""
+    return permissions_for(PLAYER_ROLE_KEY)
+
+
+@dataclass
+class Rights:
+    """Everything an account may do right now, split by how."""
+    allowed: set = field(default_factory=set)       # may do it
+    ask: set = field(default_factory=set)           # may start it; the King / a Bishop must approve first
+    limits: dict = field(default_factory=dict)      # Perm -> limit rule, for allowed rights that are counted
+    frozen: bool = False                            # the King froze this kind of account: look-only
+
+    def mode_of(self, perm: Perm) -> str:
+        if perm in self.limits:
+            return "limit"
+        if perm in self.allowed:
+            return "allow"
+        return "ask" if perm in self.ask else "deny"
+
+
+def _account_state(user: User, *, with_account: bool) -> dict:
+    snap = snapshot()
+    state = role_state(user.role.value)
+    for key in user.grant_set:                             # a Pawn's switches
         grant = GRANT_BY_KEY.get(key)
         if grant is not None:
-            perms |= set(grant.perms)
-    type_id = getattr(user, "account_profile_id", None)
-    if type_id is not None and user.role != Role.ADMIN:
-        extra, removed = type_overrides().get(type_id, (set(), set()))
-        perms = (perms | extra) - removed
-    if bola_dev_only() and user.role != Role.ADMIN:
-        perms -= BOLA_PERMS   # no role, type or Pawn grant can lift the gate
-    return perms
+            for perm in grant.perms:
+                state[perm] = ("allow", None)
+    if user.account_profile_id is not None:
+        _apply_layer(state, snap.types.get(user.account_profile_id))
+    if with_account:
+        _apply_layer(state, user_layer(user))
+    return state
+
+
+def user_layer(user: User) -> Layer:
+    """The account's own Allow / Deny / rules, cleaned."""
+    return parse_layer(getattr(user, "perm_grants", None), getattr(user, "perm_revokes", None),
+                       getattr(user, "perm_rules", None))
+
+
+def rights_of(user: User, *, now: dt.datetime | None = None) -> Rights:
+    """The full answer: role defaults -> Pawn switches -> account type -> the account's own settings -> a running
+    pass from an approved request -> the King's ceilings (sealed, frozen, paused). The King and the DEV player
+    preview are never overridden."""
+    if user.preview_player_id is not None:                 # the DEV 'view as a player' stand-in
+        return Rights(player_perms())
+    if user.role == Role.ADMIN:
+        return Rights(set(Perm))
+    now = now or rules_mod.utcnow()
+    allowed, ask, limits = _evaluate(_account_state(user, with_account=True), now)
+    for perm, until in snapshot().passes.get(user.id, {}).items():   # approved "for a while" passes
+        if until > now:
+            allowed.add(perm)
+            ask.discard(perm)
+            limits.pop(perm, None)
+    key = user.role.value
+    _apply_ceiling(key, allowed, ask, limits)
+    frozen = (key == Role.PAWN.value and bool(flag("freeze_pawns"))) or (key == Role.BISHOP.value and bool(flag("freeze_bishops")))
+    if frozen:
+        allowed = {perm for perm in allowed if perm in VIEW_PERMS}
+        ask, limits = set(), {}
+    if flag("approvals_paused"):
+        ask = set()
+    if not frozen:
+        allowed |= set(user.__dict__.get("_elevated", ()))     # a single-use pass spent on THIS request
+    return Rights(allowed, ask, limits, frozen)
+
+
+def base_permissions_of(user: User) -> set[Perm]:
+    """What the account gets from its role, a Pawn's switches and its account type -- before its own settings."""
+    if user.preview_player_id is not None:
+        return player_perms()
+    if user.role == Role.ADMIN:
+        return set(Perm)
+    allowed, ask, limits = _evaluate(_account_state(user, with_account=False), rules_mod.utcnow())
+    _apply_ceiling(user.role.value, allowed, ask, limits)
+    return allowed
 
 
 def permissions_of(user: User) -> set[Perm]:
-    """Everything this account may do: its role, a Pawn's grants, then the Admin's per-account overrides
-    (denied beats allowed). The Admin and the DEV player preview are never overridden."""
-    perms = base_permissions_of(user)
-    if user.role == Role.ADMIN or getattr(user, "preview_player_id", None) is not None:
-        return perms
-    extra, removed = _override_sets(user)
-    perms = (perms | extra) - removed
-    if bola_dev_only():
-        perms -= BOLA_PERMS   # overrides cannot lift the gate either
-    return perms
+    """Everything this account may do right now. "Ask first" rights are NOT in here (the action must be approved
+    before it runs, so a check inside a service fails closed); see rights_of / app.services.access."""
+    return rights_of(user).allowed
+
 
 
 def _groups_with(user: User, suffix: str) -> set[str]:
+    """Admin Panel variable groups this account may view / edit. The King: all. A Bishop: all except the groups the
+    King sealed. A Pawn: the groups ticked for it, never a sealed one."""
     if user.role == Role.ADMIN:
         return set(GROUPS)
+    if user.role == Role.BISHOP:
+        found = set(GROUPS) - sealed_groups()
+        if bola_dev_only():
+            found.discard(BOLA_GROUP)
+        return found
     if user.role == Role.PAWN:
         grants = user.grant_set
-        found = {g for g in GROUPS if f"vars:{g}:{suffix}" in grants}
+        found = {g for g in GROUPS if f"vars:{g}:{suffix}" in grants} - sealed_groups()
         if bola_dev_only():
             found.discard(BOLA_GROUP)
         return found
@@ -598,6 +800,8 @@ def sees_house(user: User) -> bool:
     only each side's multiple and the total bets."""
     if user.role == Role.ADMIN:
         return True
+    if user.role == Role.BISHOP:
+        return Perm.HIDDEN_VIEW in permissions_of(user)        # the King can seal the house money from Bishops
     return user.role == Role.PAWN and "totals:view" in user.grant_set
 
 
@@ -626,15 +830,18 @@ def has_global_scope(user: User) -> bool:
 def can_create_role(parent: User, child_role: Role) -> bool:
     """Who may create which account directly (no referral code).
 
-    Admin  -> Master, Agent, Sub Agent, Declarator, Teller, Pawn (anything under an upline the Admin picks).
+    King   -> Master, Agent, Sub Agent, Declarator, Teller, Pawn, Bishop (anything under an upline the King picks).
+    Bishop -> the same, minus Bishop.
     Pawn   -> Agent, Sub Agent, only when the Admin ticked "Create ... accounts".
     Master -> Agent, Declarator.
     Agent  -> Sub Agent.
     (Everyone below the Master recruits through referral codes in practice.)
-    There is only ever ONE Admin and only the Admin can create a Pawn."""
+    There is only ever ONE King; the King and Bishops create Pawns."""
     if parent.status != Status.ACTIVE:
         return False
     if parent.role == Role.ADMIN:
+        return child_role in (Role.MASTER, Role.AGENT, Role.SUB_AGENT, Role.DECLARATOR, Role.TELLER, Role.PAWN, Role.BISHOP)
+    if parent.role == Role.BISHOP:          # everything the King does, except appointing another Bishop
         return child_role in (Role.MASTER, Role.AGENT, Role.SUB_AGENT, Role.DECLARATOR, Role.TELLER, Role.PAWN)
     if parent.role == Role.PAWN:
         return (child_role in (Role.AGENT, Role.SUB_AGENT)
@@ -651,10 +858,10 @@ def creatable_roles(user: User) -> list[Role]:
 
 
 def _visible_ids(db: Session, user: User) -> set[int]:
-    """Every id the operator tier may see: Admin sees all, Master sees all but hidden accounts."""
+    """Every id the operator tier may see: the King sees all; everyone else sees no King and no Bishop."""
     stmt = select(User.id)
     if user.role != Role.ADMIN:
-        stmt = stmt.where(User.role != Role.ADMIN)
+        stmt = stmt.where(User.role.notin_(ADMIN_TIER))
     return set(db.scalars(stmt).all())
 
 
@@ -680,7 +887,7 @@ def scope_ids(db: Session, user: User) -> set[int]:
 def assert_user_in_scope(db: Session, actor: User, target_id: int) -> User:
     target = db.get(User, target_id)
     # A hidden account answers exactly like a missing one, so its existence cannot be probed.
-    if target is None or (target.is_hidden and actor.role != Role.ADMIN):
+    if target is None or (target.is_hidden and actor.role != Role.ADMIN and target.id != actor.id):
         raise Forbidden("Target account is not in your network.")
     if not has_global_scope(actor) and target_id not in scope_ids(db, actor):
         raise Forbidden("Target account is not in your network.")
@@ -699,6 +906,6 @@ def visible_agent_filter(actor: User):
     """SQL predicate helper for list pages (None = no restriction)."""
     if actor.role == Role.ADMIN:
         return None
-    if actor.role in (Role.MASTER, Role.PAWN, Role.TELLER):
-        return User.role != Role.ADMIN
+    if actor.role in (Role.BISHOP, Role.MASTER, Role.PAWN, Role.TELLER):
+        return User.role.notin_(ADMIN_TIER)
     return User.parent_id == actor.id

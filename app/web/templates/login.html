@@ -31,6 +31,7 @@
   <p class="auth-foot" style="margin-top:14px">Have a referral code? <a href="/register">Create an account</a></p>
   <p class="auth-foot">Protected by StelNet System, CSRF and Argon2id.<br>
   <span class="muted">Authorised personnel only. All actions are logged.</span></p>
+  {% if license.published or license.notice %}<p class="auth-foot lic-foot">{% if license.published %}<a href="/license">{{ license.short }}</a>{% endif %}{% if license.published and license.notice %}<br>{% endif %}{% if license.notice %}<span class="muted">{{ license.notice }}</span>{% endif %}</p>{% endif %}
 </main>
 {{ js('auth') }}
 </body>

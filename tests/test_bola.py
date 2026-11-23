@@ -213,7 +213,8 @@ def test_only_the_admin_can_cancel_a_number_game_bet(bw):
             bola.cancel_bola_ticket(w.db, who, ticket_id=t.id, reason="trying to cancel it", settings=w.store)
         assert t.status == TicketStatus.ACTIVE
     from app.core.rbac import Perm, permissions_for
-    assert [r for r in Role if Perm.BOLA_CANCEL in permissions_for(r)] == [Role.ADMIN]
+    # the Admin tier: the King, and the Bishops who hold every admin right
+    assert [r for r in Role if Perm.BOLA_CANCEL in permissions_for(r)] == [Role.ADMIN, Role.BISHOP]
 
 
 def test_cancel_refunds_and_frees_exposure(bw):

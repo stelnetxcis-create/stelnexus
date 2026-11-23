@@ -192,6 +192,8 @@ def test_permissions_master_is_admin_minus_admin_panel(monkeypatch):
                   # the Streams admin page (video sources): Admin only, Pawns by grant
                   Perm.STREAMS_VIEW, Perm.STREAMS_MANAGE,
                   Perm.CANCEL_LOG,
+                  # the King and Bishops' own rights: appoint Bishops, the King desk, answering requests for rights
+                  Perm.BISHOPS_MANAGE, Perm.KING_DESK, Perm.APPROVALS_DECIDE,
                   # undoing / cancelling a placed bet is dev-only
                   Perm.BETS_CANCEL, Perm.BOLA_CANCEL,
                   # Staff Panel: each section opens for its own role, the Admin and granted Pawns

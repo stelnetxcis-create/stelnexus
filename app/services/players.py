@@ -183,7 +183,7 @@ def account_staked_today(db: Session, user: User) -> int:
 
 def assert_account_can_bet(db: Session, user: User, stake_cents: int, settings: SettingsStore) -> None:
     """Daily cap for an account betting for itself (the player-level limit does not apply to it). Admin is exempt."""
-    if user.role == Role.ADMIN:
+    if user.is_admin_tier:
         return
     limit = int(settings.get("account.daily_bet_limit_cents") or 0)
     if limit and account_staked_today(db, user) + stake_cents > limit:

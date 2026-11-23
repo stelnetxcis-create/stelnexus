@@ -380,7 +380,7 @@ def request_correction(db: Session, actor: User, *, draw_id: int, ball_first: in
         run.reviewed_at = utcnow()
         return _apply(db, run, actor, settings)
 
-    for admin_id in db.scalars(select(User.id).where(User.role.in_([Role.ADMIN, Role.MASTER]),
+    for admin_id in db.scalars(select(User.id).where(User.role.in_([Role.ADMIN, Role.BISHOP, Role.MASTER]),
                                                      User.id != actor.id)).all():
         db.add(Notification(user_id=admin_id, level="warning",
                             message=f"{actor.username} requested a {action} on bola draw #{draw.id}",

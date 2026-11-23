@@ -95,7 +95,7 @@ def test_fight_view_has_strip_early_bet_panel_and_no_seller_panel():
     assert "data-bp" in html and 'data-place-url="/bets/live/place"' in html
     assert "/sell/place" not in html and "Sell tickets" not in html
     assert 'data-self="1"' in html and 'data-sl="player"' not in html   # bets as the logged-in account, no picker
-    assert "Start game" in html and "pre-show" in html
+    assert "Start fight" in html and "pre-show" in html
 
 
 def test_early_bet_follows_the_game_order():

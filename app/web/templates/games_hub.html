@@ -19,7 +19,7 @@
         {% if s.staked is not none %} · {{ s.staked | money }} staked{% endif %}
       </p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        {% if c.play %}<a class="btn btn-brand" href="/games/{{ g.key }}/live">{{ 'Play' if 'bets.place' in perms or 'bola.place' in perms else 'Watch' }}</a>{% endif %}
+        {% if c.play %}<a class="btn btn-brand" href="/games/{{ g.key }}/live">{{ 'Play' if c.can_play else 'Watch' }}</a>{% endif %}
         {% if c.manage %}<a class="btn" href="/games/{{ g.key }}/schedule">Manage</a>{% endif %}
         {% if c.urls.tickets %}<a class="btn btn-ghost" href="/records?tab=tickets&amp;game={{ g.key }}">Tickets</a>{% endif %}
       </div>

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}My requests · {{ brand }}{% endblock %}
+{% block heading %}My requests{% endblock %}
+{% block content %}
+{% include "_access_css.html" %}
+<p class="notice">Things you asked an admin to allow. When one is approved you run it yourself from here; nothing happens in your name. A one-time approval only fits the exact values you sent.</p>
+{% for x in items %}{% set r = x.r %}
+<div class="ax-req" style="border-left-color:{{ {'approved': '#52d9a3', 'denied': '#ff7b7b', 'pending': '#f5c04a'}.get(r.status, '#8a8a8a') }}">
+  <h3>{{ r.summary }} <span class="badge {{ {'approved': 'badge-green', 'denied': 'badge-red', 'pending': 'badge-gray'}.get(r.status, 'badge-gray') }}">{{ r.status }}</span></h3>
+  <small class="muted">{{ x.label }} · asked {{ r.created_at.strftime('%d %b %H:%M') }}{% if r.status == 'approved' %}{% if r.grant_mode %} · {{ {'once': 'one time', 'uses': 'several uses', 'timed': 'for a while', 'always': 'for good'}.get(r.grant_mode, r.grant_mode) }}{% endif %}{% if r.uses_left is not none %} · {{ r.uses_left }} use(s) left{% endif %}{% if r.pass_until %} · until {{ r.pass_until.strftime('%d %b %H:%M') }}{% endif %}{% endif %}</small>
+  {% if r.decision_note %}<p class="small" style="margin:6px 0">Note: {{ r.decision_note }}</p>{% endif %}
+  {% if x.fields %}<table><tbody>{% for k, v in x.fields %}<tr><td>{{ k }}</td><td>{{ v }}</td></tr>{% endfor %}</tbody></table>{% endif %}
+  <div class="ax-answer">
+    {% if x.runnable %}
+    <form method="post" action="{{ r.path }}" class="inline-form" data-confirm="Run this now?">{{ ui.csrf(csrf_token) }}
+      {% for k, v in x.fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+      <button class="btn btn-primary" type="submit">Run it now</button></form>
+    <small class="muted">Passwords are never stored: if the form needs one, re-open the page and send it again.</small>
+    {% elif r.status == 'approved' and r.kind == 'access' %}<a class="btn btn-primary" href="{{ r.path or '/dashboard' }}">Open the page</a>{% endif %}
+    {% if r.status in ('pending', 'approved') %}<form method="post" action="/access/mine/{{ r.id }}/cancel" class="inline-form">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm btn-ghost" type="submit">Cancel</button></form>{% endif %}
+  </div>
+</div>
+{% else %}{{ ui.empty('You have not asked for anything.') }}{% endfor %}
+{% endblock %}

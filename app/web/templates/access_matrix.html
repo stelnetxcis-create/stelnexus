@@ -4,24 +4,25 @@
 {% block heading %}Admin Panel{% endblock %}
 {% block content %}
 {% include "_access_nav.html" %}
-<p class="notice">Every account type side by side. Tick what each type may do <b>by default</b>; a change reaches everyone of that type within seconds. Custom types and a person's own Allow / Deny still sit on top, and Deny always wins. The Dev column cannot change. A dot marks a right that differs from the starting default.{% if bola_locked %} Bola rights are locked while Bola is dev-only.{% endif %}</p>
+<p class="notice">Every account type side by side. Tick what each type may do <b>by default</b>; a change reaches everyone of that type within seconds. A symbol instead of a box (✋ ⏱ 🕒 #) is a conditional right: open that type's page to change it. Custom types and a person's own settings still sit on top. A dot marks a right that differs from the starting default.{% if bola_locked %} Bola rights are locked while Bola is dev-only.{% endif %}</p>
 <form method="post" action="/admin/access/matrix" data-confirm="Change the default rights for every account of the types you edited?">{{ ui.csrf(csrf_token) }}
 <div class="card">
   <div class="card-head"><h2>Default rights by account type</h2><button class="btn btn-primary" type="submit">Save</button></div>
   <div class="card-body tight table-wrap">
     <table class="table">
-      <thead><tr><th>Right</th><th class="center">Dev</th>{% for key, label, held, builtin in roles %}<th class="center"><a href="/admin/access/{{ role_tree[key] }}/{{ key }}">{{ label }}</a></th>{% endfor %}</tr></thead>
+      <thead><tr><th>Right</th>{% if is_king %}<th class="center"><span class="ax-piece">♔</span>King</th>{% endif %}{% for key, label, held, builtin, ruled in roles %}<th class="center"><a href="/admin/access/{{ role_tree[key] }}/{{ key }}">{{ label }}</a></th>{% endfor %}</tr></thead>
       <tbody>
       {% for category, items in catalog %}
-        <tr><td colspan="{{ roles|length + 2 }}"><strong>{{ category }}</strong></td></tr>
+        <tr><td colspan="{{ roles|length + (2 if is_king else 1) }}"><strong>{{ category }}</strong></td></tr>
         {% for perm, label in items %}{% set k = perm.value %}
         <tr>
           <td>{{ label }}<br><small class="mono muted">{{ k }}</small></td>
-          <td class="center"><span class="amt-in" title="The Dev account always has every right">&#10003;</span></td>
-          {% for rkey, rlabel, held, builtin in roles %}
+          {% if is_king %}<td class="center"><span class="amt-in" title="The King always has every right">&#10003;</span></td>{% endif %}
+          {% for rkey, rlabel, held, builtin, ruled in roles %}
           <td class="center">
-            {% if k in locked %}{% if k in held %}<span class="amt-in" title="{{ 'Admin only' if k in non_delegable else 'Locked: Bola is dev-only' }}">&#10003;</span>{% else %}<span class="muted">&mdash;</span>{% endif %}
-            {% else %}<input type="checkbox" name="r:{{ rkey }}:{{ k }}" {{ 'checked' if k in held }} aria-label="{{ rlabel }}: {{ label }}">{% if (k in held) != (k in builtin) %}<span title="Differs from the starting default" style="color:var(--gold)">&bull;</span>{% endif %}{% endif %}
+            {% if k in ruled %}<a href="/admin/access/{{ role_tree[rkey] }}/{{ rkey }}" title="Conditional: change it on this type's page">{{ ruled[k] }}</a>
+            {% elif k in locked %}{% if k in held %}<span class="amt-in" title="{{ 'Admin only' if k in non_delegable else 'Locked' }}">&#10003;</span>{% else %}<span class="muted">&mdash;</span>{% endif %}
+            {% else %}<input type="hidden" name="rr:{{ rkey }}:{{ k }}" value="1"><input type="checkbox" name="r:{{ rkey }}:{{ k }}" {{ 'checked' if k in held }} aria-label="{{ rlabel }}: {{ label }}">{% if (k in held) != (k in builtin) %}<span title="Differs from the starting default" style="color:var(--gold)">&bull;</span>{% endif %}{% endif %}
           </td>
           {% endfor %}
         </tr>

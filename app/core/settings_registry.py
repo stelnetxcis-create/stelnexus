@@ -73,20 +73,41 @@ DEFS: tuple[SettingDef, ...] = (
                "Integer centavo division leaves 0-2 centavos; this account absorbs them.",
                choices=("house", "winners")),
     SettingDef("payout.min_stake_cents", "Minimum bet", "money", 2000, "Payout", "In centavos (2000 = ₱20).", 100, 10**9),
-    SettingDef("payout.max_stake_cents", "Maximum bet", "money", 5000000, "Payout", "In centavos (5000000 = ₱50,000).", 100, 10**11),
+    SettingDef("payout.max_stake_cents", "Maximum bet", "money", 1000000, "Payout", "In centavos (1000000 = ₱10,000).", 100, 10**11),
+    SettingDef("payout.max_bet_pool_share_bps", "Maximum bet, share of the pool", "bps", 1000, "Payout",
+               "One bet cannot be more than this share of the Meron + Wala money already in the fight, so a single big "
+               "bet cannot swing everyone else's multiple. Bets up to the amount below are always allowed (early bets "
+               "on a small pool). 1000 = 10%. 0 = rule off.", 0, 10000),
+    SettingDef("payout.max_bet_pool_floor_cents", "Always allowed bet (pool-share rule)", "money", 200000, "Payout",
+               "A bet up to this amount is never stopped by the pool-share rule. In centavos (200000 = ₱2,000).", 0, 10**11),
+    SettingDef("payout.big_bet_alert_cents", "Big-bet alert from", "money", 500000, "Payout",
+               "A bet of at least this amount is logged and the Admin and the bettor's Master are notified. It is "
+               "never blocked by this setting. In centavos (500000 = ₱5,000). 0 = off.", 0, 10**11),
     SettingDef("payout.max_payout_cents", "Maximum payout per ticket", "money", 0, "Payout", "0 = no cap.", 0, 10**11),
     SettingDef("payout.draw_odds_bps", "Draw payout multiplier", "bps", 80000, "Payout",
                "Draw is its own side bet, always paid at this fixed multiplier. 80000 = 8.00x.", 10000, 1000000),
-    SettingDef("payout.min_odds_bps", "Minimum odds (pool model)", "bps", 15000, "Payout",
-               "The minimum payout: if the winning side would pay less than this multiple, the fight is cancelled and every "
-               "stake refunded. 15000 = 1.50x. 0 = rule off.", 0, 100000),
+    SettingDef("payout.draw_max_stake_cents", "Draw: highest single bet", "money", 100000, "Payout",
+               "A Draw is paid by the house, not by the pool, so one Draw ticket cannot be bigger than this. "
+               "In centavos (100000 = ₱1,000). 0 = no limit.", 0, 10**11),
+    SettingDef("payout.draw_max_exposure_cents", "Draw: highest total per fight", "money", 500000, "Payout",
+               "Total Draw money accepted on one fight. If Draw hits, the house pays (multiplier - 1) times this on "
+               "top of the stakes it returns, so this is what bounds the loss. In centavos (500000 = ₱5,000). "
+               "0 = no limit.", 0, 10**11),
+    SettingDef("payout.min_odds_bps", "Minimum odds (pool model)", "bps", 13000, "Payout",
+               "The minimum payout: a winning side never pays less than this multiple. What happens when the pool "
+               "would pay less is set below. 13000 = 1.30x. 0 = rule off.", 0, 100000),
+    SettingDef("payout.min_odds_mode", "When the winner would pay under the minimum", "choice", "relief_all", "Payout",
+               "relief_all = lower the tong first and then the platform cut just enough to reach the minimum, and "
+               "only refund the fight if even that cannot reach it. relief_tong = lower only the tong (the platform "
+               "cut is kept). refund = cancel the fight and refund every stake.",
+               choices=("relief_all", "relief_tong", "refund")),
     SettingDef("payout.platform_cut_bps", "Platform cut (pool model)", "bps", 500, "Payout",
                "StelNexus's own cut, taken from the Meron + Wala pool on top of the house commission and shown to "
                "players as a rate (e.g. 'Platform cut 5%'). Only the Admin and a Pawn with 'totals:view' see the "
                "amounts. 500 = 5.00%. 0 = none.", 0, 5000),
     SettingDef("payout.max_llamado_bps", "Maximum payout, Llamado side (pool model)", "bps", 25000, "Payout",
                "The favourite side (the one marked Llamado, else the side with more bets) never pays more than this "
-               "multiple. 25000 = 2.50x. Together with the minimum odds, every payout sits between 1.50x and 2.50x. "
+               "multiple. 25000 = 2.50x. Together with the minimum odds, every payout sits between the minimum and this maximum. "
                "0 = no maximum.", 0, 1000000),
     SettingDef("payout.max_dehado_bps", "Maximum payout, Dehado side (pool model)", "bps", 25000, "Payout",
                "The other side (fewer bets) never pays more than this multiple. 25000 = 2.50x. 0 = no maximum.",
@@ -272,6 +293,21 @@ DEFS: tuple[SettingDef, ...] = (
                "An account is 'online' if it did something within this many minutes.", 1, 60),
     SettingDef("security.password_min_length", "Minimum password length", "int", 12, "Security", "", 8, 128),
     # ---- branding / ticket ------------------------------------------------
+    SettingDef("license.issuer", "License issued by", "str", "Philippine Charity Sweepstakes Office (PCSO)", "License",
+               "Shown next to the logo in the header, in the footer and on the License page.", maximum=120),
+    SettingDef("license.holder", "License holder (operator name)", "str", "", "License",
+               "As written on the license.", maximum=120),
+    SettingDef("license.number", "License number", "str", "", "License",
+               "Type it exactly as printed on the license. Until a number is entered the logo is just a badge and the License page is hidden.",
+               maximum=80),
+    SettingDef("license.valid_until", "Valid until (optional)", "str", "", "License",
+               "For example 2027-06-30 or June 30, 2027. Leave empty to hide.", maximum=40),
+    SettingDef("license.verify_url", "Where players can verify it (optional https:// link)", "str", "", "License",
+               "A page on the regulator's website. Only https:// links are shown.", maximum=300),
+    SettingDef("license.statement", "About our license (optional)", "str", "", "License",
+               "A short plain-language paragraph shown on the License page.", maximum=500),
+    SettingDef("license.notice", "Responsible play notice", "str", "Only for players of legal age. Please play responsibly.",
+               "License", "Shown in the footer and on the License page. Leave empty to hide.", maximum=200),
     SettingDef("stream.enabled", "Use the Streams page for the fight video", "bool", True, "Streaming",
                "Off = viewers always see the sample feed, whatever is taken live on the Streams page."),
     SettingDef("stream.dvr_window_seconds", "Rewind window (seconds)", "int", 120, "Streaming",

@@ -238,7 +238,7 @@
   const unlock = $('[data-fc-unlock]');
   if (unlock) unlock.addEventListener('click', async () => {
     unlock.disabled = true;
-    try { const d = await post(url + '/unlock'); apply(d); if (snx.Sound) snx.Sound.play('ok'); say('Chat unlocked for this game.', 'success'); input.focus(); }
+    try { const d = await post(url + '/unlock'); apply(d); if (snx.Sound) snx.Sound.play('ok'); say('Chat unlocked for this fight.', 'success'); input.focus(); }
     catch (e) { say(e.message); unlock.disabled = false; }
   });
 
@@ -297,9 +297,9 @@
     root.dataset.fight = String(g.id);
     root.dataset.url = '/fights/' + g.id + '/chat';
     url = root.dataset.url;
-    root.setAttribute('aria-label', 'Livestream chat for game ' + g.n);
-    if (headSub) headSub.textContent = 'Game #' + g.n + ' \u00B7 ' + g.nm + ' vs ' + g.nw;
-    if (unlockNote) unlockNote.textContent = 'Unlocks Game #' + g.n + ' only';
+    root.setAttribute('aria-label', 'Livestream chat for fight ' + g.n);
+    if (headSub) headSub.textContent = 'Fight #' + g.n + ' \u00B7 ' + g.nm + ' vs ' + g.nw;
+    if (unlockNote) unlockNote.textContent = 'Unlocks Fight #' + g.n + ' only';
     resultBox.className = 'fc-result'; winner.textContent = '';
     conn.dataset.state = 'wait'; conn.textContent = 'connecting';
     if (!openStream()) { poll(); schedulePoll(pace.delay()); }

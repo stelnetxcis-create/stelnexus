@@ -103,7 +103,7 @@ def ban(db: Session, actor: User, *, network: str, reason: str, hours: int | Non
     if hours is not None and not 1 <= int(hours) <= 24 * 365:
         raise ValidationError("Duration must be between 1 hour and 365 days, or empty for no expiry.")
     protected = {actor_ip}
-    admin_ips = db.scalars(select(User.last_login_ip).where(User.role == Role.ADMIN)).all()
+    admin_ips = db.scalars(select(User.last_login_ip).where(User.role.in_([Role.ADMIN, Role.BISHOP]))).all()
     protected.update(admin_ips)
     for ip in protected:
         try:

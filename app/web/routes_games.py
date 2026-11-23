@@ -30,7 +30,7 @@ async def games_hub(ctx: Ctx = Depends(require_ctx)):
     for adapter in games.visible_games(ctx):
         urls = adapter.workspace_urls(ctx)
         summary = adapter.summary_today(ctx)
-        cards.append({"game": adapter, "urls": urls, "summary": summary,
+        cards.append({"game": adapter, "urls": urls, "summary": summary, "can_play": adapter.can(ctx, "place"),
                       "play": urls.get("live") or urls.get("schedule"),
                       "manage": urls.get("schedule") if adapter.can(ctx, "manage") else None})
     return render(ctx, "games_hub.html", active="games", cards=cards)

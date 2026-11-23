@@ -1,17 +1,16 @@
-/* Phone navigation. Loaded after base/theme. Only affects screens <= 860px; desktop is untouched.
-   Idea: the top bar only carries what you need all the time (menu, where you are, alerts, money, you);
-   everything else lives one tap away in the Menu, which is organised like an app: who you are, where to go,
-   account, sign out. The bottom bar holds the 4-5 places people actually switch between. */
+/* Phone navigation. Loaded after base/theme.
+   PORTRAIT phone (<= 860px wide): no sidebar. The bottom bar IS the navigation; its last tab, "More", opens a bottom sheet
+   with every other destination. LANDSCAPE phone / tablet / desktop: the sidebar (a drawer on phones, opened with the
+   menu button) and no bottom bar. */
 
-.nav-me,.nav-account{display:none}
+.more-sheet,.more-scrim{display:none}
 
 @media (max-width:860px){
-  /* ---- top bar: never overflow, always say where you are ---- */
-  html,body{overflow-x:clip}
-  .topbar{gap:8px;padding:8px 10px;min-height:56px}
+  /* ---- top bar: one row, never overflows, always says where you are, fully solid so scrolling content never shows through ---- */
+  .topbar{gap:8px;padding:8px 10px;min-height:56px;background:#0a090b!important}
   .topbar .license-logo{display:none}
   .topbar>.icon-btn,.topbar>.open-nav{flex:0 0 auto}
-  .topbar>.snd-btn,.topbar-actions>.snd-btn{display:none}          /* sounds moved into the Menu */
+  .topbar>.snd-btn,.topbar-actions>.snd-btn{display:none}          /* sounds live in the account menu on phones */
   .topbar h1{flex:1 1 0;min-width:0;font-size:17px;line-height:1.2}
   .topbar-actions{gap:6px;min-width:0;max-width:72vw}
   .topbar-actions .btn{padding-inline:11px;min-height:38px}
@@ -24,51 +23,15 @@
   .wallet-chip .bal{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .user-chip{padding:3px}
   .menu-panel{max-width:calc(100vw - 20px)}
-
   .page-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
   .page-actions .btn{min-height:40px}
+  .dup-nav{display:none!important}           /* buttons that only repeat a tab / the bottom bar */
 
-  /* ---- bottom bar: even slots, clear active state, never cramped ---- */
-  .tabbar{padding:4px 4px calc(4px + env(safe-area-inset-bottom));gap:2px;justify-content:stretch}
-  .tab{flex:1 1 0;min-width:0;padding:7px 2px 6px;gap:3px;font-size:11px;position:relative}
-  .tab svg{width:22px;height:22px}
-  .tab span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .tab.is-active::before{content:"";position:absolute;top:0;left:30%;right:30%;height:2px;border-radius:2px;background:var(--gold-hi)}
-  .content{padding-bottom:calc(84px + env(safe-area-inset-bottom))}
-
-  /* ---- Menu (the drawer) ---- */
-  .sidebar{width:min(86vw,340px);flex-basis:auto;visibility:hidden;transition:transform .22s ease,visibility 0s .22s;overscroll-behavior:contain}
-  .sidebar.is-open{visibility:visible;transition:transform .22s ease,visibility 0s}
-  .sidebar .brand{padding:14px 14px 12px}
-  .sidebar .close-nav{margin-left:auto}
-  .backdrop{position:fixed;inset:0;z-index:35;background:rgba(0,0,0,.62)}
-  .backdrop[hidden]{display:none}
-  .nav-me{display:flex;align-items:center;gap:11px;margin:12px 12px 4px;padding:11px 12px;border:1px solid var(--line-2);border-radius:14px;background:rgba(217,177,85,.07)}
-  .nav-me .avatar{flex:0 0 40px;width:40px;height:40px;display:grid;place-items:center;border-radius:12px;background:var(--gold-grad,#d9b155);color:#1a1405;font-weight:800;font-size:17px}
-  .nav-me-who{min-width:0;flex:1}
-  .nav-me-who strong{display:block;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .nav-me-who small{display:block;font-size:11.5px;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .nav-me-bal{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;border:1px solid var(--line-2);color:var(--gold-hi);font-weight:700;font-size:13px;font-variant-numeric:tabular-nums;white-space:nowrap}
-  .nav-me-bal:hover{text-decoration:none;background:rgba(217,177,85,.12)}
-  .sidebar .nav{padding-bottom:6px}
-  .sidebar .nav-link{min-height:44px;padding:9px 14px;border-radius:12px;font-size:15px}
-  .sidebar .nav-title{margin-top:8px}
-  .nav-account{display:block;margin-top:4px;padding-bottom:10px}
-  .nav-account form{margin:0}
-  .nav-account .nav-link{width:100%;background:none;border:0;text-align:left;cursor:pointer;font-family:inherit}
-  .nav-snd .nav-state{margin-left:auto;font-style:normal;font-size:12px;font-weight:700;color:var(--ink-3)}
-  .nav-snd .nav-state::before{content:"Off"}
-  .nav-snd.is-on .nav-state::before{content:"On";color:var(--gold-hi)}
-  .nav-signout .nav-link{color:#f08a8f}
-  /* the install button scrolls with the list instead of pinning ~100px of the Menu */
-  .sidebar-install{position:static;border-top:0;background:none;padding:2px 12px calc(14px + env(safe-area-inset-bottom))}
-  .sidebar-install .install-btn{min-height:44px}
-
-  /* ---- section tabs (Admin Panel, Staff Panel, Access...): ONE swipeable row, stuck under the top bar ---- */
+  /* ---- section tabs (Admin Panel, Staff Panel, Wallet, Access...): ONE swipeable row, stuck under the top bar ---- */
   .content>.subtabs,.content>.ax-bar>.subtabs{
     flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:none;
     scroll-snap-type:x proximity;gap:6px;margin:-14px -14px 14px;padding:10px 14px 10px;
-    background:rgba(10,9,11,.97);border-bottom:1px solid var(--line);
+    background:#0a090b;border-bottom:1px solid var(--line);
     position:sticky;top:56px;z-index:15;
     -webkit-mask-image:linear-gradient(90deg,#000 0,#000 calc(100% - 26px),transparent);
             mask-image:linear-gradient(90deg,#000 0,#000 calc(100% - 26px),transparent)}
@@ -77,9 +40,77 @@
   .content>.ax-bar{display:block;margin:0 0 6px}
   .content>.ax-bar>.btn{margin:0 0 10px;width:100%;justify-content:center}
 }
+
+/* ================= PORTRAIT: bottom bar + More sheet, no sidebar ================= */
+@media (max-width:860px) and (orientation:portrait){
+  .sidebar,.backdrop,.topbar .open-nav{display:none!important}
+  .tabbar{display:flex;padding:4px 4px calc(4px + env(safe-area-inset-bottom));gap:2px;justify-content:stretch;background:#0a090b!important;border-top:1px solid var(--line-2)}
+  .tab{flex:1 1 0;min-width:0;padding:7px 2px 6px;gap:3px;font-size:11px;position:relative}
+  .tab{line-height:1.2;justify-content:center}
+  button.tab{font-family:inherit;background:none;border:0;border-radius:inherit}
+  .tab svg{width:22px;height:22px}
+  .tab span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tab.is-active::before,.tab.is-open::before{content:"";position:absolute;top:0;left:30%;right:30%;height:2px;border-radius:2px;background:var(--gold-hi)}
+  .tab.is-open{color:var(--gold-hi)}
+  .content{padding-bottom:calc(84px + env(safe-area-inset-bottom))}
+
+  .more-scrim{display:block;position:fixed;inset:0;z-index:79;background:rgba(0,0,0,.62);opacity:0;pointer-events:none;transition:opacity .2s}
+  .more-scrim.is-open{opacity:1;pointer-events:auto}
+  .more-sheet{display:block;position:fixed;left:0;right:0;bottom:0;z-index:80;max-height:82vh;overflow-y:auto;overscroll-behavior:contain;
+    background:#0e0c0f;border-top:1px solid var(--gold);border-radius:20px 20px 0 0;box-shadow:0 -18px 50px rgba(0,0,0,.6);
+    padding:8px 14px calc(18px + env(safe-area-inset-bottom));transform:translateY(105%);visibility:hidden;transition:transform .24s ease,visibility 0s .24s}
+  .more-sheet.is-open{transform:none;visibility:visible;transition:transform .24s ease,visibility 0s}
+  .more-head{display:flex;align-items:center;justify-content:space-between;margin:0 2px 6px}
+  .more-head strong{font-family:var(--font-display,inherit);font-size:19px}
+  .more-edit{border:1px solid var(--line-2);background:rgba(255,255,255,.03);color:var(--gold-hi);border-radius:999px;padding:8px 14px;font-weight:600;font-size:13px;font-family:inherit;cursor:pointer;min-height:36px}
+  .more-hint{margin:0 4px 4px;font-size:12.5px;color:var(--ink-3)}
+  .more-hint.is-warn{color:#ff8f8f}
+  .more-empty{grid-column:1/-1;margin:6px 4px;font-size:13px;color:var(--ink-3)}
+  .more-reset{display:block;margin:16px auto 0;border:0;background:none;color:var(--ink-3);text-decoration:underline;font:inherit;font-size:13px;cursor:pointer;padding:8px}
+  .more-item{position:relative}
+  .more-item.is-pinned{border-color:var(--gold);background:rgba(217,177,85,.14)}
+  .pin-badge{position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-weight:700;font-size:15px;line-height:1;background:rgba(217,177,85,.2);color:var(--gold-hi)}
+  .more-item.is-pinned .pin-badge{background:var(--gold);color:#1a1405}
+  .more-grab{width:44px;height:5px;border-radius:5px;background:var(--line-2);margin:4px auto 12px}
+  .more-title{display:flex;align-items:center;gap:10px;margin:14px 4px 8px;font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--gold)}
+  .more-title::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--line-2),transparent)}
+  .more-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .more-item{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;min-height:78px;padding:10px 6px;border:1px solid var(--line-2);border-radius:14px;
+    background:rgba(255,255,255,.02);color:var(--ink-2,var(--ink));font-size:12.5px;font-weight:600;text-align:center;line-height:1.2;font-family:inherit;cursor:pointer}
+  .more-item:hover{text-decoration:none;background:rgba(217,177,85,.1)}
+  .more-item .ico{width:23px;height:23px}
+  .more-item.is-active{border-color:var(--gold);background:rgba(217,177,85,.14);color:var(--gold-hi)}
+  .more-item span{overflow-wrap:anywhere}
+}
+
+/* ================= LANDSCAPE phone / small tablet: sidebar drawer, no bottom bar ================= */
+@media (max-width:860px) and (orientation:landscape){
+  .tabbar{display:none}
+  .content{padding-bottom:14px}
+  .sidebar{width:min(46vw,340px);flex-basis:auto;visibility:hidden;transition:transform .22s ease,visibility 0s .22s;overscroll-behavior:contain}
+  .sidebar.is-open{visibility:visible;transition:transform .22s ease,visibility 0s}
+  .sidebar .brand{padding:10px 14px}
+  .backdrop{position:fixed;inset:0;z-index:35;background:rgba(0,0,0,.62)}
+  .backdrop[hidden]{display:none}
+  .sidebar .nav-link{min-height:42px;padding:8px 14px;border-radius:12px}
+  .sidebar .nav-title{margin-top:6px}
+  .sidebar-install{position:static;border-top:0;background:none;padding:2px 12px 12px}
+  .topbar{min-height:48px;padding-block:5px}
+  .content>.subtabs,.content>.ax-bar>.subtabs{top:48px}
+}
 @media (max-width:380px){
   .topbar h1{font-size:15px}
   .wallet-chip .ico{display:none}
   .tab{font-size:10.5px}
 }
-@media (max-width:860px){.nav-snd .ico{width:18px;height:18px}.nav-snd{gap:11px}}
+
+/* ---- Settings page ---- */
+.settings-note{margin:0 2px 12px}
+.set-row{display:flex;align-items:center;gap:14px;width:100%;padding:12px 14px;border:1px solid var(--line-2);border-radius:14px;background:rgba(255,255,255,.02);color:var(--ink);text-align:left;font-family:inherit;cursor:pointer;min-height:64px}
+.set-ico{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:rgba(217,177,85,.1);color:var(--gold-hi);flex:0 0 auto}
+.set-txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.set-txt small{color:var(--ink-3);font-size:12.5px;line-height:1.3}
+.set-switch{flex:0 0 auto;width:46px;height:28px;border-radius:999px;background:var(--line-2);position:relative;transition:background .18s}
+.set-switch i{position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#cfc9bd;transition:transform .18s}
+.set-row.is-on .set-switch{background:var(--gold)}
+.set-row.is-on .set-switch i{transform:translateX(18px);background:#1a1405}

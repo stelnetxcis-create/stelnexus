@@ -3,7 +3,7 @@
 {% import "_lobby.html" as lobby %}
 {% import "_player.html" as pl %}
 {% import "_betpanel.html" as bpl %}
-{% block title %}Game View · {{ brand }}{% endblock %}
+{% block title %}Fight View · {{ brand }}{% endblock %}
 {% block heading %}Fight View{% if event %} — {{ event.title }}{% endif %}{% endblock %}
 {% block head %}{{ css('store') }}{% endblock %}
 {% block actions %}
@@ -13,10 +13,10 @@
 
 {% if not event %}
 {% if events %}
-<p class="muted small" style="margin:0 0 12px">Choose an event to open its games.</p>
+<p class="muted small" style="margin:0 0 12px">Choose an event to open its fights.</p>
 {{ lobby.event_cards(events, stats, '/change_name?event_id=') }}
 {% else %}
-<div class="card"><div class="card-body">{{ ui.empty('Create an event first, then its games appear here.', kind='arena', title='No events yet', href='/events', cta='Go to events') }}</div></div>
+<div class="card"><div class="card-body">{{ ui.empty('Create an event first, then its games appear here.', kind='arena', title='No events yet', href='/games/sabong/schedule', cta='Go to events') }}</div></div>
 {% endif %}
 {% else %}
 
@@ -24,7 +24,7 @@
 <div class="card">
   <div class="card-head"><h2>Pending corrections</h2>{{ ui.badge(pending | length, 'amber') }}</div>
   <div class="card-body tight"><div class="table-wrap"><table class="table">
-    <thead><tr><th>Game</th><th>Action</th><th>Result</th><th>Reason</th><th class="right">Decision</th></tr></thead>
+    <thead><tr><th>Fight</th><th>Action</th><th>Result</th><th>Reason</th><th class="right">Decision</th></tr></thead>
     <tbody>
     {% for run in pending %}
       <tr>
@@ -61,18 +61,18 @@
     {% set ph = fv_phase %}
     <div class="fv-live" data-fv-live data-live="{{ 1 if ph == 'onair' else 0 }}" data-phase="{{ ph }}">
       <span class="fv-live-dot" aria-hidden="true"></span>
-      <span data-fv-live-text>{% if ph == 'open' %}Fight #{{ fight.number }} &middot; pre-show &middot; betting and chat are open{% elif ph == 'onair' %}{% if on_air %}Fight #{{ fight.number }} is on air &middot; betting and chat are closed until it is done{% else %}Fight #{{ fight.number }} &middot; betting is closed{% endif %}{% elif ph == 'waiting' %}Fight #{{ fight.number }} opens after the games before it are done{% else %}Fight #{{ fight.number }} &middot; ended{% endif %}</span>
+      <span data-fv-live-text>{% if ph == 'open' %}Fight #{{ fight.number }} &middot; pre-show &middot; betting and chat are open{% elif ph == 'onair' %}{% if on_air %}Fight #{{ fight.number }} is on air &middot; betting and chat are closed until it is done{% else %}Fight #{{ fight.number }} &middot; betting is closed{% endif %}{% elif ph == 'waiting' %}Fight #{{ fight.number }} opens after the fights before it are done{% else %}Fight #{{ fight.number }} &middot; ended{% endif %}</span>
       {% if 'fights.lock' in perms and event.status.value == 'open' %}
-      <form method="post" action="/events/{{ event.id }}/stream" data-fv-live-form="start" data-confirm="Put this game on air? Betting and chat close until it is declared; the next game opens after that."{% if ph != 'open' %} hidden{% endif %}>
+      <form method="post" action="/events/{{ event.id }}/stream" data-fv-live-form="start" data-confirm="Put this fight on air? Betting and chat close until it is declared; the next fight opens after that."{% if ph != 'open' %} hidden{% endif %}>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="start"><input type="hidden" name="fight_id" value="{{ fight.id }}">
-        <button class="btn btn-sm btn-primary">Start game</button></form>
-      <form method="post" action="/events/{{ event.id }}/stream" data-fv-live-form="reset" data-confirm="Back to pre-show for this game? Betting and chat open again."{% if not (ph == 'onair' and on_air) %} hidden{% endif %}>
+        <button class="btn btn-sm btn-primary">Start fight</button></form>
+      <form method="post" action="/events/{{ event.id }}/stream" data-fv-live-form="reset" data-confirm="Back to pre-show for this fight? Betting and chat open again."{% if not (ph == 'onair' and on_air) %} hidden{% endif %}>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="reset"><input type="hidden" name="fight_id" value="{{ fight.id }}">
         <button class="btn btn-sm">Back to pre-show</button></form>
       {% endif %}
     </div>
     <section class="fc {{ 'is-closed' if chat_access.reason == 'closed' else ('is-locked' if not chat_access.can_send) }}" data-fightchat
-             data-url="/fights/{{ fight.id }}/chat" data-fight="{{ fight.id }}" data-tokens="{{ chat_tokens }}" aria-label="Livestream chat for game {{ fight.number }}">
+             data-url="/fights/{{ fight.id }}/chat" data-fight="{{ fight.id }}" data-tokens="{{ chat_tokens }}" aria-label="Livestream chat for fight {{ fight.number }}">
       <div class="fc-stagewrap" data-stage>
       <div class="fc-rotbox">
         {% set strip_html %}{{ lobby.game_strip(fights, event.id, fight.id) }}{% endset %}
@@ -91,6 +91,7 @@
         <div class="pbs" data-pbs data-state="{{ pbs_state }}" data-money="{{ 0 if hide_totals else 1 }}" data-res="{{ res }}"{% if pbs_state == 'hidden' %} hidden{% endif %}>
           <div class="pbs-bg" aria-hidden="true"><i class="a"></i><i class="b"></i></div>
           <div class="pbs-stage">
+          <button type="button" class="pbs-hide" data-pbs-hide aria-label="Hide payout" title="Hide payout"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button>
 
           <div class="pbs-pane pbs-open" data-pbs-pane="open"{% if ph == 'onair' %} data-closed{% endif %}>
             <div class="pbs-kicker"><i></i><span data-pb="kick">{{ 'Betting closed' if ph == 'onair' else 'Betting open' }}</span><span class="pbs-dot">&middot;</span>Fight #<span data-pb="gn">{{ fight.number }}</span></div>
@@ -167,7 +168,7 @@
       </div>
       <div class="fc-result {{ fight.result.value if fight.result and chat_access.reason == 'closed' }}" data-fc-result>
         <span class="crown"><svg class="ico"><use href="#i-crown"/></svg></span>
-        <div><small>Declarator announced</small><strong data-fc-winner>{% if chat_access.reason == 'closed' %}{% if fight.result and fight.result.value == 'meron' %}{{ fight.entry_name_meron }} wins{% elif fight.result and fight.result.value == 'wala' %}{{ fight.entry_name_wala }} wins{% elif fight.result and fight.result.value == 'draw' %}Draw: stakes refunded{% else %}Game cancelled{% endif %}{% endif %}</strong></div>
+        <div><small>Declarator announced</small><strong data-fc-winner>{% if chat_access.reason == 'closed' %}{% if fight.result and fight.result.value == 'meron' %}{{ fight.entry_name_meron }} wins{% elif fight.result and fight.result.value == 'wala' %}{{ fight.entry_name_wala }} wins{% elif fight.result and fight.result.value == 'draw' %}Draw: stakes refunded{% else %}Fight cancelled{% endif %}{% endif %}</strong></div>
       </div>
       <div class="fc-log" data-fc-log aria-live="polite"><div class="fc-empty" data-fc-empty><strong>Room is warming up</strong>Messages from this fight show here as they happen.</div></div>
       <button type="button" class="fc-jump" data-fc-jump hidden>Jump to latest</button>
@@ -183,11 +184,11 @@
         <div class="fc-lock">
           <div class="fc-lock-top"><svg class="ico"><use href="#i-lock"/></svg><div><b>Chat is locked.</b> You can read along. Unlock it to talk on this fight.</div></div>
           <div class="fc-lock-opts">
-            <a class="fc-opt is-pass" href="/store"><small>Battle Pass</small><strong>{{ pass_price | money }}</strong><span>{{ pass_days }} days, every game</span></a>
+            <a class="fc-opt is-pass" href="/store"><small>Battle Pass</small><strong>{{ pass_price | money }}</strong><span>{{ pass_days }} days, every fight</span></a>
             {% if chat_tokens %}
-            <button type="button" class="fc-opt" data-fc-unlock><small>Chats left: <span data-fc-tokens>{{ chat_tokens }}</span></small><strong>Use 1 on this game</strong><span>Unlocks Fight #{{ fight.number }} only</span></button>
+            <button type="button" class="fc-opt" data-fc-unlock><small>Chats left: <span data-fc-tokens>{{ chat_tokens }}</span></small><strong>Use 1 on this fight</strong><span>Unlocks Fight #{{ fight.number }} only</span></button>
             {% else %}
-            <a class="fc-opt" href="/store"><small>Chat tokens</small><strong>{{ tok_price | money }}</strong><span>{{ settings['store.token_uses'] }} chats, 1 per game, {{ settings['store.token_events'] }} events</span></a>
+            <a class="fc-opt" href="/store"><small>Chat tokens</small><strong>{{ tok_price | money }}</strong><span>{{ settings['store.token_uses'] }} chats, 1 per fight, {{ settings['store.token_events'] }} events</span></a>
             {% endif %}
           </div>
         </div>
@@ -216,7 +217,7 @@
           <span class="winner-crown"><svg class="ico"><use href="#{{ 'i-x' if r == 'canceled' else 'i-crown' }}"/></svg></span>
           <div>
             <small>{{ 'RESULT' if r in ('draw', 'canceled') else 'WINNER' }}</small>
-            <span class="winner-name">{% if r == 'meron' %}{{ fight.entry_name_meron }}{% elif r == 'wala' %}{{ fight.entry_name_wala }}{% elif r == 'draw' %}Draw: stakes refunded{% else %}Game cancelled: stakes refunded{% endif %}</span>
+            <span class="winner-name">{% if r == 'meron' %}{{ fight.entry_name_meron }}{% elif r == 'wala' %}{{ fight.entry_name_wala }}{% elif r == 'draw' %}Draw: stakes refunded{% else %}Fight cancelled: stakes refunded{% endif %}</span>
           </div>
           {% if r in ('meron', 'wala') %}<div class="winner-side"><b>{{ r | upper }}</b></div>{% endif %}
         </div>
@@ -315,7 +316,7 @@
           </div>
           <label class="field"><span>Picture of the result{% if proof_required %} <em>*</em>{% else %} <small class="muted">(optional)</small>{% endif %}</span>
             <input type="file" name="proof" accept="image/jpeg,image/png,image/webp" {{ 'required' if proof_required }}>
-            <small>{% if proof_required %}Required for your account. {% endif %}JPG, PNG or WebP, up to 5 MB. It is shown on this game and in Game History.</small>
+            <small>{% if proof_required %}Required for your account. {% endif %}JPG, PNG or WebP, up to 5 MB. It is shown on this fight and in Fight History.</small>
           </label>
           <div class="form-actions"><button class="btn btn-primary" type="submit">Declare &amp; settle</button></div>
         </form>
@@ -345,7 +346,7 @@
 
     {% if 'fights.redeclare' in perms and fight.status.value == 'settled' %}
     <div class="card">
-      <div class="card-head"><h2>Correct this game</h2>{{ ui.badge('audited', 'purple') }}</div>
+      <div class="card-head"><h2>Correct this fight</h2>{{ ui.badge('audited', 'purple') }}</div>
       <div class="card-body">
         <p class="notice">A correction reverses settlement v{{ fight.settlement_version }} and posts v{{ fight.settlement_version + 1 }}.
         Nothing is deleted: both versions stay in the ledger and audit trail.
@@ -397,7 +398,7 @@
 
     {% if not hide_totals %}
     <div class="card">
-      <div class="card-head"><h2>Tickets on this game</h2><span class="muted small">{{ tickets | length }}</span></div>
+      <div class="card-head"><h2>Tickets on this fight</h2><span class="muted small">{{ tickets | length }}</span></div>
       <div class="card-body tight">
         {% if tickets %}
         <div class="table-wrap"><table class="table" data-table data-page-size="20">
@@ -441,7 +442,7 @@
 {% endcall %}
 {% if fight %}{% if is_dev and not viewing_as %}
 <div class="card" style="border-color:rgba(255,59,92,.45)">
-  <div class="card-head"><h2>Delete this game</h2>{{ ui.badge('DEV only', 'red') }}</div>
+  <div class="card-head"><h2>Delete this fight</h2>{{ ui.badge('DEV only', 'red') }}</div>
   <div class="card-body">
     <p class="notice">Permanently removes it with its tickets, settlements and chat. Wallet and ledger history is kept untouched. Anything still holding live stakes is refused: cancel / void it first so players are refunded.</p>
     <form method="post" action="/dev/purge/fight/{{ fight.id }}" class="inline-form" data-confirm="Permanently delete Fight #{{ fight.number }}? This cannot be undone.">

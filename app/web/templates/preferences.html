@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Settings · {{ brand }}{% endblock %}
+{% block heading %}Settings{% endblock %}
+{% block content %}
+<p class="muted small settings-note">These apply to <b>this device only</b>. They are remembered in this browser, not on your account.</p>
+
+<div class="card" id="sounds">
+  <div class="card-head"><h2>Sounds</h2></div>
+  <div class="card-body">
+    <button class="set-row snd-btn" type="button" data-sound-toggle aria-pressed="false">
+      <span class="set-ico"><svg class="ico on"><use href="#i-sound"/></svg><svg class="ico off"><use href="#i-sound-off"/></svg></span>
+      <span class="set-txt"><b>Live sounds</b><small>Bet accepted, betting open / closed, results and wins</small></span>
+      <span class="set-switch" aria-hidden="true"><i></i></span>
+    </button>
+  </div>
+</div>
+
+<div class="card" id="animations">
+  <div class="card-head"><h2>Animations</h2></div>
+  <div class="card-body">
+    <p class="small muted">Fewer animations make the app smoother on phones.</p>
+    <div class="fx-choices" role="radiogroup" aria-label="Animation level" data-fx-pref>
+      <label class="fx-opt"><input type="radio" name="fx" value="auto"><span><b>Auto</b><small>Minimal on phones, lite on computers</small></span></label>
+      <label class="fx-opt"><input type="radio" name="fx" value="min"><span><b>Minimal</b><small>Almost no motion. Smoothest</small></span></label>
+      <label class="fx-opt"><input type="radio" name="fx" value="lite"><span><b>Lite</b><small>Entrances and the game menu, no loops</small></span></label>
+      <label class="fx-opt"><input type="radio" name="fx" value="full"><span><b>Full</b><small>Everything: glows, particles, sparks, tilt (heavy)</small></span></label>
+    </div>
+    <p class="small muted" data-fx-note style="margin-top:10px"></p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Account</h2></div>
+  <div class="card-body"><a class="btn" href="/profile">Profile, password &amp; security</a></div>
+</div>
+{% endblock %}

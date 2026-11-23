@@ -33,7 +33,7 @@ def online_accounts(db: Session, viewer: User, settings: SettingsStore) -> list[
                    SessionRow.last_seen_at >= now - window)
             .order_by(SessionRow.last_seen_at.desc()))
     if viewer.role != Role.ADMIN:
-        stmt = stmt.where(User.role != Role.ADMIN)
+        stmt = stmt.where(User.role.notin_([Role.ADMIN, Role.BISHOP]))
     people: dict[int, dict] = {}
     for session, user in db.execute(stmt).all():
         slot = people.get(user.id)

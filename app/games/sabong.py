@@ -234,15 +234,27 @@ class SabongAdapter(GameAdapter):
                           f"/records?tab=reports&game=sabong&view=session&session={e.id}") for e in evs]
 
     def report_session(self, ctx, session_id: int) -> list[ReportRow]:
-        """One row per fight of the event; the figures that exist per fight (stake, payout, house)."""
+        """One row per fight (stake, payout, house, commission) plus one row for the event's expenses,
+        so the rows add up to the event's line on the daily and archive reports."""
+        from app.db.models import Commission, CommissionStatus
         event = events.get_event(ctx.db, session_id)
-        out = []
         live = [TicketStatus.ACTIVE, TicketStatus.SETTLED, TicketStatus.REFUNDED]
+        commissions = {fid: int(total) for fid, total in ctx.db.execute(
+            select(Commission.fight_id, func.coalesce(func.sum(Commission.amount_cents), 0))
+            .join(Fight, Fight.id == Commission.fight_id)
+            .where(Fight.event_id == event.id, Commission.status != CommissionStatus.REVERSED)
+            .group_by(Commission.fight_id)).all()}
+        out = []
         for fight in events.fights_of(ctx.db, event.id):
             staked, paid = ctx.db.execute(select(
                 func.coalesce(func.sum(Ticket.stake_cents), 0), func.coalesce(func.sum(Ticket.payout_cents), 0)
             ).where(Ticket.fight_id == fight.id, Ticket.status.in_(live))).one()
-            fig = reports.fight_figures(ctx.db, fight)
-            out.append(ReportRow(label=f"Fight #{fight.number}", staked=int(staked), paid=int(paid),
-                                 house=fig["system_over"], commission=0, expenses=0, net=fig["system_over"]))
+            house = reports.fight_figures(ctx.db, fight)["system_over"]
+            commission = commissions.get(fight.id, 0)
+            out.append(ReportRow(label=f"Fight #{fight.number}", staked=int(staked), paid=int(paid), house=house,
+                                 commission=commission, expenses=0, net=house - commission))
+        expenses = reports.event_summary(ctx.db, event.id)["expenses"]
+        if expenses:
+            out.append(ReportRow(label="Event expenses", staked=0, paid=0, house=0, commission=0,
+                                 expenses=expenses, net=-expenses))
         return out

@@ -533,9 +533,9 @@ def dashboard(db: Session, actor: User, *, flows: dict | None = None) -> dict:
                                              .where(SettlementRun.status == RunStatus.PENDING)) or 0),
         "players": int(db.scalar(select(func.count(Player.id))) or 0),
         "agents": int(db.scalar(select(func.count(User.id)).where(
-            User.role.not_in([Role.TELLER, Role.ADMIN]))) or 0),
+            User.role.not_in([Role.TELLER, Role.ADMIN, Role.BISHOP]))) or 0),
         "active_agents": int(db.scalar(select(func.count(User.id)).where(
-            User.role.not_in([Role.TELLER, Role.ADMIN]), User.status == Status.ACTIVE)) or 0),
+            User.role.not_in([Role.TELLER, Role.ADMIN, Role.BISHOP]), User.status == Status.ACTIVE)) or 0),
     }
     stats["locked_fights"] = int(db.scalar(select(func.count(Fight.id)).where(
         Fight.status == FightStatus.LOCKED)) or 0)
@@ -595,7 +595,7 @@ def agent_performance(db: Session, limit: int = 10) -> list[dict]:
         select(User.id, User.username, User.role,
                func.coalesce(func.sum(Commission.amount_cents), 0).label("earned"))
         .join(Commission, Commission.agent_id == User.id)
-        .where(Commission.status != CommissionStatus.REVERSED, User.role != Role.ADMIN)
+        .where(Commission.status != CommissionStatus.REVERSED, User.role.notin_([Role.ADMIN, Role.BISHOP]))
         .group_by(User.id).order_by(func.sum(Commission.amount_cents).desc()).limit(limit)
     ).all()
     return [{"id": r.id, "username": r.username, "role": r.role, "role_label": Role(r.role).label, "earned": int(r.earned)} for r in rows]
@@ -695,6 +695,7 @@ def live_board(db: Session, settings) -> dict:
         snap = betting.pool_snapshot(db, current)
         cut = events.pool_cut_for(db, event, settings)
         board.update(fight=current, snapshot=snap,
-                     multipliers=betting.side_multipliers(snap, cut, settings, current.llamado_side),
+                     multipliers=betting.side_multipliers(snap, cut, settings, current.llamado_side,
+                                                          house_bps=events.house_cut_for(db, event, settings)),
                      draw_enabled=bool(settings.get("fight.draw_bets_enabled")))
     return board

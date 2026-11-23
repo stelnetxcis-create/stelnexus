@@ -217,7 +217,7 @@ def compute_lines(
             "basis": basis, "base_cents": base, "pool_bps": pool_bps, "pool_cents": pool,
             "volume_bps": agent_bps, "sop_bps": sub_bps, "agent_gross_cents": split.agent_gross,
             "chain": [{"id": u.id, "u": u.username, "role": str(u.role), "active": _active(u)}
-                      for u in chain if u.role != Role.ADMIN],
+                      for u in chain if u.role not in (Role.ADMIN, Role.BISHOP)],
         }
         for tier, account, amount, rate in (
             ("master", master, split.master, 10000 - agent_bps if _active(agent) else 10000),
@@ -402,7 +402,7 @@ def set_cut(db: Session, actor: User, target: User, *, volume: str | None = None
     if target.role not in (Role.AGENT, Role.SUB_AGENT):
         raise ValidationError("Only an Agent or a Sub Agent has a cut.")
 
-    unlimited = actor.role == Role.ADMIN
+    unlimited = actor.is_admin_tier
     before = {"cut_bps": target.cut_bps, "sop_bps": target.sop_bps}
 
     def _checked(raw: str | None, label: str, limit_key: str) -> int | None:
@@ -585,7 +585,7 @@ def list_scope(db: Session, actor: User, *, game: str = "all", status: Commissio
         if ids is not None:
             stmt = stmt.where(model.agent_id.in_(ids))
         if actor.role != Role.ADMIN:
-            stmt = stmt.where(User.role != Role.ADMIN)
+            stmt = stmt.where(User.role.notin_([Role.ADMIN, Role.BISHOP]))
         if status is not None:
             stmt = stmt.where(model.status == status)
         else:

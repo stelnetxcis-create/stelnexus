@@ -147,7 +147,8 @@ def _rows(db, store, event, fights: list[Fight], hide: bool, cur_id: int | None,
             else:
                 snap = {"meron": pool["meron"], "wala": pool["wala"], "main": main}
                 plat_bps = events.platform_cut_for(store)
-                mult = betting.side_multipliers(snap, betting.combined_bps(cut_bps, plat_bps), store, f.llamado_side)
+                mult = betting.side_multipliers(snap, betting.combined_bps(cut_bps, plat_bps), store, f.llamado_side,
+                                                house_bps=cut_bps)
                 fig = betting.pool_figures(pool["meron"], pool["wala"], cut_bps, plat_bps)
                 # Everyone sees the pools AFTER the platform cut, the house commission and the payout pool (that is
                 # the whole calculation on screen). The gross stakes and the platform cut amount ride only on the
@@ -156,6 +157,7 @@ def _rows(db, store, event, fights: list[Fight], hide: bool, cur_id: int | None,
                             "tt": fig["total"], "np": fig["net"], "cut": fig["house"], "fx": False,
                             "gt": fig["gross"] if house else None, "pc": fig["platform"] if house else None,
                             "lm": mult["meron"]["below_min"], "lw": mult["wala"]["below_min"],
+                            "rm": mult["meron"]["relief"], "rw": mult["wala"]["relief"],
                             "xm": mult["meron"]["capped"], "xw": mult["wala"]["capped"],
                             "am": mult["meron"]["max"], "aw": mult["wala"]["max"]})
         rows.append(row)

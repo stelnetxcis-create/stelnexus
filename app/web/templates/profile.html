@@ -12,20 +12,6 @@
   {{ ui.stat('Role', user.role_label, 'Ref code ' ~ user.ref_code) }}
 </div>
 
-<div class="card" id="animations">
-  <div class="card-head"><h2>Animations</h2><span class="muted small">this device only</span></div>
-  <div class="card-body">
-    <p class="small muted">Fewer animations make the app smoother on phones. Pick what suits this device; it is remembered here, not on your account.</p>
-    <div class="fx-choices" role="radiogroup" aria-label="Animation level" data-fx-pref>
-      <label class="fx-opt"><input type="radio" name="fx" value="auto"><span><b>Auto</b><small>Minimal on phones, lite on computers</small></span></label>
-      <label class="fx-opt"><input type="radio" name="fx" value="min"><span><b>Minimal</b><small>Almost no motion. Smoothest</small></span></label>
-      <label class="fx-opt"><input type="radio" name="fx" value="lite"><span><b>Lite</b><small>Entrances and the game menu, no loops</small></span></label>
-      <label class="fx-opt"><input type="radio" name="fx" value="full"><span><b>Full</b><small>Everything: glows, particles, sparks, tilt (heavy)</small></span></label>
-    </div>
-    <p class="small muted" data-fx-note style="margin-top:10px"></p>
-  </div>
-</div>
-
 <div class="card">
   <div class="card-head"><h2>Change password</h2></div>
   <form class="card-body" method="post" action="/profile/password" autocomplete="off">
@@ -40,7 +26,7 @@
 
 {% if Perm.TOKENS_MANAGE.value in perms %}
 <div class="card">
-  <div class="card-head"><h2>API tokens</h2><span class="muted small">for the mobile app</span></div>
+  <div class="card-head"><h2>API tokens</h2><span class="muted small">optional, for apps and integrations</span></div>
   {% if new_token %}
   <div class="card-body">
     <div class="alert alert-success" role="status">
@@ -49,6 +35,7 @@
     </div>
   </div>
   {% endif %}
+  <div class="card-body"><p class="small muted">An API token is a long password for <b>another program</b> (for example a companion mobile app) so it can act as you without your password. Most people never need one. It is shown once, expires on its own, and you can revoke it any time. <b>If you do not use such an app, leave this alone.</b></p></div>
   <form class="card-body" method="post" action="/profile/tokens">
     {{ ui.csrf(csrf_token) }}
     <div class="form-grid">

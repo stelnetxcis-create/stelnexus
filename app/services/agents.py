@@ -23,7 +23,7 @@ import re
 
 from app.core.security import USERNAME_RE, hash_password, password_problems, pii, random_code
 from app.core.settings_registry import SettingsStore
-from app.db.models import UPLINE_ROLES, Role, Status, User
+from app.db.models import ADMIN_TIER, UPLINE_ROLES, Role, Status, User
 from app.services import accounts, ledger
 
 
@@ -74,9 +74,9 @@ def _resolve_parent(db: Session, actor: User, role: Role, parent_id: int | None)
     candidate exists it is used."""
     if role == Role.ADMIN:
         return None
-    if role in (Role.AGENT, Role.SUB_AGENT) and actor.role in (Role.ADMIN, Role.PAWN):
+    if role in (Role.AGENT, Role.SUB_AGENT) and actor.role in (Role.ADMIN, Role.BISHOP, Role.PAWN):
         return pick_upline(db, role.value, parent_id)
-    if actor.role == Role.ADMIN and role == Role.MASTER:
+    if actor.role in (Role.ADMIN, Role.BISHOP) and role == Role.MASTER:
         return db.get(User, parent_id) if parent_id else actor
     return actor
 
@@ -102,6 +102,8 @@ def create_agent(
         raise Forbidden("There is only one Admin account; it cannot be duplicated.")
     if not can_create_role(actor, role):
         raise Forbidden(f"A {actor.role_label} cannot create a {role.label}.")
+    if role == Role.BISHOP and actor.role != Role.ADMIN:
+        raise Forbidden("Only the King appoints a Bishop.")
     _unique_username(db, username)
     gcash = (gcash_number or "").strip()
     if role == Role.TELLER and not re.fullmatch(r"09\d{9}", gcash):
@@ -193,15 +195,27 @@ def reset_password(db: Session, actor: User, target_id: int, new_password: str,
 
 
 def set_pawn_grants(db: Session, actor: User, pawn_id: int, grants) -> User:
-    """The Admin decides what a Pawn may see and change in the Admin Panel. Audited."""
-    from app.core.rbac import Perm, has_perm, normalize_grants
+    """The King or a Bishop decides what a Pawn may see and change in the Admin Panel. Audited.
+
+    A Bishop can only switch on what it holds itself, and never a settings group the King sealed."""
+    from app.core import rbac
+    from app.core.rbac import GRANT_BY_KEY, Perm, has_perm, normalize_grants
     if not has_perm(actor, Perm.PAWNS_MANAGE):
-        raise Forbidden("Only the Admin can change what a Pawn may see.")
+        raise Forbidden("Only an admin can change what a Pawn may see.")
     pawn = db.get(User, pawn_id)
     if pawn is None or pawn.role != Role.PAWN:
         raise NotFound("Pawn not found.")
+    keys = normalize_grants(grants)
+    if actor.role != Role.ADMIN:
+        mine, sealed_groups = rbac.permissions_of(actor), rbac.sealed_groups()
+        for key in set(keys) - set(pawn.grants or []):
+            grant = GRANT_BY_KEY.get(key)
+            if grant is None:
+                continue
+            if any(p not in mine for p in grant.perms) or (key.startswith("vars:") and key.split(":")[1] in sealed_groups):
+                raise Forbidden(f"You cannot switch on \u201c{grant.label}\u201d.")
     before = list(pawn.grants or [])
-    pawn.grants = normalize_grants(grants)
+    pawn.grants = keys
     db.flush()
     audit.record(db, actor, "pawn.grants", entity_type="user", entity_id=pawn.id,
                  before={"grants": before, "username": pawn.username},
@@ -209,13 +223,13 @@ def set_pawn_grants(db: Session, actor: User, pawn_id: int, grants) -> User:
     return pawn
 
 
-EDITABLE_DEFAULT_ROLES = ("master", "agent", "sub_agent", "teller", "declarator", "pawn", "player")
+EDITABLE_DEFAULT_ROLES = ("bishop", "master", "agent", "sub_agent", "teller", "declarator", "pawn", "player")
 
 
 def _require_access_manager(actor: User, what: str = "change access rights") -> None:
     from app.core.rbac import Perm, has_perm
     if not has_perm(actor, Perm.PAWNS_MANAGE):
-        raise Forbidden(f"Only the Admin can {what}.")
+        raise Forbidden(f"Only an admin can {what}.")
 
 
 def _after_commit_invalidate(db: Session) -> None:
@@ -225,23 +239,30 @@ def _after_commit_invalidate(db: Session) -> None:
     event.listen(db, "after_commit", lambda _s: rbac.invalidate_role_overrides(), once=True)
 
 
+def can_manage_role(actor: User, role_key: str) -> bool:
+    """Whose rights may this admin edit? The King: every role but its own. A Bishop: only roles below the Bishops."""
+    if actor.role == Role.ADMIN:
+        return role_key != Role.ADMIN.value
+    if actor.role == Role.BISHOP:
+        return role_key not in (Role.ADMIN.value, Role.BISHOP.value)
+    return False
+
+
+def _assert_manage_role(actor: User, role_key: str) -> None:
+    if role_key not in EDITABLE_DEFAULT_ROLES or not can_manage_role(actor, role_key):
+        raise Forbidden("That account type's rights cannot be changed.")
+
+
+def _assert_manage_user(actor: User, target: User) -> None:
+    if target.role == Role.ADMIN or (target.role == Role.BISHOP and actor.role != Role.ADMIN):
+        raise Forbidden("That account's rights cannot be changed.")
+
+
 def _locked_perm_values() -> set[str]:
-    """Rights no editor may move: the Access manager itself, and Bola while it is dev-only."""
+    """Rights no editor may switch ON for anyone: the King's own, and Bola while it is dev-only. (The Access manager
+    keys are never grantable either, but a revoke of them is allowed: the King can take them from a Bishop.)"""
     from app.core import rbac
-    return {p.value for p in rbac.NON_DELEGABLE} | ({p.value for p in rbac.BOLA_PERMS} if rbac.bola_dev_only() else set())
-
-
-def _diff_against(base, wanted, old_g, old_r) -> tuple[list[str], list[str]]:
-    """Store `wanted` as a small difference from `base`. Locked rights keep whatever the old rows said."""
-    from app.core import rbac
-    locked = _locked_perm_values()
-    wanted = {str(k) for k in (wanted or [])}
-    base_values = {p.value for p in base}
-    editable = [p.value for p in rbac.Perm if p.value not in locked]
-    new_g = {k for k in editable if k in wanted and k not in base_values} | {k for k in old_g if k in locked}
-    new_r = {k for k in editable if k not in wanted and k in base_values} | {k for k in old_r if k in locked}
-    order = lambda keys: sorted(keys, key=rbac._PERM_ORDER.__getitem__)  # noqa: E731
-    return order(new_g), order(new_r)
+    return {p.value for p in rbac.KING_ONLY} | ({p.value for p in rbac.BOLA_PERMS} if rbac.bola_dev_only() else set())
 
 
 def _sorted_keys(keys) -> list[str]:
@@ -249,33 +270,113 @@ def _sorted_keys(keys) -> list[str]:
     return sorted({str(k) for k in (keys or [])}, key=lambda k: rbac._PERM_ORDER.get(k, 10_000))
 
 
-def set_role_defaults(db: Session, actor: User, role_key: str, wanted) -> bool:
-    """The Admin changes what every account of a role may do by default. Audited. Returns True if anything changed.
+def _prepare_rules(rules) -> dict[str, dict]:
+    """Rules as posted -> clean rules. A malformed rule is refused with the right's name, never silently dropped."""
+    from app.core import rbac
+    from app.core import rules as rules_mod
+    out: dict[str, dict] = {}
+    for key, raw in (rules or {}).items():
+        try:
+            perm = rbac.Perm(str(key))
+        except ValueError:
+            continue
+        if perm in rbac.NON_DELEGABLE or perm in rbac.KING_ONLY:
+            continue
+        rule = rules_mod.clean_rule(raw)
+        label = rbac.PERM_LABELS.get(perm.value, perm.value)
+        if rule is None:
+            raise ValidationError(f"Check the settings for \u201c{label}\u201d (a time, hours or number is missing or wrong).")
+        if rule["mode"] == "ask" and perm in rbac.VIEW_PERMS:
+            raise ValidationError(f"\u201cAsk first\u201d does not apply to a look-only right: {label}.")
+        out[perm.value] = rule
+    return out
 
-    `wanted` is the full set of permission keys the role should have. It is compared with the built-in
-    defaults written in code and stored as a small difference (extra / removed)."""
+
+def _compute_layer(base_state: dict, wanted, rules: dict | None, old: tuple[list, list, dict], *, keep=None):
+    """Store what an editor posted as a small difference from what the level starts with.
+
+    `wanted` is the set of rights that should be plainly ON; `rules` maps a right to its conditional rule (None = leave
+    existing rules untouched, as the all-roles matrix does). Anything not wanted and without a rule is OFF."""
+    from app.core import rbac
+    old_g, old_r, old_rules = old
+    wanted = {str(k) for k in (wanted or [])}
+    locked = _locked_perm_values()
+    keep = {str(k) for k in (keep or ())}
+    new_g, new_r, new_rules = set(), set(), {}
+    for perm in rbac.Perm:
+        key = perm.value
+        if key in locked or key in keep:                    # not editable here / not posted: keep whatever was stored
+            if key in old_g:
+                new_g.add(key)
+            if key in old_r:
+                new_r.add(key)
+            if key in old_rules:
+                new_rules[key] = old_rules[key]
+            continue
+        if rules is None and key in old_rules:
+            new_rules[key] = old_rules[key]
+            continue
+        if rules is not None and key in rules:
+            new_rules[key] = rules[key]
+            continue
+        base_kind = base_state.get(perm, ("deny", None))[0]
+        if key in wanted:
+            if base_kind != "allow" and perm not in rbac.NON_DELEGABLE:
+                new_g.add(key)
+        elif base_kind != "deny":
+            new_r.add(key)
+    return _sorted_keys(new_g), _sorted_keys(new_r), new_rules
+
+
+def _assert_ceiling(actor: User, new_g, new_rules, old_g, old_rules) -> None:
+    """Nobody hands out what they do not hold themselves, and nobody but the King touches what the King sealed."""
+    from app.core import rbac
+    if actor.role == Role.ADMIN:
+        return
+    mine, sealed = rbac.permissions_of(actor), rbac.sealed_perms()
+    added = (set(new_g) - set(old_g)) | {k for k, v in new_rules.items() if old_rules.get(k) != v}
+    for key in added:
+        perm = rbac.Perm(key)
+        if perm not in mine or perm in sealed:
+            raise Forbidden(f"You cannot hand out \u201c{rbac.PERM_LABELS.get(key, key)}\u201d.")
+
+
+def _layer_of(row) -> tuple[list, list, dict]:
+    if row is None:
+        return [], [], {}
+    return _sorted_keys(row.perm_grants), _sorted_keys(row.perm_revokes), dict(row.perm_rules or {})
+
+
+def set_role_defaults(db: Session, actor: User, role_key: str, wanted, rules: dict | None = None, keep=None) -> bool:
+    """Change what every account of a role may do by default. Audited. Returns True if anything changed.
+
+    `wanted` = the rights that are plainly ON, `rules` = the conditional ones (ask / temporary / hours / limit). The
+    result is stored as a small difference from the built-in defaults written in code."""
     from app.core import rbac
     from app.db.models import RolePermOverride
     _require_access_manager(actor, "change role defaults")
-    if role_key not in EDITABLE_DEFAULT_ROLES:
-        raise ValidationError("That role's rights cannot be changed.")
-    builtin = (rbac.builtin_player_perms() if role_key == rbac.PLAYER_ROLE_KEY
-               else rbac.builtin_permissions_for(role_key, gated=False))
+    _assert_manage_role(actor, role_key)
+    clean = _prepare_rules(rules) if rules is not None else None
+    state = {p: ("allow", None) for p in (rbac.builtin_player_perms() if role_key == rbac.PLAYER_ROLE_KEY
+                                           else rbac.builtin_permissions_for(role_key, gated=False))}
     row = db.get(RolePermOverride, role_key)
-    old_g, old_r = _sorted_keys(row.perm_grants if row else None), _sorted_keys(row.perm_revokes if row else None)
-    new_g, new_r = _diff_against(builtin, wanted, old_g, old_r)
-    if new_g == old_g and new_r == old_r:
+    old = _layer_of(row)
+    new_g, new_r, new_rules = _compute_layer(state, wanted, clean, old, keep=keep)
+    if (new_g, new_r, new_rules) == old:
         return False
-    if not new_g and not new_r:
+    _assert_ceiling(actor, new_g, new_rules, old[0], old[2])
+    if not new_g and not new_r and not new_rules:
         if row is not None:
             db.delete(row)
     elif row is None:
-        db.add(RolePermOverride(role=role_key, perm_grants=new_g, perm_revokes=new_r, updated_by_id=actor.id))
+        db.add(RolePermOverride(role=role_key, perm_grants=new_g, perm_revokes=new_r, perm_rules=new_rules,
+                                updated_by_id=actor.id))
     else:
-        row.perm_grants, row.perm_revokes, row.updated_by_id = new_g, new_r, actor.id
+        row.perm_grants, row.perm_revokes, row.perm_rules, row.updated_by_id = new_g, new_r, new_rules, actor.id
     db.flush()
     audit.record(db, actor, "role.perms", entity_type="role", entity_id=role_key,
-                 before={"allow": old_g, "deny": old_r}, after={"allow": new_g, "deny": new_r})
+                 before={"allow": old[0], "deny": old[1], "rules": old[2]},
+                 after={"allow": new_g, "deny": new_r, "rules": new_rules})
     _after_commit_invalidate(db)
     return True
 
@@ -287,7 +388,7 @@ def _clean_type_name(name: str) -> str:
     name = re.sub(r"\s+", " ", (name or "").strip())
     if not 2 <= len(name) <= 40:
         raise ValidationError("Give the account type a name of 2 to 40 characters.")
-    if name.lower() in {v.lower() for v in KIND_LABEL.values()} | {"admin", "player", "players"}:
+    if name.lower() in {v.lower() for v in KIND_LABEL.values()} | {"admin", "player", "players", "king", "bishop"}:
         raise ValidationError("That name is already used by a built-in account type.")
     return name
 
@@ -296,13 +397,13 @@ def create_account_type(db: Session, actor: User, *, name: str, base_role: str, 
     from app.core.access_tree import TYPE_BASES
     from app.db.models import AccountProfile
     _require_access_manager(actor, "create account types")
-    if base_role not in TYPE_BASES:
+    if base_role not in TYPE_BASES or not can_manage_role(actor, base_role):
         raise ValidationError("Choose which built-in account type this one is based on.")
     name = _clean_type_name(name)
     if db.scalar(select(AccountProfile.id).where(func.lower(AccountProfile.name) == name.lower())):
         raise Conflict("An account type with that name already exists.")
     row = AccountProfile(name=name, base_role=base_role, description=(description or "").strip()[:200],
-                      perm_grants=[], perm_revokes=[], created_by_id=actor.id)
+                         perm_grants=[], perm_revokes=[], perm_rules={}, created_by_id=actor.id)
     db.add(row)
     db.flush()
     audit.record(db, actor, "accounttype.create", entity_type="account_type", entity_id=row.id,
@@ -310,12 +411,18 @@ def create_account_type(db: Session, actor: User, *, name: str, base_role: str, 
     return row
 
 
+def _own_type(db: Session, actor: User, type_id: int):
+    from app.db.models import AccountProfile
+    row = db.get(AccountProfile, type_id)
+    if row is None or not can_manage_role(actor, row.base_role):
+        raise NotFound("Account type not found.")
+    return row
+
+
 def update_account_type(db: Session, actor: User, type_id: int, *, name: str, description: str = "") -> "AccountProfile":
     from app.db.models import AccountProfile
     _require_access_manager(actor, "edit account types")
-    row = db.get(AccountProfile, type_id)
-    if row is None:
-        raise NotFound("Account type not found.")
+    row = _own_type(db, actor, type_id)
     name = _clean_type_name(name)
     clash = db.scalar(select(AccountProfile.id).where(func.lower(AccountProfile.name) == name.lower(), AccountProfile.id != type_id))
     if clash:
@@ -328,23 +435,23 @@ def update_account_type(db: Session, actor: User, type_id: int, *, name: str, de
     return row
 
 
-def set_type_defaults(db: Session, actor: User, type_id: int, wanted) -> bool:
+def set_type_defaults(db: Session, actor: User, type_id: int, wanted, rules: dict | None = None, keep=None) -> bool:
     """Set what a custom account type may do: stored as a difference from its base role's current defaults."""
     from app.core import rbac
-    from app.db.models import AccountProfile
     _require_access_manager(actor, "change account type rights")
-    row = db.get(AccountProfile, type_id)
-    if row is None:
-        raise NotFound("Account type not found.")
-    base = rbac.permissions_for(row.base_role, gated=False)
-    old_g, old_r = _sorted_keys(row.perm_grants), _sorted_keys(row.perm_revokes)
-    new_g, new_r = _diff_against(base, wanted, old_g, old_r)
-    if new_g == old_g and new_r == old_r:
+    row = _own_type(db, actor, type_id)
+    clean = _prepare_rules(rules) if rules is not None else None
+    state = rbac.role_state(row.base_role)
+    old = _layer_of(row)
+    new_g, new_r, new_rules = _compute_layer(state, wanted, clean, old, keep=keep)
+    if (new_g, new_r, new_rules) == old:
         return False
-    row.perm_grants, row.perm_revokes = new_g, new_r
+    _assert_ceiling(actor, new_g, new_rules, old[0], old[2])
+    row.perm_grants, row.perm_revokes, row.perm_rules = new_g, new_r, new_rules
     db.flush()
     audit.record(db, actor, "accounttype.perms", entity_type="account_type", entity_id=row.id,
-                 before={"allow": old_g, "deny": old_r, "name": row.name}, after={"allow": new_g, "deny": new_r, "name": row.name})
+                 before={"allow": old[0], "deny": old[1], "rules": old[2], "name": row.name},
+                 after={"allow": new_g, "deny": new_r, "rules": new_rules, "name": row.name})
     _after_commit_invalidate(db)
     return True
 
@@ -352,11 +459,8 @@ def set_type_defaults(db: Session, actor: User, type_id: int, wanted) -> bool:
 def delete_account_type(db: Session, actor: User, type_id: int) -> int:
     """Remove a custom type. Its accounts keep their role and fall back to the role defaults. Returns how many."""
     from sqlalchemy import update
-    from app.db.models import AccountProfile
     _require_access_manager(actor, "delete account types")
-    row = db.get(AccountProfile, type_id)
-    if row is None:
-        raise NotFound("Account type not found.")
+    row = _own_type(db, actor, type_id)
     moved = db.execute(update(User).where(User.account_profile_id == type_id).values(account_profile_id=None)).rowcount or 0
     audit.record(db, actor, "accounttype.delete", entity_type="account_type", entity_id=row.id,
                  before={"name": row.name, "base_role": row.base_role, "allow": list(row.perm_grants or []),
@@ -374,8 +478,7 @@ def assign_account_type(db: Session, actor: User, user_id: int, type_id: int | N
     target = db.get(User, user_id)
     if target is None:
         raise NotFound("Account not found.")
-    if target.role == Role.ADMIN:
-        raise Forbidden("The Admin's rights cannot be changed.")
+    _assert_manage_user(actor, target)
     if type_id is not None:
         row = db.get(AccountProfile, type_id)
         if row is None:
@@ -394,30 +497,48 @@ def assign_account_type(db: Session, actor: User, user_id: int, type_id: int | N
     return target
 
 
-def set_permission_overrides(db: Session, actor: User, user_id: int, grants, revokes) -> User:
-    """The Admin allows or denies single permissions for one account (any role except the Admin). Audited.
+def set_permission_overrides(db: Session, actor: User, user_id: int, grants, revokes, rules: dict | None = None, keep=None) -> User:
+    """Allow, deny or put a rule on single rights for ONE account. Audited.
 
-    Deny beats allow, and the keys to the Access manager (PAWNS_MANAGE) can never be delegated or removed."""
-    from app.core.rbac import normalize_overrides
+    `grants` = Allow, `revokes` = Deny, `rules` = conditional (None keeps the account's existing rules, except for
+    rights that appear in grants / revokes, which replace them). `keep` = rights not to touch at all. Deny beats Allow."""
+    from app.core import rbac
     _require_access_manager(actor, "change account permissions")
     target = db.get(User, user_id)
     if target is None:
         raise NotFound("Account not found.")
-    if target.role == Role.ADMIN:
-        raise Forbidden("The Admin's rights cannot be changed.")
-    allow, deny = normalize_overrides(grants, revokes)
-    before = {"allow": list(target.perm_grants or []), "deny": list(target.perm_revokes or [])}
-    target.perm_grants, target.perm_revokes = allow, deny
+    _assert_manage_user(actor, target)
+    allow, deny = rbac.normalize_overrides(grants, revokes)
+    old_g, old_r, old_rules = old = _layer_of(target)
+    keep = {str(k) for k in (keep or ())}
+    posted_rules = old_rules if rules is None else _prepare_rules(rules)
+    new_rules = {k: v for k, v in posted_rules.items() if k not in allow and k not in deny}
+    allow = [k for k in allow if k not in _locked_perm_values()]
+    for key in keep:                                      # rows that were not posted stay exactly as they were
+        for bucket, stored in ((allow, old_g), (deny, old_r)):
+            if key in stored and key not in bucket:
+                bucket.append(key)
+        if key in old_rules:
+            new_rules[key] = old_rules[key]
+        else:
+            new_rules.pop(key, None)
+    allow, deny = _sorted_keys(allow), _sorted_keys(deny)
+    if (allow, deny, new_rules) == old:
+        return target
+    _assert_ceiling(actor, allow, new_rules, old_g, old_rules)
+    target.perm_grants, target.perm_revokes, target.perm_rules = allow, deny, new_rules
     db.flush()
     audit.record(db, actor, "account.perms", entity_type="user", entity_id=target.id,
-                 before={**before, "username": target.username, "role": target.role.value},
-                 after={"allow": allow, "deny": deny, "username": target.username, "role": target.role.value})
+                 before={"allow": old_g, "deny": old_r, "rules": old_rules, "username": target.username, "role": target.role.value},
+                 after={"allow": allow, "deny": deny, "rules": new_rules, "username": target.username, "role": target.role.value})
+    _after_commit_invalidate(db)
     return target
 
 
-def list_permission_accounts(db: Session) -> list[User]:
-    """Every account whose rights the Admin can edit: all staff and agents, never the Admin."""
-    return list(db.scalars(select(User).where(User.role != Role.ADMIN).order_by(User.role, User.username)).all())
+def list_permission_accounts(db: Session, viewer: User | None = None) -> list[User]:
+    """Every account whose rights the viewer can edit. The King: everyone but itself. A Bishop: nobody at or above a Bishop."""
+    hidden = [Role.ADMIN] if viewer is None or viewer.role == Role.ADMIN else [Role.ADMIN, Role.BISHOP]
+    return list(db.scalars(select(User).where(User.role.notin_(hidden)).order_by(User.role, User.username)).all())
 
 
 def list_pawns(db: Session) -> list[User]:
@@ -448,10 +569,10 @@ def list_agents(db: Session, actor: User, *, search: str | None = None,
     stmt = select(User)
     if has_global_scope(actor):
         stmt = stmt.where(User.id != actor.id)
-        if actor.role != Role.ADMIN:
+        if not actor.is_admin_tier:
             stmt = stmt.where(or_(User.role != Role.TELLER, User.gcash_enc.is_not(None)))
         if actor.role != Role.ADMIN:
-            stmt = stmt.where(User.role != Role.ADMIN)      # the hidden account is never listed
+            stmt = stmt.where(User.role.notin_(ADMIN_TIER))      # the hidden accounts are never listed
     else:
         stmt = stmt.where(User.id.in_(scope_ids(db, actor) - {actor.id}))
     if role:
@@ -488,7 +609,7 @@ def tree(db: Session, actor: User) -> list[dict]:
     ids = scope_ids(db, actor)
     users = list(db.scalars(select(User).where(User.id.in_(ids)).order_by(User.id)))
     if actor.role != Role.ADMIN:              # filter in memory: no db.get() per id
-        users = [u for u in users if u.id == actor.id or u.role != Role.ADMIN]
+        users = [u for u in users if u.id == actor.id or u.role not in ADMIN_TIER]
     balances = accounts.user_balances(db, users)
     by_parent: dict[int | None, list[User]] = {}
     for user in users:
@@ -502,4 +623,10 @@ def tree(db: Session, actor: User) -> list[dict]:
             for u in by_parent.get(parent_id, [])
         ]
 
-    return build(None) if actor.role == Role.ADMIN else build(actor.id)
+    if actor.role == Role.ADMIN:
+        return build(None)
+    if actor.role == Role.BISHOP:        # the King and other Bishops are hidden, so the visible roots are the orphans
+        known = {u.id for u in users}
+        return [{"user": u, "wallet": balances[u.id][0] or 0, "children": build(u.id, 1)}
+                for u in users if u.id != actor.id and u.parent_id not in known]
+    return build(actor.id)

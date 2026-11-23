@@ -91,7 +91,7 @@ def create_code(db: Session, actor: User, *, ttl_minutes: int, note: str | None 
     role = role or allowed[0]
     if role not in allowed:
         raise Forbidden(f"A {actor.role_label} cannot invite a {role_label(role)}.")
-    upline_id = _pick_upline(db, role, parent_id) if actor.role == Role.ADMIN else None
+    upline_id = _pick_upline(db, role, parent_id) if actor.is_admin_tier else None
     if ttl_minutes < 1 or ttl_minutes > MAX_TTL_MINUTES:
         raise ValidationError("Timer must be between 1 minute and 30 days.")
     for _ in range(12):
@@ -184,7 +184,7 @@ def redeem(db: Session, code: str, *, username: str, password: str, full_name: s
 def list_codes(db: Session, actor: User, limit: int = 200, offset: int = 0) -> list[ReferralCode]:
     stmt = (select(ReferralCode).order_by(ReferralCode.id.desc())
             .limit(clamp_limit(limit, 500)).offset(clamp_offset(offset)))
-    if actor.role != Role.ADMIN:       # Admin sees every code; everyone else only their own network's
+    if not actor.is_admin_tier:       # the admin tiers see every code; everyone else only their own network's
         stmt = stmt.where(ReferralCode.issuer_id.in_(scope_ids(db, actor)))
     return list(db.scalars(stmt).all())
 
@@ -193,7 +193,7 @@ def revoke(db: Session, actor: User, code_id: int) -> ReferralCode:
     row = db.get(ReferralCode, code_id)
     if row is None:
         raise NotFound("Referral code not found.")
-    if actor.role != Role.ADMIN and row.issuer_id not in scope_ids(db, actor):
+    if not actor.is_admin_tier and row.issuer_id not in scope_ids(db, actor):
         raise Forbidden("That code is not in your network.")
     if row.status() != "active":
         raise ValidationError("Only an active code can be revoked.")

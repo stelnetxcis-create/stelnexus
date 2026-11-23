@@ -61,8 +61,8 @@
 {# Compact game strip for the fight view: one numbered chip per game, coloured by state. It sits at the top of the video,
    so it is there in full screen too. fightview.js recolours it live and switches game without reloading the page. #}
 {% macro game_strip(fights, event_id, active_id=0) %}
-<nav class="fv-strip" data-fv-strip data-event="{{ event_id }}" data-active="{{ active_id }}" aria-label="Games">
-  <button type="button" class="fv-nav" data-fv-prev aria-label="Scroll games left" title="Earlier games">&#8249;</button>
+<nav class="fv-strip" data-fv-strip data-event="{{ event_id }}" data-active="{{ active_id }}" aria-label="Fights">
+  <button type="button" class="fv-nav" data-fv-prev aria-label="Scroll fights left" title="Earlier fights">&#8249;</button>
   <div class="fv-list" data-fv-list>
   {% for f in fights %}{% set res = f.result.value if f.result else '' %}
     <a class="fv-chip st-{{ f.status.value }}{{ ' res-' ~ res if res }}{{ ' is-active' if f.id == active_id }}" data-fight="{{ f.id }}" data-n="{{ f.number }}"
@@ -70,10 +70,10 @@
        title="Fight {{ f.number }} · {{ f.entry_name_meron }} vs {{ f.entry_name_wala }} · {{ res | upper if res else f.status.value | upper }}"><b>{{ f.number }}</b></a>
   {% endfor %}
   </div>
-  <button type="button" class="fv-nav" data-fv-next aria-label="Scroll games right" title="Later games">&#8250;</button>
+  <button type="button" class="fv-nav" data-fv-next aria-label="Scroll fights right" title="Later fights">&#8250;</button>
   {% if fights | length > 8 %}
-  <button type="button" class="fv-now" data-fv-now title="Jump to the current game">Now</button>
-  <input class="fv-jump" data-fv-jump type="text" inputmode="numeric" pattern="[0-9]*" maxlength="5" placeholder="Go #" aria-label="Go to game number" autocomplete="off">
+  <button type="button" class="fv-now" data-fv-now title="Jump to the current fight">Now</button>
+  <input class="fv-jump" data-fv-jump type="text" inputmode="numeric" pattern="[0-9]*" maxlength="5" placeholder="Go #" aria-label="Go to fight number" autocomplete="off">
   {% endif %}
 </nav>
 {% endmacro %}

@@ -123,8 +123,8 @@ async def desk_declare(fight_id: int, request: Request, ctx: Ctx = Depends(requi
         proofs.attach(ctx.db, ctx.user, fight, proof)
     if (run.totals or {}).get("auto_cancel"):
         floor = int(ctx.store.get("payout.min_odds_bps")) / 10000
-        return _ok(f"Fight {fight.number}: odds were below {floor:.2f}x, so it was cancelled and every stake "
-                   "refunded.", "warning")
+        return _ok(f"Fight {fight.number}: the winning side would pay below {floor:.2f}x even with the cuts "
+                   "lowered, so it was cancelled and every stake refunded.", "warning")
     return _ok(f"Fight {fight.number} declared {result.value.upper()} and settled.")
 
 
@@ -222,14 +222,14 @@ async def staff_teller(ctx: Ctx = Depends(require_ctx)):
     is_teller = user.role == Role.TELLER
     accounts = gcash.list_accounts(db, owner_id=user.id if is_teller else None)
     rows = gcash.usage_for(db, accounts, store)
-    can_manage = user.role in (Role.ADMIN, Role.TELLER)
+    can_manage = user.is_admin_tier or user.role == Role.TELLER
     # A Teller and the Admin read full numbers; a Pawn only sees them masked.
     numbers = {a.id: (gcash.number_of(a) if can_manage else gcash.masked(a)) for a in accounts}
 
     nxt = gcash.peek(db, store)
     live = [u for u in rows if u.account.is_active]
     tellers = []
-    if user.role == Role.ADMIN:
+    if user.is_admin_tier:
         tellers = list(db.scalars(select(User).where(User.role == Role.TELLER, User.status == Status.ACTIVE)
                                   .order_by(User.full_name)).all())
     return staff(
@@ -238,7 +238,7 @@ async def staff_teller(ctx: Ctx = Depends(require_ctx)):
         pool_scope="mine" if is_teller else "all",
         pool_day_used=sum(u.day_used for u in live), pool_day_room=sum(u.day_left for u in live),
         next_label=(nxt.account.label if nxt else None), next_id=(nxt.account.id if nxt else None),
-        can_manage=can_manage, can_reorder=user.role == Role.ADMIN and len(rows) > 1, tellers=tellers,
+        can_manage=can_manage, can_reorder=user.is_admin_tier and len(rows) > 1, tellers=tellers,
         recent=gcash.recent_for(db, [a.id for a in accounts]),
         wallet_pending=cashdesk.pending_count(db, user) if ctx.can(Perm.REQUESTS_REVIEW) else 0,
         default_day=int(store.get("gcash.daily_limit_cents")),
@@ -252,7 +252,7 @@ async def staff_add(ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.STAFF_TELLER)
     data = await form_data(ctx.request)
     owner = int(data["owner_id"]) if data.get("owner_id", "").isdigit() else None
-    if ctx.user.role == Role.ADMIN and owner is None:
+    if ctx.user.is_admin_tier and owner is None:
         raise ValidationError("Choose which Teller this number belongs to.")
     account = gcash.add_account(ctx.db, ctx.user, number=data.get("number", ""), label=data.get("label", ""),
                                 owner_id=owner, daily_limit_cents=_limit(data.get("daily")),
@@ -293,7 +293,7 @@ async def staff_remove(account_id: int, ctx: Ctx = Depends(require_ctx)):
 @router.post("/staff/teller/accounts/{account_id}/move")
 async def staff_move(account_id: int, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.STAFF_TELLER)
-    if ctx.user.role != Role.ADMIN:
+    if not ctx.user.is_admin_tier:
         raise ValidationError("Only the Admin sets the rotation order.")
     data = await form_data(ctx.request)
     gcash.move(ctx.db, ctx.user, account_id, -1 if data.get("dir") == "up" else 1)

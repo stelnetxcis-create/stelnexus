@@ -16,7 +16,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.core.config import get_settings
-from app.core.errors import AuthError, StelError
+from app.core.errors import ApprovalRequired, AuthError, StelError
 from app.core.middleware import (
     CsrfMiddleware,
     IpBanMiddleware,
@@ -72,13 +72,13 @@ def create_app() -> FastAPI:
         routes_admin, routes_agents, routes_auth, routes_bets, routes_dashboard,
         routes_cuts, routes_extra, routes_fights, routes_money, routes_players, routes_referrals,
         routes_wallet, routes_dev, routes_bola, routes_live, routes_store, routes_staff, routes_access, routes_streams,
-        routes_games, routes_records,
+        routes_games, routes_records, routes_license,
     )
     for module in (routes_auth, routes_dashboard, routes_agents, routes_players,
                    routes_fights, routes_bets, routes_money, routes_admin, routes_referrals,
                    routes_cuts, routes_extra, routes_wallet, routes_dev, routes_bola,
                    routes_live, routes_store, routes_staff, routes_access, routes_streams,
-                   routes_games, routes_records):
+                   routes_games, routes_records, routes_license):
         app.include_router(module.router)
 
     from app.api.v1 import routes as api_routes
@@ -137,6 +137,8 @@ def _safe_back(request: Request) -> str:
 def register_handlers(app: FastAPI) -> None:
     @app.exception_handler(StelError)
     async def stel_error(request: Request, exc: StelError):
+        if isinstance(exc, ApprovalRequired):
+            return _approval_response(request, exc)
         if _wants_json(request):
             return JSONResponse({"error": exc.code, "detail": exc.message}, status_code=exc.status_code)
         if isinstance(exc, AuthError):
@@ -173,6 +175,32 @@ def register_handlers(app: FastAPI) -> None:
         return render_error(request, 500, detail)
 
 
+def _approval_response(request: Request, exc: ApprovalRequired):
+    """The action was held back: store it (own session; the request's transaction is being rolled back), tell the
+    King / Bishops, and tell the person it is waiting."""
+    from app.db.session import SessionLocal
+    from app.services import access
+    db = SessionLocal()
+    row = None
+    try:
+        row = access.park_request(db, request, exc)
+        db.commit()
+        request_id = row.id if row is not None else None
+    except Exception:                                   # noqa: BLE001 - never turn a held action into a 500
+        db.rollback()
+        log.exception("Could not park an approval request")
+        request_id = None
+    finally:
+        db.close()
+    if request_id is None:
+        message, level = "That needs approval, but the request could not be saved. Try again.", "danger"
+    else:
+        message, level = "Sent for approval. You will be notified when it is answered; nothing has run yet.", "info"
+    if _wants_json(request):
+        return JSONResponse({"status": "approval_required", "request_id": request_id, "detail": message}, status_code=202)
+    return flash_redirect(_safe_back(request), message, level)
+
+
 def render_error(request: Request, status_code: int, message: str):
     from app.db.session import SessionLocal
     from app.core.settings_registry import SettingsStore
@@ -188,6 +216,7 @@ def render_error(request: Request, status_code: int, message: str):
             "settings": store.all(), "brand": store.get("brand.name"),
             "tagline": store.get("brand.tagline"), "csrf_token": "", "flashes": [],
             "notifications": [], "active": "", "status_code": status_code, "message": message,
+            "ask_perm": getattr(request.state, "denied_perm", None) if user is not None else None,
         }
         return templates.TemplateResponse(request, f"errors/{status_code}.html"
                                           if status_code in (404, 500) else "errors/500.html",

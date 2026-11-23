@@ -362,7 +362,7 @@
       const l = $('.vp-l'), r = $('.vp-r'), t = $('.vp-title');
       if (l && d.left != null) l.textContent = d.left;
       if (r && d.right != null) r.textContent = d.right;
-      if (t && d.n != null) t.textContent = 'Game #' + d.n + ' \u00B7 Live match video';
+      if (t && d.n != null) t.textContent = 'Fight #' + d.n + ' \u00B7 Live match video';
       if (d.ended != null) { ended = !!d.ended; root.dataset.ended = ended ? '1' : '0'; root.classList.toggle('is-ended', ended); }
       if (d.id != null && root.dataset.liveUrl) { root.dataset.liveUrl = '/_live/stream/f' + d.id; etag = ''; poll(); }   // each game can have its own video
       if (!media && !embed) { behind = 0; paint(); autoStart(false); } else paint();

@@ -90,7 +90,7 @@ def csrf(client, path="/dashboard"):
 
 def preview(c, scene):
     r = c.post("/dev/view-as", data={"csrf_token": csrf(c), "player_id": str(scene["stella"])})
-    assert r.status_code == 303 and r.headers["location"] == "/events"
+    assert r.status_code == 303 and r.headers["location"] == "/games/sabong/schedule"
     return r
 
 
@@ -98,7 +98,7 @@ def test_dev_menu_lists_players_and_chip_starts_the_preview(admin_c, scene):
     html = admin_c.get("/dashboard").text
     assert 'name="role" value="player"' in html and f'value="{scene["stella"]}"' in html
     r = admin_c.post("/dev/view-as", data={"csrf_token": csrf(admin_c), "role": "player"})
-    assert r.status_code == 303 and r.headers["location"] == "/events"
+    assert r.status_code == 303 and r.headers["location"] == "/games/sabong/schedule"
 
 
 def test_every_player_menu_page_stays_in_the_player_preview(admin_c, scene):

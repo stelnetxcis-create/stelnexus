@@ -236,6 +236,8 @@ class CsrfMiddleware:
             elif content_type.startswith("application/x-www-form-urlencoded"):
                 fields = parse_qs(body.decode("utf-8", "replace"))
                 presented = (fields.get("csrf_token") or [None])[0]
+                if len(body) <= 65536:      # kept so an "ask first" action can be parked with what was typed
+                    scope.setdefault("state", {})["form_body"] = body
             elif content_type.startswith("application/json"):
                 import json
                 try:

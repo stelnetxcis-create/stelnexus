@@ -382,7 +382,7 @@ _RESERVED = ("admin", "system", "staff", "management", "moderator", "declarator"
 
 
 # Only these account types can see which account is behind an alias. Everyone else just sees the alias.
-ALIAS_REVEAL_ROLES = (Role.ADMIN, Role.PAWN)
+ALIAS_REVEAL_ROLES = (Role.ADMIN, Role.BISHOP, Role.PAWN)
 
 
 def can_see_through_alias(user: User) -> bool:

@@ -112,9 +112,9 @@
         : '<span class="t">pre-show</span>';
     const pct = e.total ? Math.round(e.done / e.total * 100) : 0;
     return open + '<div class="dk-card-top"><span>Sabong</span>' + timer + '</div>' +
-      '<h4>Game #' + esc(g.n) + ' <small>' + esc(e.title) + (e.venue ? ' · ' + esc(e.venue) : '') + '</small></h4>' +
+      '<h4>Fight #' + esc(g.n) + ' <small>' + esc(e.title) + (e.venue ? ' · ' + esc(e.venue) : '') + '</small></h4>' +
       '<div class="dk-vs"><span class="m">' + esc(g.nm) + '</span><i>VS</i><span class="w">' + esc(g.nw) + '</span></div>' +
-      '<div class="dk-prog" title="' + e.done + ' of ' + e.total + ' games done"><i style="width:' + pct + '%"></i></div></button>';
+      '<div class="dk-prog" title="' + e.done + ' of ' + e.total + ' fights done"><i style="width:' + pct + '%"></i></div></button>';
   }
 
   function recentRows() {
@@ -141,7 +141,7 @@
     if (st.tab === 'recent') { list.innerHTML = recentHtml(); return; }
     const all = cards();
     if (!all.length) {
-      list.innerHTML = '<div class="dk-empty"><p>Nothing is live right now. New games show up here by themselves.</p></div>';
+      list.innerHTML = '<div class="dk-empty"><p>Nothing is live right now. New fights show up here by themselves.</p></div>';
       return;
     }
     let html = '';
@@ -164,7 +164,7 @@
     const links = '<div class="dk-actions"><a class="btn" href="/change_name">Fight View</a>' +
       (data.draws.length || data.can.bola ? '<a class="btn" href="/bola">Bola</a>' : '') + '</div>';
     return '<div class="dk-panel"><div class="dk-empty"><img src="/static/img/empty/arena.svg" alt="" width="150" height="110">' +
-      '<h3>All clear</h3><p>No game is waiting for you. The board updates by itself when one needs a result.</p>' + links + '</div></div>';
+      '<h3>All clear</h3><p>No fight is waiting for you. The board updates by itself when one needs a result.</p>' + links + '</div></div>';
   }
 
   function proofField(d) {
@@ -201,10 +201,10 @@
   function summary(g, a) {
     const r = resolve(g, a);
     const tail = '<small>Payouts post immediately. A wrong result can only be changed by a correction.</small>';
-    if (r.res === 'draw') return 'Declare Game #' + esc(g.n) + ' a <em>DRAW</em>?<small>Draw bets win; Meron and Wala stakes are refunded.</small>' + tail;
-    if (r.res === 'canceled') return 'Cancel Game #' + esc(g.n) + '?<small>Every stake is refunded.</small>';
+    if (r.res === 'draw') return 'Declare Fight #' + esc(g.n) + ' a <em>DRAW</em>?<small>Draw bets win; Meron and Wala stakes are refunded.</small>' + tail;
+    if (r.res === 'canceled') return 'Cancel Fight #' + esc(g.n) + '?<small>Every stake is refunded.</small>';
     return 'Declare <em>' + esc(sideName(g, r.res)) + '</em> (' + RES[r.res] + (r.via ? ' · ' + r.via : '') +
-      ') the winner of Game #' + esc(g.n) + '?' + tail;
+      ') the winner of Fight #' + esc(g.n) + '?' + tail;
   }
 
   function keypad(g, d) {
@@ -239,13 +239,13 @@
 
   function controls(g, e) {
     const b = [];
-    if (g.ph === 'open') b.push('<button type="button" class="btn btn-primary" data-act="start"' + dis() + '>Start game (go on air)</button>');
+    if (g.ph === 'open') b.push('<button type="button" class="btn btn-primary" data-act="start"' + dis() + '>Start fight (go on air)</button>');
     if (g.sd) b.push('<button type="button" class="btn" data-act="reset"' + dis() + '>Back to pre-show</button>');
     b.push(g.st === 'locked'
       ? '<button type="button" class="btn" data-act="unlock"' + dis() + '>Re-open betting</button>'
       : '<button type="button" class="btn btn-danger" data-act="lock"' + dis() + '>Close betting</button>');
-    return '<div class="dk-panel"><h5>Game controls</h5><div class="dk-actions">' + b.join('') + '</div>' +
-      '<p class="dk-hint">Starting a game closes betting and chat for it, and opens the next game after it is declared.</p>' +
+    return '<div class="dk-panel"><h5>Fight controls</h5><div class="dk-actions">' + b.join('') + '</div>' +
+      '<p class="dk-hint">Starting a fight closes betting and chat for it, and opens the next fight after it is declared.</p>' +
       (st.error && !draft('f' + g.id).armed ? errHtml() : '') + '</div>';
   }
 
@@ -260,7 +260,7 @@
   function verdict(g, e) {
     const colour = g.res === 'meron' ? 'var(--meron)' : g.res === 'wala' ? 'var(--wala)' : g.res === 'draw' ? 'var(--purple)' : '#a59d86';
     const label = g.res === 'meron' || g.res === 'wala' ? esc(sideName(g, g.res)) + ' wins'
-      : g.res === 'draw' ? 'Draw' : 'Game cancelled';
+      : g.res === 'draw' ? 'Draw' : 'Fight cancelled';
     return '<div class="dk-verdict" style="--wc:' + colour + '"><b>' + label + '</b><span>declared ' + esc(at(g.at)) + '</span>' +
       (g.cam ? '<a href="/fights/' + g.id + '/proof" target="_blank" rel="noopener">Result picture</a>' : '') +
       '<a href="/change_name?event_id=' + e.id + '&fight_id=' + g.id + '">Open in Fight View</a></div>';
@@ -286,7 +286,7 @@
     if (!g || g.id === follow.game) return;
     follow.game = g.id;
     follow.win.location.href = watchUrl(e, g);
-    toast('Spectate window moved to Game #' + g.n + '.', 'info', { ttl: 4000 });
+    toast('Spectate window moved to Fight #' + g.n + '.', 'info', { ttl: 4000 });
   }
 
   function sabongStage(c) {
@@ -315,7 +315,7 @@
       (lbl('wala') ? '<span class="dk-tag">' + lbl('wala') + '</span>' : '') + '</div></div>' +
       (ended ? verdict(g, e) : '') +
       '<div><div class="dk-beads" data-beads>' + e.games.map((x) => '<button type="button" class="' + beadClass(x, e) + '" data-bead="' + x.id +
-        '" title="Game ' + esc(x.n) + (x.res ? ' · ' + (RES[x.res] || x.res) : '') + '">' + esc(x.n) + '</button>').join('') + '</div>' +
+        '" title="Fight ' + esc(x.n) + (x.res ? ' · ' + (RES[x.res] || x.res) : '') + '">' + esc(x.n) + '</button>').join('') + '</div>' +
       '<div class="dk-legend"><span style="--bc:var(--green)"><i></i>pre-show</span><span style="--bc:var(--air);--fill:var(--air)"><i></i>on air</span>' +
       '<span style="--bc:var(--amber)"><i></i>betting closed</span><span style="--bc:#b82a3d;--fill:#b82a3d"><i></i>Meron</span>' +
       '<span style="--bc:#2f7fd1;--fill:#2f7fd1"><i></i>Wala</span><span style="--bc:#8266d6;--fill:#8266d6"><i></i>Draw</span>' +
@@ -323,13 +323,13 @@
 
     if (!isCur && !ended) {
       const cur = e.games.find((x) => x.id === e.cur);
-      html += '<div class="dk-warn">Game #' + esc(g.n) + ' opens after Game #' + esc(cur ? cur.n : '?') + ' is done, so it cannot be declared yet.' +
-        (cur ? '<button type="button" class="btn btn-sm" data-bead="' + cur.id + '">Go to Game #' + esc(cur.n) + '</button>' : '') + '</div>';
+      html += '<div class="dk-warn">Fight #' + esc(g.n) + ' opens after Fight #' + esc(cur ? cur.n : '?') + ' is done, so it cannot be declared yet.' +
+        (cur ? '<button type="button" class="btn btn-sm" data-bead="' + cur.id + '">Go to Fight #' + esc(cur.n) + '</button>' : '') + '</div>';
     }
     if (isCur && !ended && data.can.lock) html += controls(g, e);
     if (isCur && !ended) {
       if (!data.can.declare) {
-        html += '<div class="dk-panel"><p class="dk-hint">Your account can follow this game but not declare it.</p></div>';
+        html += '<div class="dk-panel"><p class="dk-hint">Your account can follow this fight but not declare it.</p></div>';
       } else {
         html += '<div class="dk-panel"><h5>Declare the result</h5>' + keypad(g, d) + (d.armed ? confirmBox(g, d) : (
           '<p class="dk-hint">Pick the result, then confirm. Nothing is settled until you press Confirm.</p>')) + '</div>';
@@ -342,14 +342,14 @@
   /* Close the whole event: only offered to accounts that may open events; the server refuses while bets are unsettled. */
   function eventPanel() {
     return '<div class="dk-panel"><h5>Event</h5><div class="dk-actions"><button type="button" class="btn" data-act="closeevent"' + dis() + '>Close event</button></div>' +
-      '<p class="dk-hint">Closing the event stops new games. Every game with bets must be declared first.</p></div>';
+      '<p class="dk-hint">Closing the event stops new fights. Every fight with bets must be declared first.</p></div>';
   }
 
   function draftStage(e) {
     const can = data.can.open_event;
     return '<div class="dk-panel"><div class="dk-head"><div><span class="dk-kicker">' + esc(e.venue || 'Sabong') + ' · ' + esc(e.date) +
       '</span><h3>' + esc(e.title) + '</h3></div><span class="dk-pill" data-lane="next"><i></i>Not open yet</span></div>' +
-      '<p class="dk-hint">This event is still a draft, so it has no live game. Open it when the show is about to start.</p>' +
+      '<p class="dk-hint">This event is still a draft, so it has no live fight. Open it when the show is about to start.</p>' +
       '<div class="dk-actions">' + (can ? '<button type="button" class="btn btn-primary" data-act="openevent"' + dis() + '>Open event</button>'
         : '<span class="dk-hint">A Master or the Admin opens this event.</span>') + '</div>' + errHtml() + '</div>';
   }
@@ -669,7 +669,7 @@
     if (!first) {
       cards().filter((c) => c.lane === 'due' && !before.has(c.key)).forEach((c) => {
         const what = c.kind === 'bola' ? 'Bola Slot ' + c.d.slot + (c.d.venue ? ' · ' + c.d.venue : '')
-          : 'Game #' + c.g.n + ' · ' + c.e.title;
+          : 'Fight #' + c.g.n + ' · ' + c.e.title;
         toast(what + ' needs a result.', 'warning', { ttl: 12000, action: { label: 'Open', run: () => select(c.key, true) } });
         if (snx.Sound && snx.Sound.play) snx.Sound.play('lock');
       });

@@ -125,6 +125,9 @@ def world(db):
     event = events.create_event(db, admin, title=f"Event {tag}", event_date=dt.date.today(),
                                 settings=store, fight_count=6, location_id=loc_id)
     events.set_event_status(db, admin, event.id, EventStatus.OPEN)
+    # Commit the setup so a test that also talks to the app over HTTP (its own connection) is not blocked by this
+    # session's open write transaction (SQLite allows one writer). The session itself commits at teardown anyway.
+    db.commit()
     return type("World", (), {"db": db, "store": store, "admin": admin, "player": player,
                               "event": event,
                               "games": events.fights_of(db, event.id), "tag": tag})

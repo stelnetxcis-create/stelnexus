@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#09080a">
+<title>License · {{ brand }}</title>
+<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+{{ css('auth') }}
+</head>
+<body class="auth-body">
+<main class="auth-card lic-card">
+  <div class="lic-head">
+    <picture><source type="image/webp" srcset="/static/img/brand/tl-logo-64.webp 64w, /static/img/brand/tl-logo-128.webp 128w, /static/img/brand/tl-logo-256.webp 256w" sizes="96px"><img src="/static/img/brand/tl-logo-128.png" alt="{{ lic.issuer or 'License' }} logo" width="96" height="96" decoding="async"></picture>
+    <div><h1>Licensed{% if lic.issuer %} by {{ lic.issuer }}{% endif %}</h1><p>{{ brand }}</p></div>
+  </div>
+  <dl class="lic-list">
+    {% if lic.holder %}<div><dt>License holder</dt><dd>{{ lic.holder }}</dd></div>{% endif %}
+    <div><dt>License number</dt><dd>{{ lic.number }}</dd></div>
+    {% if lic.issuer %}<div><dt>Issued by</dt><dd>{{ lic.issuer }}</dd></div>{% endif %}
+    {% if lic.valid_until %}<div><dt>Valid until</dt><dd>{{ lic.valid_until }}</dd></div>{% endif %}
+  </dl>
+  {% if lic.statement %}<p class="lic-text">{{ lic.statement }}</p>{% endif %}
+  {% if lic.verify_url %}<p><a class="btn btn-primary btn-block" href="{{ lic.verify_url }}" target="_blank" rel="noopener noreferrer">Verify this license with the regulator</a></p>{% endif %}
+  {% if lic.notice %}<p class="lic-notice">{{ lic.notice }}</p>{% endif %}
+  <p class="auth-foot">{% if user %}<a href="/dashboard">Back to {{ brand }}</a>{% else %}<a href="/login">Sign in</a>{% endif %}</p>
+</main>
+</body>
+</html>

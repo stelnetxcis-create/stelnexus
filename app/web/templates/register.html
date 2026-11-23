@@ -45,6 +45,7 @@
   </form>
   {% endif %}
   <p class="auth-foot"><a href="/login">← Back to sign in</a></p>
+  {% if license.published or license.notice %}<p class="auth-foot lic-foot">{% if license.published %}<a href="/license">{{ license.short }}</a>{% endif %}{% if license.published and license.notice %}<br>{% endif %}{% if license.notice %}<span class="muted">{{ license.notice }}</span>{% endif %}</p>{% endif %}
 </main>
 {{ js('auth') }}
 </body>

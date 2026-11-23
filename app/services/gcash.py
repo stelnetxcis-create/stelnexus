@@ -279,7 +279,7 @@ def _warn_owner(db: Session, usage: Usage, settings: SettingsStore) -> None:
     a = usage.account
     msg = (f"GCash {a.label} ({masked(a)}) is at {max(usage.day_pct, usage.month_pct)}% of its limit. "
            "New requests now go to the next number.")
-    targets = set(db.scalars(select(User.id).where(User.role == Role.ADMIN)).all())
+    targets = set(db.scalars(select(User.id).where(User.role.in_([Role.ADMIN, Role.BISHOP]))).all())
     if a.owner_id:
         targets.add(a.owner_id)
     for user_id in targets:
@@ -309,7 +309,7 @@ def assert_can_review(db: Session, actor: User, request: CashRequest) -> None:
 # --------------------------------------------------------------------------- managing numbers
 
 def _can_manage(actor: User, account: GcashAccount | None = None) -> None:
-    if actor.role == Role.ADMIN:
+    if actor.is_admin_tier:
         return
     if actor.role == Role.TELLER and (account is None or account.owner_id == actor.id):
         return

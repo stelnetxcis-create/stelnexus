@@ -20,12 +20,12 @@ def _sabong_tile(ctx: Ctx, open_games: int) -> dict | None:
     """Meron / Wala: the finished game. Sellers go to the events lobby; result-only roles
     (declarators, pawns) go to the fight view. No access to either -> no tile."""
     if ctx.can(Perm.EVENTS_VIEW):
-        href = "/events"
+        href = "/games/sabong/schedule"
     elif ctx.can(Perm.FIGHTS_VIEW):
         href = "/change_name"
     else:
         return None
-    hint = f"{open_games} game{'' if open_games == 1 else 's'} open"
+    hint = f"{open_games} fight{'' if open_games == 1 else 's'} open"
     return {"href": href, "hint": hint}
 
 
@@ -75,7 +75,7 @@ async def dashboard(ctx: Ctx = Depends(require_ctx)):
         if ctx.can(Perm.FIGHTS_APPROVE):
             attention.append({"label": "Corrections awaiting approval", "count": len(pending),
                               "href": "/dashboard#corrections", "tone": "amber"})
-        attention.append({"label": "Locked games waiting for a result", "count": stats["locked_fights"],
+        attention.append({"label": "Locked fights waiting for a result", "count": stats["locked_fights"],
                           "href": "/change_name", "tone": "red"})
     bola_card = reports.bola_dashboard(ctx.db, ctx.user, ctx.store) if ctx.can(Perm.BOLA_VIEW) else None
     if bola_card and ctx.user.is_top and ctx.can(Perm.BOLA_APPROVE) and bola_card["pending_corrections"]:

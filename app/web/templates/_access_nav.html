@@ -6,12 +6,14 @@
     <a class="subtab {{ 'is-active' if acc_tree == 'overview' }}" href="/admin/access">Overview</a>
     {% for t in trees %}<a class="subtab {{ 'is-active' if acc_tree == t.key }}" href="/admin/access/{{ t.key }}"><span class="ax-dot" style="--ax:{{ t.accent }}"></span>{{ t.label }}</a>{% endfor %}
     <a class="subtab {{ 'is-active' if acc_tree == 'matrix' }}" href="/admin/access/matrix">Compare all roles</a>
+    {% if can_decide %}<a class="subtab {{ 'is-active' if acc_tree == 'requests' }}" href="/admin/access/requests">Requests{% if waiting %}<span class="ax-badge">{{ waiting }}</span>{% endif %}</a>{% endif %}
+    {% if is_king %}<a class="subtab {{ 'is-active' if acc_tree == 'king' }}" href="/admin/access/king">♔ King desk</a>{% endif %}
   </div>
   <button class="btn btn-sm btn-brand" type="button" data-modal="type-modal"><svg class="ico"><use href="#i-plus"/></svg>New account type</button>
 </div>
 {% if kinds_nav %}
 <nav class="ax-kinds" aria-label="Account types">
-  {% for item in kinds_nav %}<a class="ax-kind {{ 'is-active' if item.active }}" href="{{ item.kind.href }}">{{ item.kind.label }}{% if item.kind.is_custom %}<span class="ax-custom">custom</span>{% endif %}<small>{{ item.members }}</small></a>{% endfor %}
+  {% for item in kinds_nav %}<a class="ax-kind {{ 'is-active' if item.active }}" href="{{ item.kind.href }}">{% if item.kind.icon %}<span class="ax-piece">{{ item.kind.icon }}</span>{% endif %}{{ item.kind.label }}{% if item.kind.is_custom %}<span class="ax-custom">custom</span>{% endif %}<small>{{ item.members }}</small></a>{% endfor %}
 </nav>
 {% endif %}
 {% call ui.modal('type-modal', 'New account type') %}

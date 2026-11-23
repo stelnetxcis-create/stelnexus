@@ -75,8 +75,11 @@ class Role(StrEnum):
                GCash account, so a GCash number is mandatory. (Legacy teller rows without one stay closed.)
     declarator Declares results only; never sees totals (was hard-coded id 78). No balance,
                cannot bet or move money: a spectator/helper for the event.
-    pawn       Created by the Admin only. A spectator like the declarator (no balance, no betting)
-               whose reach into the Admin Panel is set per account by the Admin (``User.grants``).
+    pawn       Created by the King or a Bishop. A spectator like the declarator (no balance, no betting)
+               whose reach into the Admin Panel is set per account (``User.grants``) and by rights rules.
+    bishop     A deputy admin the King appoints. Holds every right except the ones the King keeps sealed, can create
+               Pawns and set their rights, but sits below the King. Like the King it is hidden from the network, and a
+               Bishop is never told a King exists: to itself and to Pawns it simply reads as "Admin".
 
     Normal accounts (players) are not users: an Agent's or Sub Agent's referral code creates a Player.
     """
@@ -87,22 +90,27 @@ class Role(StrEnum):
     TELLER = "teller"
     DECLARATOR = "declarator"
     PAWN = "pawn"
+    BISHOP = "bishop"
 
     @property
     def label(self) -> str:
+        """The name everyone BUT the King sees. A Bishop reads as plain "Admin" so no Bishop or Pawn can tell that
+        a King exists above it; the real chess names are only produced for the King (see app.core.chess)."""
         return {
-            "admin": "Admin", "master": "Master Agent", "agent": "Agent", "sub_agent": "Sub Agent",
+            "admin": "Admin", "bishop": "Admin", "master": "Master Agent", "agent": "Agent", "sub_agent": "Sub Agent",
             "teller": "Teller", "declarator": "Declarator", "pawn": "Pawn",
         }[self.value]
 
 
-AGENT_ROLES = (Role.ADMIN, Role.MASTER, Role.AGENT, Role.SUB_AGENT)
+AGENT_ROLES = (Role.ADMIN, Role.BISHOP, Role.MASTER, Role.AGENT, Role.SUB_AGENT)
 # Every visible account that sells for players and earns commission (no Admin: it is hidden).
 NETWORK_ROLES = (Role.MASTER, Role.AGENT, Role.SUB_AGENT)
 # Retired tiers: still valid stored values (old rows, old ledger accounts) but nobody can be given them.
 # Spectator / helper accounts: no balance, no bets, no money movement, nobody's upline.
 NO_WALLET_ROLES = (Role.DECLARATOR, Role.PAWN, Role.TELLER)
-TOP_ROLES = (Role.ADMIN, Role.MASTER)          # the operator tier: see everything visible
+TOP_ROLES = (Role.ADMIN, Role.BISHOP, Role.MASTER)    # the operator tier: see everything visible
+# The two admin tiers: the hidden King and the Bishops it appoints. Both are hidden from the network.
+ADMIN_TIER = (Role.ADMIN, Role.BISHOP)
 
 # The tree: Master Agent -> Agent -> Sub Agent -> Player. A role's children are the roles it may
 # recruit, the first one being what its referral code makes by default. An Agent may also recruit
@@ -110,6 +118,7 @@ TOP_ROLES = (Role.ADMIN, Role.MASTER)          # the operator tier: see everythi
 # A player is not a user row (separate table).
 CHILD_ROLES: dict[Role, tuple[Role, ...]] = {
     Role.ADMIN: (Role.MASTER,),
+    Role.BISHOP: (Role.MASTER,),
     Role.MASTER: (Role.AGENT,),
     Role.AGENT: (Role.SUB_AGENT,),
     Role.SUB_AGENT: (),
@@ -120,6 +129,7 @@ CHILD_ROLES: dict[Role, tuple[Role, ...]] = {
 # Referral codes: what each role may put on a code ("player" is not a user role). First = default.
 INVITE_ROLES: dict[Role, tuple[str, ...]] = {
     Role.ADMIN: ("master", "agent", "sub_agent", "player"),
+    Role.BISHOP: ("master", "agent", "sub_agent", "player"),
     Role.MASTER: ("agent",),
     Role.AGENT: ("sub_agent", "player"),
     Role.SUB_AGENT: ("player",),
@@ -299,6 +309,8 @@ class User(UUIDMixin, TimestampMixin, Base):
     # perm_grants = extra permission keys, perm_revokes = removed ones (removal wins). See app.core.rbac.
     perm_grants: Mapped[list | None] = mapped_column(JsonType)
     perm_revokes: Mapped[list | None] = mapped_column(JsonType)
+    # Conditional rights: {perm_key: {"mode": "ask" | "temp" | "window" | "limit", ...}} (see app.core.rules).
+    perm_rules: Mapped[dict | None] = mapped_column(JsonType)
     # Optional custom account type (Admin Panel -> Access). Its base role must equal this account's role.
     account_profile_id: Mapped[int | None] = mapped_column(ForeignKey("account_profiles.id", ondelete="SET NULL"), index=True)
 
@@ -308,7 +320,7 @@ class User(UUIDMixin, TimestampMixin, Base):
         back_populates="parent", foreign_keys="User.parent_id")
 
     __table_args__ = (
-        CheckConstraint("role in ('admin','master','teller','declarator','pawn','agent','sub_agent')", name="role_valid"),
+        CheckConstraint("role in ('admin','master','teller','declarator','pawn','agent','sub_agent','bishop')", name="role_valid"),
         CheckConstraint("id <> parent_id", name="no_self_parent"),
         CheckConstraint("cut_bps is null or cut_bps between 0 and 10000", name="cut_range"),
         CheckConstraint("sop_bps is null or sop_bps between 0 and 10000", name="sop_range"),
@@ -320,9 +332,19 @@ class User(UUIDMixin, TimestampMixin, Base):
         return self.role == Role.ADMIN
 
     @property
-    def is_hidden(self) -> bool:
-        """Hidden accounts exist in the database like any other row but are never shown."""
+    def is_king(self) -> bool:
+        """The one true admin. Nobody below it is ever told it exists."""
         return self.role == Role.ADMIN
+
+    @property
+    def is_admin_tier(self) -> bool:
+        """King or Bishop: the accounts that act as the administrator."""
+        return self.role in ADMIN_TIER
+
+    @property
+    def is_hidden(self) -> bool:
+        """Hidden accounts exist in the database like any other row but are never shown to the network."""
+        return self.role in ADMIN_TIER
 
     @property
     def is_top(self) -> bool:
@@ -484,6 +506,60 @@ class StreamAssignment(TimestampMixin, Base):
     updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
 
+class AccessRequest(Base):
+    """A request for a right, and what became of it (Admin Panel -> Access -> Requests).
+
+    ``kind='action'``: someone whose right to this is *Ask* tried to do it; the action was NOT run, it was parked
+    here with the form they sent (secrets stripped) and the King and Bishops were notified. ``kind='access'``:
+    someone hit a closed door and asked for a way in. An approver answers with a pass: once (for exactly this
+    action, bound to ``bind_hash``), for a while, or for N uses. The requester then runs the action themselves,
+    so the approver never acts in their name and a changed amount or name voids the pass."""
+    __tablename__ = "access_requests"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    requester_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    perm: Mapped[str] = mapped_column(String(40), index=True)
+    kind: Mapped[str] = mapped_column(String(8), default="action")          # action | access
+    method: Mapped[str] = mapped_column(String(8), default="POST")
+    path: Mapped[str] = mapped_column(String(300), default="")
+    summary: Mapped[str] = mapped_column(String(300), default="")
+    reason: Mapped[str | None] = mapped_column(String(300))                 # the requester's own words
+    payload: Mapped[dict | None] = mapped_column(JsonType)                  # sanitized form fields
+    bind_hash: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(10), default="pending", index=True)
+    # pending | approved | denied | used | expired | cancelled | revoked
+    expires_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())    # a pending request lapses
+    decided_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    decided_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+    decision_note: Mapped[str | None] = mapped_column(String(300))
+    grant_mode: Mapped[str | None] = mapped_column(String(12))              # once | timed | uses | always
+    pass_until: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())   # the pass ends here
+    uses_left: Mapped[int | None] = mapped_column(Integer)                  # the pass is spent after this many uses
+    created_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow, index=True)
+    used_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+
+
+class PermUsage(Base):
+    """How many times an account used a right under a *Limit* rule in a period (day / week / always)."""
+    __tablename__ = "perm_usage"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    perm: Mapped[str] = mapped_column(String(40), primary_key=True)
+    period: Mapped[str] = mapped_column(String(16), primary_key=True)       # 2026-11-23 | 2026-W47 | always
+    count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class AccessFlag(Base):
+    """King-controlled switches and lists, read live (no restart): freezes, sealed rights and settings groups,
+    approval policy. See app.core.access_flags."""
+    __tablename__ = "access_flags"
+
+    key: Mapped[str] = mapped_column(String(40), primary_key=True)
+    value: Mapped[dict | list | str | int | bool | None] = mapped_column(JsonType)
+    updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    updated_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow)
+
+
 class RolePermOverride(TimestampMixin, Base):
     """The Admin's changes to a role's DEFAULT rights (Admin Panel -> Access -> a kind's page, or Compare roles).
 
@@ -494,6 +570,7 @@ class RolePermOverride(TimestampMixin, Base):
     role: Mapped[str] = mapped_column(String(20), primary_key=True)
     perm_grants: Mapped[list | None] = mapped_column(JsonType)
     perm_revokes: Mapped[list | None] = mapped_column(JsonType)
+    perm_rules: Mapped[dict | None] = mapped_column(JsonType)
     updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
 
@@ -511,6 +588,7 @@ class AccountProfile(TimestampMixin, Base):
     description: Mapped[str] = mapped_column(String(200), default="")
     perm_grants: Mapped[list | None] = mapped_column(JsonType)
     perm_revokes: Mapped[list | None] = mapped_column(JsonType)
+    perm_rules: Mapped[dict | None] = mapped_column(JsonType)
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
 

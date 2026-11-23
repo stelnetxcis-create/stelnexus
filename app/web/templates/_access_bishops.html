@@ -1,0 +1,28 @@
+{% import "_macros.html" as ui %}
+<h3 style="margin:22px 0 10px">♗ Bishops</h3>
+<p class="notice">A Bishop holds every right except the ones you keep for yourself or seal on the King desk, can create Pawns and set their rights, and answers requests from anyone below it. It is hidden from the network like you are, and it is never told that you exist: to itself, to Pawns and in every list it simply reads as <b>Admin</b>. Bishops do not see each other.</p>
+{% for b in bishops %}
+<div class="card">
+  <div class="card-head"><h2><span class="ax-piece">♗</span>{{ b.full_name }} <small class="muted">{{ b.username }}</small></h2><a class="btn btn-sm" href="/admin/access/account/{{ b.id }}">All rights</a>{{ ui.status_badge(b.status) }}</div>
+  <div class="card-body"><div class="table-actions">
+    <form method="post" action="/admin/access/bishops/{{ b.id }}/status" class="inline-form">{{ ui.csrf(csrf_token) }}
+      <input type="hidden" name="status" value="{{ 'suspended' if b.status.value == 'active' else 'active' }}">
+      {% if b.status.value == 'active' %}<input name="reason" placeholder="Reason" required maxlength="200">{% endif %}
+      <button class="btn btn-sm" type="submit">{{ 'Suspend' if b.status.value == 'active' else 'Reactivate' }}</button></form>
+    <form method="post" action="/admin/access/bishops/{{ b.id }}/password" class="inline-form" data-confirm="Reset this password? Their sessions are signed out.">{{ ui.csrf(csrf_token) }}
+      <input type="password" name="password" placeholder="New temporary password" required autocomplete="new-password">
+      <button class="btn btn-sm btn-ghost" type="submit">Reset password</button></form>
+  </div></div>
+</div>
+{% else %}{{ ui.empty('No bishops yet. Use Appoint bishop above.') }}{% endfor %}
+{% call ui.modal('bishop-modal', 'Appoint a bishop') %}
+<form method="post" action="/admin/access/bishops/create">{{ ui.csrf(csrf_token) }}
+  <div class="form-grid">
+    {{ ui.field('Full name', 'full_name', required=true, attrs='maxlength=120') }}
+    {{ ui.field('Username', 'username', required=true, attrs='maxlength=32 autocapitalize=none') }}
+    {{ ui.field('Contact number', 'contact', attrs='maxlength=32') }}
+    {{ ui.field('Temporary password', 'password', 'password', required=true, help='At least ' ~ min_len ~ ' characters. Changed at first sign-in.', attrs='autocomplete=new-password') }}
+  </div>
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Appoint bishop</button></div>
+</form>
+{% endcall %}
