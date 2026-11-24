@@ -1,10 +1,10 @@
 {
-  "build": "664eecc3",
-  "inputs": "e49797f146e59d3e6e7fbd9e352a1116063aa3869b0d62b929116b4da54ec44c",
+  "build": "1407c09d",
+  "inputs": "43c16f9b2c82676c92f3a6ba96496faa0838f5d2314e89b3d558101dbf9976d0",
   "css": {
     "auth": "/static/dist/auth.b13c8280.css",
     "site": "/static/dist/site.65c9e6e9.css",
-    "store": "/static/dist/store.05f49e0f.css",
+    "store": "/static/dist/store.6a948a4a.css",
     "bola-ui": "/static/dist/bola-ui.c8fefe2d.css",
     "livestream": "/static/dist/livestream.f6922ca2.css",
     "declarator": "/static/dist/declarator.06cc963e.css"
@@ -23,7 +23,7 @@
     "fightview": "/static/dist/fightview.0eadac65.js",
     "referrals": "/static/dist/referrals.0ec603de.js",
     "hls": "/static/dist/hls.63709b99.js",
-    "stream": "/static/dist/stream.2487be79.js",
+    "stream": "/static/dist/stream.743aea4c.js",
     "streams-admin": "/static/dist/streams-admin.e3b53d22.js"
   },
   "preload": [

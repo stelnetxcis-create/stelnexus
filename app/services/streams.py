@@ -160,7 +160,7 @@ def detect(raw: str, *, allowed_hosts: set[str] | frozenset[str] = frozenset()) 
         if start:
             embed += f"&start={start}"
         return Detected("youtube", url, embed, "www.youtube-nocookie.com", f"YouTube video {vid}", start,
-                        ["YouTube plays in its own player: Battle Pass rewind rules are limited on embeds."])
+                        ["YouTube is controlled by our player (play, sound, go live, Battle Pass rewind) and shows no controls of its own. Rewind works only if the video has a DVR window; YouTube may still flash its title for a moment when it starts."])
 
     if host in FB_HOSTS:
         if host != "fb.watch" and not re.search(r"/(videos|watch|reel|reels)(/|\?|$)", path + "?" + sp.query):
@@ -168,7 +168,7 @@ def detect(raw: str, *, allowed_hosts: set[str] | frozenset[str] = frozenset()) 
                                   "(facebook.com/…/videos/… or fb.watch/…).")
         embed = "https://www.facebook.com/plugins/video.php?show_text=false&href=" + quote(url, safe="")
         return Detected("facebook", url, embed, "www.facebook.com", "Facebook video", None,
-                        ["Facebook plays in its own player: Battle Pass rewind rules are limited on embeds."])
+                        ["Facebook plays in its own player and cannot be controlled from here: Battle Pass rewind rules do not apply, and only our full screen button is shown."])
 
     if path.lower().endswith(".m3u8"):
         return Detected("hls", url, None, netloc, "HLS stream (.m3u8)")

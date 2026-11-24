@@ -977,3 +977,32 @@
 .fc-stagewrap.dk-sheet.dk-drawer.dk-pbs .fc-overlay:not(.is-collapsed){height:min(calc(var(--dk-sh,100%) - var(--dk-bar,52px) - var(--fv-strip,0px) - var(--pbs-c) - 24px),600px)}
 .fc-stagewrap.dk-sheet.dk-drawer.dk-pbs .bp:not(.is-collapsed){max-height:calc(var(--dk-sh,100%) - var(--dk-bar,52px) - var(--fv-strip,0px) - var(--pbs-c) - 24px)}
 .fc-stagewrap.dk-sheet.dk-drawer .pbs-side.is-relief::after{display:none}
+
+
+/* =====================================================================================================
+   One player, one set of controls, one full screen.
+   YouTube is driven by our controls (stream.js), so its own UI is switched off and its frame is click-proof; the frame is
+   never allowed its own full screen (that would hide our strip, chat and bet panel). Embeds we cannot control run passively.
+   ===================================================================================================== */
+.vp.is-yt .vp-media iframe{pointer-events:none}          /* the click lands on our picture layer: tap = play / pause, double tap = full screen */
+.vp.is-yt .vp-media{cursor:pointer}
+
+/* passive embed (Facebook, extra hosts, a YouTube that did not answer): nothing that would do nothing */
+.vp.is-embed .vp-pass,.vp.is-embed .vp-main,.vp.is-embed .vp-track,.vp.is-embed .vp-golive,.vp.is-embed .vp-time,
+.vp.is-embed .vp-vol,.vp.is-embed .vp-sound,.vp.is-embed .vp-big,.vp.is-embed [data-vp-mute]{display:none!important}
+.vp.is-embed .pbs.is-min ~ .vp-big,.vp.is-embed .pbs ~ .vp-big{display:none!important}     /* the minimized payout card used to bring the dead play button back */
+.vp.is-embed-native .vp-badge{display:none}                                                  /* its own player shows LIVE already */
+
+/* tap for sound (muted autoplay) */
+.vp-sound{position:absolute;z-index:3;left:50%;top:calc(52px + var(--fv-strip,0px));transform:translateX(-50%);display:inline-flex;align-items:center;gap:8px;
+  padding:8px 14px;border-radius:999px;border:1px solid rgba(247,222,147,.55);cursor:pointer;font:inherit;font-size:13px;font-weight:800;color:#fff3c4;
+  background:rgba(14,12,18,.78);backdrop-filter:blur(8px);box-shadow:0 10px 26px -10px #000;animation:vp-sound-in .35s cubic-bezier(.2,.9,.3,1) both}
+.vp-sound svg{width:18px;height:18px}
+.vp-sound:hover{background:rgba(217,177,85,.22)}
+.vp-sound[hidden]{display:none}
+@keyframes vp-sound-in{from{opacity:0;transform:translate(-50%,-6px)}to{opacity:1;transform:translate(-50%,0)}}
+
+/* volume slider: with a mouse only (phones have the volume buttons; iPhone ignores it) */
+.vp-vol{display:none;width:74px;height:4px;margin:0 6px 0 2px;accent-color:var(--gold,#d9b155);cursor:pointer;vertical-align:middle}
+@media (hover:hover) and (pointer:fine){.vp.has-media:not(.is-embed):not(.is-slate):not(.is-standby) .vp-vol{display:inline-block}}
+@media (prefers-reduced-motion:reduce){.vp-sound{animation:none}}

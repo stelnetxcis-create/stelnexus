@@ -18,6 +18,9 @@
     <span class="vp-title">{{ title }}</span>
     <button type="button" class="vp-big" data-vp-big aria-label="Play">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>
+    {# Autoplay starts muted (browsers insist); one tap gives the sound. Only shown while the picture plays muted. #}
+    <button type="button" class="vp-sound" data-vp-sound hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10v4h4l5 4V6L7 10z" fill="currentColor"/><path d="M16 9l5 6M21 9l-5 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>Tap for sound</button>
   </div>
   <div class="vp-bar">
     <div class="vp-track" data-vp-track role="slider" aria-label="Position in the live window" aria-valuemin="0" aria-valuemax="120" aria-valuenow="0" tabindex="0">
@@ -36,6 +39,7 @@
       <button type="button" class="vp-btn vp-golive" data-vp-live hidden>Go live</button>
       <button type="button" class="vp-btn vp-mute" data-vp-mute aria-label="Sound" aria-pressed="false" title="Sound">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10v4h4l5 4V6L7 10z" fill="currentColor"/><path data-vp-wave d="M15.5 9a4 4 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      <input type="range" class="vp-vol" data-vp-vol min="0" max="100" step="5" value="100" aria-label="Volume">
       <span class="vp-spacer"></span>
       <button type="button" class="vp-btn vp-orient" data-vp-orient aria-label="Full screen, landscape" aria-pressed="false" title="Full screen, landscape (phones)">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="7" width="13" height="10" rx="1.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19 8.5v7M19 8.5l-1.6 1.6M19 8.5l1.6 1.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>

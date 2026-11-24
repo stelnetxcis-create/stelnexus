@@ -6,12 +6,75 @@
    behind = seconds behind the live edge (0 = live).
    Everyone: play / pause. Without a Battle Pass, Play snaps back to live on a live stream.
    Battle Pass (data-pass="1"): Previous (-10s), Forward (+10s, never past live), click the bar to seek.
-   A replay (a finished video) has a normal seek bar for everyone. An iframe cannot be controlled from here, so Pass rules
-   are limited on embeds (the admin page says so). The page polls /_live/stream, so a switch needs no reload. */
+   A replay (a finished video) has a normal seek bar for everyone. YouTube is driven through its postMessage API
+   (ytShim below): our play / pause / sound / volume / go live / +-10 s control it, YouTube's own controls and full
+   screen button are switched off, and the iframe is click-proof, so there is ONE player UI and ONE full screen (ours,
+   which keeps the strip, chat and bet panel on screen). If YouTube does not answer, the frame is reloaded with its own
+   controls and ours step aside. Other embeds (Facebook, extra hosts) cannot be controlled: they run passively with
+   only our full screen button, never a play button that does nothing. The page polls /_live/stream, so a switch needs
+   no reload. */
 (function () {
   const WINDOW = 120, STEP = 10;
   const snx = window.snx || {};
   const fmt = (s) => String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+
+  /* ------------------------------------------------------------------------------------------------------------------
+     YouTube controller. Talks to an embed (enablejsapi=1) with postMessage and looks like the small part of an
+     HTMLMediaElement that the player below uses (paused, ended, currentTime, duration, seekable, muted, volume, play,
+     pause), so YouTube gets exactly the same controls, Battle Pass rules and live / behind logic as our own <video>.
+     Commands sent before the frame answers are queued. hooks: ready(), change(), error(code). */
+  const YT_ORIGIN = /^https:\/\/(www\.)?youtube(-nocookie)?\.com$/;
+  function ytShim(frame, hooks, startMuted) {
+    const st = { time: 0, dur: 0, state: -1, vol: 100, muted: startMuted !== false, ready: false };
+    const queue = [];
+    let hs = 0;
+    const send = (obj) => { try { frame.contentWindow.postMessage(JSON.stringify(obj), '*'); } catch (e) { /* frame is gone */ } };
+    const cmd = (func, args) => { const m = { event: 'command', func, args: args || [] }; if (st.ready) send(m); else queue.push(m); };
+    const shake = () => send({ event: 'listening', id: 'snx', channel: 'widget' });
+    function onMessage(ev) {
+      if (ev.source !== frame.contentWindow || !YT_ORIGIN.test(ev.origin || '')) return;
+      let d = ev.data;
+      if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { return; } }
+      if (!d || typeof d !== 'object' || !d.event) return;
+      if (!st.ready) { st.ready = true; clearInterval(hs); queue.splice(0).forEach(send); if (hooks.ready) hooks.ready(); }
+      if (d.event === 'onStateChange') { st.state = Number(d.info); hooks.change(); }
+      else if (d.event === 'onError') { if (hooks.error) hooks.error(Number(d.info)); }
+      else if ((d.event === 'infoDelivery' || d.event === 'initialDelivery') && d.info && typeof d.info === 'object') {
+        const i = d.info;
+        if (typeof i.currentTime === 'number') st.time = i.currentTime;
+        if (typeof i.duration === 'number') st.dur = i.duration;
+        if (typeof i.playerState === 'number') st.state = i.playerState;
+        if (typeof i.volume === 'number') st.vol = i.volume;
+        if (typeof i.muted === 'boolean') st.muted = i.muted;
+        hooks.change();
+      }
+    }
+    window.addEventListener('message', onMessage);
+    frame.addEventListener('load', shake);
+    hs = setInterval(shake, 600);                    // the frame may load before we listen: keep asking until it answers
+    return {
+      get ready() { return st.ready; },
+      get paused() { return !(st.state === 1 || st.state === 3); },      // 1 playing, 3 buffering
+      get ended() { return st.state === 0; },
+      get currentTime() { return st.time; },
+      set currentTime(t) {                                                // no known window (live without rewind): never seek, or "go live" would jump to 0
+        if (!(st.dur > 0)) return;
+        st.time = Math.min(st.dur, Math.max(0, Number(t) || 0)); cmd('seekTo', [st.time, true]); hooks.change();
+      },
+      get duration() { return st.dur > 0 ? st.dur : NaN; },               // a live stream without a rewind window reports 0
+      get seekable() { const d = st.dur; return { length: d > 0 ? 1 : 0, start: () => 0, end: () => d }; },
+      get muted() { return st.muted; },
+      set muted(v) { st.muted = !!v; cmd(v ? 'mute' : 'unMute'); hooks.change(); },
+      get volume() { return st.vol / 100; },
+      set volume(v) { st.vol = Math.round(Math.min(1, Math.max(0, Number(v) || 0)) * 100); cmd('setVolume', [st.vol]); hooks.change(); },
+      play() { cmd('playVideo'); return Promise.resolve(); },
+      pause() { cmd('pauseVideo'); },
+      removeAttribute() { /* HTMLMediaElement API used by unmount(): nothing to do */ },
+      load() { /* same */ },
+      destroy() { clearInterval(hs); window.removeEventListener('message', onMessage); frame.removeEventListener('load', shake); queue.length = 0; },
+    };
+  }
+  window.snxYtShim = ytShim;                         // exposed for tests and the Admin preview
 
   document.querySelectorAll('[data-player]').forEach((root) => {
     const $ = (s) => root.querySelector(s);
@@ -23,6 +86,8 @@
     const icoPlay = $('[data-vp-ico-play]'), icoPause = $('[data-vp-ico-pause]'), screen = $('[data-vp-screen]');
     let playing = false, behind = 0, tick = 0;
     const mediaHost = $('[data-vp-media]'), msg = $('[data-vp-msg]'), mute = $('[data-vp-mute]');
+    const vol = $('[data-vp-vol]'), snd = $('[data-vp-sound]');
+    let guardTimer = 0;                              // YouTube did not answer in time: fall back to its own controls
     // ---- real video state (media === null and embed === false means the sample feed)
     let media = null, embed = false, hls = null, cfg = null, isLive = true, rev = '', failures = 0, retryTimer = 0, mediaFixes = 0;
     const LIVE_SLACK = 12;                           // a real HLS edge is a few seconds behind the encoder: that still counts as LIVE
@@ -74,6 +139,8 @@
       [prev, next].forEach((x) => x.setAttribute('aria-disabled', free ? 'false' : 'true'));
       if (mute) { mute.setAttribute('aria-pressed', String(!!media && media.muted)); mute.setAttribute('aria-label', media && media.muted ? 'Sound off, tap to turn on' : 'Sound on');
         const w = mute.querySelector('[data-vp-wave]'); if (w) w.toggleAttribute('hidden', !!media && media.muted); }
+      if (vol && media && document.activeElement !== vol) vol.value = String(media.muted ? 0 : Math.round((media.volume == null ? 1 : media.volume) * 100));
+      if (snd) snd.hidden = !(media && media.muted && on && !ended);   // autoplay starts muted: one tap gives the sound (a tap is the gesture browsers want)
     }
 
     function goLive() {
@@ -108,8 +175,24 @@
     };
     btnPlay.addEventListener('click', toggle);
     big.addEventListener('click', toggle);
-    screen.addEventListener('click', (ev) => { if (ev.target === screen || ev.target.closest('.vp-scene') || (media && ev.target === media)) toggle(); });
-    if (mute) mute.addEventListener('click', () => { if (media) { media.muted = !media.muted; paint(); } });
+    const onPicture = (ev) => ev.target === screen || ev.target.closest('.vp-scene') || (media && ev.target.closest('[data-vp-media]'));
+    screen.addEventListener('click', (ev) => { if (onPicture(ev)) toggle(); });
+    screen.addEventListener('dblclick', (ev) => { if (onPicture(ev) && full) full.click(); });          // double tap the picture = our full screen
+    function setSound(on) {
+      if (!media) return;
+      media.muted = !on;
+      if (on && media.volume === 0) media.volume = 1;
+      paint();
+    }
+    if (mute) mute.addEventListener('click', () => { if (media) setSound(media.muted); });
+    if (snd) snd.addEventListener('click', () => { if (snd && snd.hidden) return; if (snx.Sound) snx.Sound.play('tick'); setSound(true); });
+    if (vol) vol.addEventListener('input', () => {
+      if (!media) return;
+      const v = Number(vol.value) / 100;
+      if (v > 0 && media.muted) media.muted = false;
+      media.volume = v; if (v === 0) media.muted = true;
+      paint();
+    });
 
     function nudge(dir) {                             // dir: -1 = previous 10 s, +1 = forward 10 s
       if (media) {
@@ -150,12 +233,13 @@
       document.head.appendChild(el);
     }
     function unmount() {
-      clearTimeout(retryTimer);
+      clearTimeout(retryTimer); clearTimeout(guardTimer);
       if (hls) { try { hls.destroy(); } catch (e) { /* ignore */ } hls = null; }
-      if (media) { try { media.pause(); media.removeAttribute('src'); media.load(); } catch (e) { /* ignore */ } }
+      if (media) { try { media.pause(); media.removeAttribute('src'); media.load(); } catch (e) { /* ignore */ } if (media.destroy) media.destroy(); }
       if (mediaHost) mediaHost.replaceChildren();
       media = null; embed = false; showMsg('');
-      root.classList.remove('has-media', 'is-embed', 'is-replay', 'is-standby', 'is-slate');
+      if (snd) snd.hidden = true;
+      root.classList.remove('has-media', 'is-embed', 'is-yt', 'is-embed-native', 'is-replay', 'is-standby', 'is-slate');
     }
     // Failover: after two failures in a row the player tells the server which source it could not play, and the server
     // answers with the next one in the chain (or the same one if there is none, so retrying simply continues).
@@ -217,18 +301,69 @@
         }
         paint();
         if (!ended) { const p = v.play(); if (p && p.catch) p.catch(() => {}); }
+      } else if (c.kind === 'youtube') {
+        mountYouTube(c);
       } else {
-        embed = true; isLive = c.mode !== 'replay' && c.mode !== 'standby';
-        root.classList.add('is-embed');
-        let u = c.embed || '';
-        if (c.kind === 'youtube') u += '&autoplay=1' + (c.autoplay_muted !== false ? '&mute=1' : '') + (c.loop ? '' : '');
-        const f = document.createElement('iframe');
-        f.src = u; f.loading = 'lazy'; f.allowFullscreen = true; f.title = c.name || 'Live video';
-        f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation');
-        f.allow = 'autoplay; fullscreen; picture-in-picture'; f.referrerPolicy = 'strict-origin-when-cross-origin';
-        mediaHost.appendChild(f);
-        paint();
+        mountPassive(c, c.embed || '');
       }
+    }
+
+    // An embed is never allowed its own full screen: that would show the bare frame and hide our strip, chat and bet
+    // panel. Only our full screen button (it takes the whole stage) is offered.
+    function makeFrame(url, title) {
+      const f = document.createElement('iframe');
+      f.src = url; f.loading = 'lazy'; f.title = title || 'Live video';
+      f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation');
+      f.allow = 'autoplay; picture-in-picture'; f.allowFullscreen = false; f.referrerPolicy = 'strict-origin-when-cross-origin';
+      return f;
+    }
+    function ytUrl(embed, c, ownControls) {
+      let u;
+      try { u = new URL(embed); } catch (e) { return embed; }
+      const q = u.searchParams;
+      q.set('enablejsapi', '1'); q.set('origin', location.origin);
+      q.set('rel', '0'); q.set('modestbranding', '1'); q.set('playsinline', '1'); q.set('iv_load_policy', '3'); q.set('cc_load_policy', '0');
+      q.set('fs', '0');                                  // no YouTube full screen button: ours is the only one
+      q.set('controls', ownControls ? '1' : '0'); q.set('disablekb', ownControls ? '0' : '1');
+      q.set('autoplay', '1');
+      if (c.autoplay_muted !== false) q.set('mute', '1'); else q.delete('mute');
+      if (c.loop || c.mode === 'standby') { q.set('loop', '1'); q.set('playlist', u.pathname.split('/').pop()); }   // YouTube loops only with a playlist of one
+      return u.toString();
+    }
+    // YouTube: our controls drive it. If it never answers, hand the frame its own controls so nobody is left stuck.
+    function mountYouTube(c) {
+      isLive = c.mode !== 'replay' && c.mode !== 'standby';
+      const f = makeFrame(ytUrl(c.embed || '', c, false), c.name);
+      const shim = ytShim(f, {
+        ready() { clearTimeout(guardTimer); showMsg(''); if (!ended && shim.paused) shim.play(); paint(); },
+        change() { if (media === shim) { if (!shim.paused) { failures = 0; showMsg(''); } paint(); } },
+        error(code) { if (media === shim) embedFail(code); },
+      }, c.autoplay_muted !== false);
+      media = shim; root.classList.add('is-yt');
+      mediaHost.appendChild(f);
+      guardTimer = setTimeout(() => { if (media === shim && !shim.ready) mountPassive(c, ytUrl(c.embed || '', c, true), true); }, 7000);
+      paint();
+    }
+    // Passive embed (Facebook, extra hosts, or YouTube that would not answer): we cannot control it, so the controls
+    // that would do nothing are hidden by CSS and the provider's own controls are the player.
+    function mountPassive(c, url, native) {
+      if (native) {                                      // coming from a YouTube frame that did not answer: start clean
+        unmount(); cfg = c;
+        root.classList.add('has-media'); if (c.mode === 'standby') root.classList.add('is-standby');
+      }
+      root.classList.add('is-embed'); if (native) root.classList.add('is-embed-native');
+      embed = true; isLive = c.mode !== 'replay' && c.mode !== 'standby';
+      mediaHost.appendChild(makeFrame(url, c.name));
+      paint();
+    }
+    // This video cannot play here (private, removed, embedding switched off): tell the server so it moves to the
+    // next source in the chain, the same failover an HLS stream gets.
+    function embedFail(code) {
+      if ((code === 100 || code === 101 || code === 150 || code === 2) && cfg && cfg.source_id && root.dataset.liveUrl) {
+        bad[cfg.source_id] = Date.now() + 60000; etag = ''; showMsg('This video cannot be played here. Switching\u2026'); poll();
+        return;
+      }
+      fatal();
     }
     const sig = (c) => (c ? [c.status, c.kind, c.mode, c.src, c.embed, c.loop, c.start, c.message, c.source_id].join('|') : '');
     let pollTimer = 0;
