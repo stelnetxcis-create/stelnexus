@@ -107,6 +107,9 @@
     ["meron", "wala", "draw"].forEach((s) => {
       const b = sl("side-" + s); if (!b) return;
       b.disabled = !sellable || !allowed[s];
+      b.classList.toggle("is-blocked", sellable && !allowed[s]);            // the Declarator blocked this side (emergency balancer)
+      if (sellable && !allowed[s]) b.title = "Blocked by the declarator"; else b.removeAttribute("title");
+      let tag = b.querySelector(".blk-tag"); if (!tag) { tag = document.createElement("i"); tag.className = "blk-tag"; tag.textContent = "Blocked"; (b.querySelector(".sb-lab") || b).appendChild(tag); }
       b.classList.toggle("is-on", S.side === s);
       b.setAttribute("aria-pressed", String(S.side === s));
     });

@@ -438,7 +438,7 @@ def request_correction(
                                                       User.id != actor.id)).all():
         db.add(Notification(user_id=admin_id, level="warning",
                             message=f"{actor.username} requested a {action} on fight #{fight.number}",
-                            link="/change_name"))
+                            link="/games/sabong/live"))
     db.flush()
     return run
 

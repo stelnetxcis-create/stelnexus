@@ -123,6 +123,7 @@
     const pb = tab('pay');
     if (pb) { const live = pbsLive(); pb.classList.toggle('is-open', live && pbsOn()); pb.classList.toggle('is-off', !live); pb.disabled = !live; pb.setAttribute('aria-expanded', String(live && pbsOn())); }
     stage.classList.toggle('dk-drawer', chatOpen() || betOpen());
+    stage.classList.toggle('dk-pbs', pbsLive() && pbsOn());
     fab.hidden = dock || !pbs || !pbsLive() || pbsOn();
     scrim.hidden = !(dock && stage.classList.contains('dk-sheet') && (!isShut(chat) || !isShut(bet)));
     const lab = bar.querySelector('[data-dk-bet-label]');

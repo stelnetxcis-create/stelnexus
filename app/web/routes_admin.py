@@ -36,7 +36,6 @@ SECTIONS = (
     ("bola", "/admin/bola/schedules", "Bola draw times", Perm.BOLA_MANAGE),
     ("cuts", "/admin/cuts", "Cuts", Perm.CUTS_VIEW),
     ("accounts", "/admin/accounts", "Accounts", Perm.ACCOUNTS_VIEW),
-    ("streams", "/admin/streams", "Streams", Perm.STREAMS_VIEW),
     ("ipbans", "/admin/ipbans", "IP bans", Perm.IPBANS_MANAGE),
     ("access", "/admin/access", "Access", Perm.PAWNS_MANAGE),
     ("audit", "/admin/audit", "Audit trail", Perm.AUDIT_VIEW),
@@ -72,7 +71,7 @@ async def admin_home(ctx: Ctx = Depends(require_ctx)):
         n = int(db.scalar(select(func.count(Location.id)).where(Location.is_active.is_(True))) or 0)
         cards.append(("Locations", n, "active venues", "/admin/locations"))
     open_events = int(db.scalar(select(func.count(Event.id)).where(Event.status == EventStatus.OPEN)) or 0)
-    cards.append(("Open events", open_events, "taking bets", "/games/sabong/schedule"))
+    cards.append(("Open events", open_events, "taking bets", "/games/sabong/live?pick=1"))
     if ctx.can(Perm.STAFF_TELLER):
         from app.services import gcash as _gcash
         live = sum(1 for a in _gcash.list_accounts(db) if a.is_active)

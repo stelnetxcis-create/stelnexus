@@ -942,4 +942,38 @@
 .fc-stagewrap.dk-sheet .pbs-pool{flex-direction:column;align-items:flex-start;gap:0}
 .fc-stagewrap.dk-sheet .pbs-bar,.fc-stagewrap.dk-sheet .pbs-note{display:none}
 .fc-stagewrap.dk-sheet .pbs-stage{transition:opacity .2s}
-.fc-stagewrap.dk-sheet.dk-drawer .pbs-stage{opacity:0;visibility:hidden;pointer-events:none}
+
+/* auto-close countdown chip (payout card + bet panel) */
+.cd-chip{display:inline-flex;align-items:center;margin-left:8px;padding:2px 9px;border-radius:999px;border:1px solid rgba(217,177,85,.55);background:rgba(217,177,85,.12);color:var(--gold-hi,#f7de93);font:700 11.5px var(--sans,inherit);letter-spacing:.02em;font-variant-numeric:tabular-nums;text-transform:none;white-space:nowrap}
+.cd-chip[hidden]{display:none}
+.cd-chip.is-soon{border-color:rgba(229,56,79,.8);background:rgba(229,56,79,.18);color:#ffb3bd;animation:cd-pulse 1s ease-in-out infinite}
+@keyframes cd-pulse{50%{opacity:.6}}
+@media (prefers-reduced-motion:reduce){.cd-chip.is-soon{animation:none}}
+
+/* a side the Declarator has blocked: clearly closed, the other side stays pressable */
+[data-sl-root] .is-blocked{position:relative;opacity:.55;filter:grayscale(.6);cursor:not-allowed}
+[data-sl-root] .blk-tag{display:none;margin-left:8px;padding:1px 8px;border-radius:999px;font:700 10.5px var(--sans,inherit);font-style:normal;letter-spacing:.06em;text-transform:uppercase;background:rgba(229,56,79,.92);color:#fff;vertical-align:middle}
+[data-sl-root] .is-blocked .blk-tag{display:inline-block}
+/* portrait: with the payout strip showing above a sheet, do not dim or blur the strip */
+.fc-stagewrap.dk-sheet.dk-pbs .dk-scrim{display:none!important}
+
+/* Portrait + a sheet (Bet / Chat) open: the payout card shrinks to one compact strip ABOVE the sheet, so both are
+   readable at once. The sheet gives up the height the strip needs (--pbs-c). */
+.fc-stagewrap.dk-sheet.dk-drawer{--pbs-c:176px}
+.fc-stagewrap.dk-sheet.dk-drawer .pbs-stage{padding:7px 10px 8px;border-radius:16px}
+.fc-stagewrap.dk-sheet.dk-drawer .pbs-kicker{margin-bottom:4px;font-size:10px}
+.fc-stagewrap.dk-sheet.dk-drawer .pbs-duel{gap:6px}
+.fc-stagewrap.dk-sheet.dk-drawer .pbs-name,
+.fc-stagewrap.dk-sheet.dk-drawer .pbs-pool small,
+.fc-stagewrap.dk-sheet.dk-drawer .pbs-side .pbs-note,
+.fc-stagewrap.dk-sheet.dk-drawer .pbs-final{display:none}
+.fc-stagewrap.dk-sheet.dk-drawer .pbs-side{padding:5px 9px 6px}
+.fc-stagewrap.dk-sheet.dk-drawer .pbs-x b{font-size:22px}
+.fc-stagewrap.dk-sheet.dk-drawer .pbs-pool{flex-direction:row}
+.fc-stagewrap.dk-sheet.dk-drawer .pbs-pool b{font-size:13px}
+.fc-stagewrap.dk-sheet.dk-drawer .pbs-mid>:not(:nth-last-child(2)){display:none}
+.fc-stagewrap.dk-sheet.dk-drawer .pbs-mid .pbs-row{font-size:12px;padding:2px 2px 0}
+.fc-stagewrap.dk-sheet.dk-drawer .pbs-hide{top:2px;right:2px;width:26px;height:26px}
+.fc-stagewrap.dk-sheet.dk-drawer.dk-pbs .fc-overlay:not(.is-collapsed){height:min(calc(var(--dk-sh,100%) - var(--dk-bar,52px) - var(--fv-strip,0px) - var(--pbs-c) - 24px),600px)}
+.fc-stagewrap.dk-sheet.dk-drawer.dk-pbs .bp:not(.is-collapsed){max-height:calc(var(--dk-sh,100%) - var(--dk-bar,52px) - var(--fv-strip,0px) - var(--pbs-c) - 24px)}
+.fc-stagewrap.dk-sheet.dk-drawer .pbs-side.is-relief::after{display:none}

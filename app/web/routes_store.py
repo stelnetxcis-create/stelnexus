@@ -259,5 +259,5 @@ async def chat_unlock(fight_id: int, request: Request, ctx: Ctx = Depends(requir
     store_svc.use_token(ctx.db, ctx.user, fight)
     if _wants_json(request):
         return JSONResponse({"ok": True, **_state(ctx, fight)}, headers={"Cache-Control": "no-store"})
-    return flash_redirect(f"/change_name?event_id={fight.event_id}&fight_id={fight.id}",
+    return flash_redirect(event_url(fight.event_id, fight.id),
                           f"Chat unlocked for fight #{fight.number}.")

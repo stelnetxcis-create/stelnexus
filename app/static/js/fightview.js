@@ -260,7 +260,7 @@
   }
   const key = (f) => (f.res ? 'res:' + f.res : 'st:' + f.st);
   const ended = (f) => !!f.res || f.st === 'settled' || f.st === 'void';
-  const url = (id) => '/change_name?event_id=' + eventId + '&fight_id=' + id;
+  const url = (id) => '/events/' + eventId + '?fight_id=' + id;
   const chipOf = (id) => strip.querySelector('[data-fight="' + id + '"]');
 
   function paintChip(a, f) {
@@ -396,9 +396,25 @@
     if (bp) bp.setFights(fights, hide);
   });
 
+  /* The Declarator's auto-close timer: "Closes in m:ss" on the payout card and the bet panel. The server sends the
+     deadline and (only while a timer runs) its own clock, so a phone with a wrong clock still counts down right. */
+  let acDeadline = 0, acSkew = 0;
+  function paintCountdown() {
+    const left = acDeadline ? Math.max(0, Math.ceil((acDeadline - Date.now()) / 1000)) : -1;
+    const txt = left < 0 ? '' : left === 0 ? 'Closing…' : 'Closes in ' + Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0');
+    document.querySelectorAll('[data-ac]').forEach((el) => {
+      el.hidden = left < 0;
+      if (el.textContent !== txt) el.textContent = txt;
+      el.classList.toggle('is-soon', left >= 0 && left <= 10);
+    });
+  }
+  setInterval(paintCountdown, 1000);
+
   function onData(d, _isFirst, sentAt) {
     if (sentAt !== undefined && sentAt < rowAt) return;
     hide = !!d.hide; fights = d.fights;
+    if (d.event && d.event.sn) acSkew = d.event.sn - Date.now();
+    { const af = fights.find((x) => x.id === activeId); acDeadline = af && af.ac && af.st === 'open' ? af.ac - acSkew : 0; paintCountdown(); }
     const prevCur = curId;
     curId = d.event ? d.event.cur : null;
     renderStrip();

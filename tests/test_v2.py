@@ -92,7 +92,7 @@ def test_pawn_web_access_follows_grants_and_variable_groups(chain):
     assert c.get("/admin/locations").status_code == 200
     for path in ["/admin/cuts", "/admin/audit", "/admin/pawns", "/clp", "/clp/online", "/wallet", "/dashboard", "/agents"]:
         assert c.get(path).status_code == 403, path
-    assert c.get("/change_name").status_code == 200
+    assert c.get("/games/sabong/live?pick=1").status_code == 200
     # saving only touches granted groups, even if other keys are posted
     before = w.store.get("security.max_login_attempts")
     r = c.post("/admin/variables", data={"csrf_token": _csrf(c), "payout.min_stake_cents": "3000",

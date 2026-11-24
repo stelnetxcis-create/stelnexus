@@ -21,7 +21,7 @@ from app.core.errors import ValidationError
 from app.core.money import to_cents
 from app.core.rbac import Perm
 from app.db.models import EventStatus, Role, Status, User
-from app.services import bola, bola_settlement, cashdesk, declarator, events, gcash, proofs, settlement
+from app.services import bola, bola_settlement, cashdesk, declarator, events, gcash, proofs, settlement, streams
 from app.web.deps import Ctx, flash_redirect, form_data, render, require_ctx
 from app.web.routes_fights import _form_with_proof
 from app.web.routes_live import _reply
@@ -34,6 +34,7 @@ SECTIONS = (
     ("overview", "/staff", "Overview", Perm.STAFF_VIEW),
     ("teller", "/staff/teller", "Teller", Perm.STAFF_TELLER),
     ("declarator", "/staff/declarator", "Declarator", Perm.STAFF_DECLARATOR),
+    ("stream", "/staff/stream", "Stream", Perm.STREAMS_VIEW),
 )
 
 
@@ -63,11 +64,19 @@ async def staff_home(ctx: Ctx = Depends(require_ctx)):
         waiting = declarator.attention(ctx.db, sabong=ctx.can(Perm.FIGHTS_VIEW), with_bola=_bola_visible(ctx))
         decl_value = f"{waiting} waiting" if waiting else "All clear"
         decl_hint = "Fights waiting for a result" if waiting else "No fight is waiting for a result"
+    stream_open = ctx.can(Perm.STREAMS_VIEW)
+    stream_value, stream_hint = "Open", "Video sources and what plays where"
+    if stream_open:
+        live = next((r for r in streams.list_sources(ctx.db) if r.is_active), None)
+        stream_value, stream_hint = ("On air", live.name) if live else ("Sample feed", "Nothing is taken live")
     sections = [
         dict(label="Teller", url="/staff/teller", open=teller_open, value=teller_value,
              hint=teller_hint, tone="green", locked_hint="Tellers only"),
         dict(label="Declarator", url="/staff/declarator", open=decl_open, value=decl_value,
              hint=decl_hint, tone="amber" if decl_open and decl_value.endswith("waiting") else "",
+             locked_hint="Declarators only"),
+        dict(label="Stream", url="/staff/stream", open=stream_open, value=stream_value,
+             hint=stream_hint, tone="green" if stream_open and stream_value == "On air" else "",
              locked_hint="Declarators only"),
     ]
     return staff(ctx, "overview", "staff_home.html", sections=sections)
@@ -137,6 +146,37 @@ async def desk_lock(fight_id: int, request: Request, ctx: Ctx = Depends(require_
     fight = events.lock_fight(ctx.db, ctx.user, fight_id, locked=locking)
     return _ok(f"Fight {fight.number}: betting closed." if locking else f"Fight {fight.number}: betting re-opened.",
                "success" if not locking else "warning")
+
+
+@router.post("/staff/declarator/fights/{fight_id}/block")
+async def desk_block(fight_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
+    """Emergency manual balancer: stop bets on ONE side so the other side can catch up. side = meron | wala | none."""
+    ctx.need(Perm.STAFF_DECLARATOR)
+    ctx.need(Perm.FIGHTS_LOCK)
+    data = await form_data(request)
+    side = str(data.get("side", "none")).lower()
+    if side not in ("meron", "wala", "none"):
+        raise ValidationError("Choose Meron, Wala or none.")
+    mode = {"meron": "wala", "wala": "meron", "none": "all"}[side]          # blocking Meron = only Wala stays open
+    fight = events.set_bet_mode(ctx.db, ctx.user, fight_id, mode)
+    if side == "none":
+        return _ok(f"Fight {fight.number}: both sides are open again.")
+    return _ok(f"Fight {fight.number}: {side.upper()} is blocked. Only {mode.upper()} takes bets now.", "warning")
+
+
+@router.post("/staff/declarator/fights/{fight_id}/timer")
+async def desk_timer(fight_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
+    """Close betting automatically after N seconds (0 cancels the timer)."""
+    ctx.need(Perm.STAFF_DECLARATOR)
+    ctx.need(Perm.FIGHTS_LOCK)
+    data = await form_data(request)
+    raw = str(data.get("seconds", "0")).strip()
+    if not raw.isdigit():
+        raise ValidationError("Enter the time in seconds.")
+    fight = events.set_auto_close(ctx.db, ctx.user, fight_id, int(raw))
+    if not int(raw):
+        return _ok(f"Fight {fight.number}: auto-close timer cancelled.", "warning")
+    return _ok(f"Fight {fight.number}: betting closes in {int(raw)} seconds.")
 
 
 @router.post("/staff/declarator/events/{event_id}/stream")

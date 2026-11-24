@@ -98,7 +98,7 @@ class Perm(str, Enum):
     ACCOUNTS_EDIT = "accounts.edit"        # change name / username / contact / GCash of an account
     ACCOUNTS_REMOVE = "accounts.remove"    # close an account (never a delete; see account_admin)
     IPBANS_MANAGE = "ipbans.manage"        # ban / unban IP addresses
-    STREAMS_VIEW = "streams.view"          # Admin Panel -> Streams: see the video sources
+    STREAMS_VIEW = "streams.view"          # Staff Panel -> Stream: see the video sources
     STREAMS_MANAGE = "streams.manage"      # add / take live / stop video sources
     # Cancel Ticket and Bola Cancelled pages: dev-only (Admin account).
     CANCEL_LOG = "cancellog.view"
@@ -200,7 +200,8 @@ ROLE_PERMS: dict[Role, set[Perm]] = {
     Role.SUB_AGENT: _AGENT_PERMS | {Perm.REFERRALS_MANAGE},
     # Retired tiers (merged into Agent / Sub Agent by the migration): no permissions.
     Role.TELLER: set(_TELLER_PERMS),
-    Role.DECLARATOR: set(_DECLARATOR_PERMS) | {Perm.EVENTS_OPEN, Perm.BOLA_OPEN, Perm.STAFF_VIEW, Perm.STAFF_DECLARATOR},
+    Role.DECLARATOR: set(_DECLARATOR_PERMS) | {Perm.EVENTS_OPEN, Perm.BOLA_OPEN, Perm.STAFF_VIEW, Perm.STAFF_DECLARATOR,
+                                                 Perm.STREAMS_VIEW, Perm.STREAMS_MANAGE},   # the stream is the Declarator's job
     # Pawn: a declarator-style spectator. Everything beyond that is granted per account by the Admin.
     Role.PAWN: set(_DECLARATOR_PERMS),
 }
@@ -451,7 +452,7 @@ def _build_grants() -> tuple[Grant, ...]:
               "Security", frozenset({Perm.PANEL_VIEW, Perm.IPBANS_MANAGE})),
         Grant("streams:manage", "Manage the livestream and videos",
               "Paste a stream / video link, preview it, take it live for everyone or stop it.", "Security",
-              frozenset({Perm.PANEL_VIEW, Perm.STREAMS_VIEW, Perm.STREAMS_MANAGE})),
+              frozenset({Perm.STAFF_VIEW, Perm.STREAMS_VIEW, Perm.STREAMS_MANAGE})),
         Grant("audit:view", "See the audit trail and ledger integrity", "", "Reports",
               frozenset({Perm.PANEL_VIEW, Perm.AUDIT_VIEW})),
         Grant("cashflow:view", "See cashflow", "House position and money totals.", "Reports",

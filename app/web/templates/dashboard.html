@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
+{% from "_game_cards.html" import game_card, soon_card %}
 {% block title %}Dashboard · {{ brand }}{% endblock %}
 {% block heading %}Dashboard{% endblock %}
 {% block actions %}
-{% if 'events.manage' in perms %}<a class="btn btn-sm btn-brand" href="/games/sabong/schedule?create=1" title="New event"><svg class="ico"><use href="#i-plus"/></svg><span class="lbl">New event</span></a>{% endif %}
+{% if 'events.manage' in perms %}<a class="btn btn-sm btn-brand" href="/games/sabong/live?pick=1&create=1" title="New event"><svg class="ico"><use href="#i-plus"/></svg><span class="lbl">New event</span></a>{% endif %}
 {% endblock %}
 
 {% macro spark(values) %}
@@ -49,20 +50,7 @@
 
 {# Floating "where to?" menu under a game tile. Items are filtered by the viewer's permissions, so nobody is offered a page
    they cannot open. The tile itself keeps its href (no-JS / middle-click still goes to the main page); dash.js turns the click into a menu. #}
-{% macro game_menu(id, title, items) %}
-{% set shown = items | selectattr(4, 'in', perms) | list %}
-<div class="game-menu" id="gm-{{ id }}" role="menu" aria-label="{{ title }}" style="--n: {{ shown | length }}" hidden>
-  <div class="gm-head"><i class="gm-dot" aria-hidden="true"></i>{{ title }}</div>
-  {% for href, icon, label, desc, perm in shown %}
-  <a class="gm-item" role="menuitem" href="{{ href }}" style="--i: {{ loop.index0 }}">
-    <span class="gm-ico"><svg class="ico"><use href="#{{ icon }}"/></svg></span>
-    <span class="gm-txt"><b>{{ label }}</b><small>{{ desc }}</small></span>
-    <span class="gm-arrow" aria-hidden="true">→</span>
-    <span class="gm-shine" aria-hidden="true"></span>
-  </a>
-  {% endfor %}
-</div>
-{% endmacro %}
+
 
 {% block content %}
 
@@ -82,74 +70,10 @@
   </div>
 </section>
 
-<section class="games" aria-label="Available games">
-  {% if sabong_tile %}
-  <div class="game-wrap" data-game-wrap data-g="sabong">
-    <a class="game-tile is-live" href="{{ sabong_tile.href }}" data-game="sabong" data-menu="gm-sabong" aria-haspopup="menu" aria-expanded="false">
-      <span class="game-ico"><svg class="ico"><use href="#i-target"/></svg></span>
-      <span class="game-body">
-        <span class="game-label">Sabong</span>
-        <strong class="game-name"><b class="side-meron">Meron</b><em>or</em><b class="side-wala">Wala</b></strong>
-        <span class="game-hint">{{ sabong_tile.hint }}</span>
-      </span>
-      <span class="game-go" aria-hidden="true">→</span>
-    </a>
-    {{ game_menu('sabong', 'Sabong · where to?', [
-      ('/games/sabong/schedule', 'i-calendar', 'Events', 'Open an event and see its fights', 'events.view'),
-      ('/change_name', 'i-target', 'Fight View', 'Watch live, place bets, declare results', 'fights.view'),
-      ('/records?tab=tickets&game=sabong', 'i-list', 'Tickets', 'Every ticket placed', 'bets.view'),
-      ('/records?tab=history&game=sabong', 'i-clock', 'History', 'Declared fights and result pictures', 'fights.view'),
-      ('/records?tab=cancelled&game=sabong', 'i-ban', 'Cancelled', 'Cancelled tickets log', 'cancellog.view')]) }}
-  </div>
-  {% endif %}
-  {% if number_tile %}
-  {% if number_tile.state == 'live' %}
-  <div class="game-wrap" data-game-wrap data-g="number">
-    <a class="game-tile is-live" href="{{ number_tile.href }}" data-game="number" data-menu="gm-number" aria-haspopup="menu" aria-expanded="false">
-      <span class="game-ico"><svg class="ico"><use href="#i-hash"/></svg></span>
-      <span class="game-body">
-        <span class="game-label">Number game</span>
-        <strong class="game-name">Tumbok-Sahod</strong>
-        <span class="game-hint">{{ number_tile.hint }}</span>
-      </span>
-      <span class="game-go" aria-hidden="true">→</span>
-    </a>
-    {{ game_menu('number', 'Number game · where to?', [
-      ('/bola', 'i-hash', 'Draws & bet slip', 'Pick a draw and place bets', 'bola.view'),
-      ('/records?tab=tickets&game=bola', 'i-list', 'My tickets', 'Tickets you placed', 'bola.place'),
-      ('/records?tab=reports&game=bola', 'i-coins', 'Reports', 'Exposure and sales', 'bola.exposure'),
-      ('/bola/cancelled', 'i-ban', 'Cancelled', 'Cancelled tickets log', 'cancellog.view')]) }}
-  </div>
-  {% else %}
-  <div class="game-tile is-soon" aria-disabled="true" data-game="number">
-    <span class="game-ico"><svg class="ico"><use href="#i-hash"/></svg></span>
-    <span class="game-body">
-      <span class="game-label">Number game</span>
-      <strong class="game-name">Tumbok-Sahod</strong>
-      <span class="game-hint">{{ number_tile.hint }}</span>
-    </span>
-    <span class="game-soon">Soon</span>
-  </div>
-  {% endif %}
-  {% endif %}
-  <div class="game-tile is-soon" aria-disabled="true" data-game="esports">
-    <span class="game-ico"><svg class="ico"><use href="#i-trophy"/></svg></span>
-    <span class="game-body">
-      <span class="game-label">Esports</span>
-      <strong class="game-name">Tournament</strong>
-      <span class="game-hint">Coming soon · Battle Pass chat</span>
-    </span>
-    <span class="game-soon">Soon</span>
-  </div>
-  <div class="game-tile is-soon" aria-disabled="true" data-game="nba">
-    <span class="game-ico"><svg class="ico"><use href="#i-trophy"/></svg></span>
-    <span class="game-body">
-      <span class="game-label">NBA</span>
-      <strong class="game-name">Tournament</strong>
-      <span class="game-hint">Coming soon</span>
-    </span>
-    <span class="game-soon">Soon</span>
-  </div>
+<section class="gcards" aria-label="Available games">
+  {% for c in game_cards %}{{ game_card(c) }}{% endfor %}
+  {{ soon_card('esports', 'Esports', 'Tournament', 'i-trophy', 'Coming soon · Battle Pass chat') }}
+  {{ soon_card('nba', 'NBA', 'Tournament', 'i-trophy', 'Coming soon') }}
 </section>
 
 <div class="kpis">
@@ -244,7 +168,7 @@
 
     {% call ui.region('live-games') %}
     <div class="card">
-      <div class="card-head"><h2>Live fights</h2><span class="sect sect-sabong">Sabong</span>{% if 'fights.view' in perms %}<a class="btn btn-sm btn-ghost" href="/change_name">Fight view →</a>{% endif %}</div>
+      <div class="card-head"><h2>Live fights</h2><span class="sect sect-sabong">Sabong</span>{% if 'fights.view' in perms %}<a class="btn btn-sm btn-ghost" href="/games/sabong/live">Fight view →</a>{% endif %}</div>
       <div class="card-body tight">
         {% if stats.live_fights %}
         <ul class="live-list" data-live-list>
@@ -256,17 +180,17 @@
               <small class="muted">{{ f.event_title }}</small>
             </div>
             {{ ui.status_badge(f.status) }}
-            {% if 'fights.view' in perms %}<a class="btn btn-sm" href="/change_name?event_id={{ f.event_id }}&fight_id={{ f.id }}">Open</a>{% endif %}
+            {% if 'fights.view' in perms %}<a class="btn btn-sm" href="/events/{{ f.event_id }}?fight_id={{ f.id }}">Open</a>{% endif %}
           </li>
           {% endfor %}
         </ul>
-        {% else %}{{ ui.empty('Open an event to start taking bets.', kind='rooster', title='No fights are open', href='/games/sabong/schedule' if 'events.view' in perms else '', cta='See events', compact=true) }}{% endif %}
+        {% else %}{{ ui.empty('Open an event to start taking bets.', kind='rooster', title='No fights are open', href='/games/sabong/live?pick=1' if 'events.view' in perms else '', cta='See events', compact=true) }}{% endif %}
       </div>
     </div>
     {% endcall %}
 
     <div class="card">
-      <div class="card-head"><h2>Recent events</h2><span class="sect sect-sabong">Sabong</span><a class="btn btn-sm btn-ghost" href="/games/sabong/schedule">All events →</a></div>
+      <div class="card-head"><h2>Recent events</h2><span class="sect sect-sabong">Sabong</span><a class="btn btn-sm btn-ghost" href="/games/sabong/live?pick=1">All events →</a></div>
       <div class="card-body tight">
         {% if recent_events %}
         <div class="table-wrap"><table class="table">
@@ -283,7 +207,7 @@
           {% endfor %}
           </tbody>
         </table></div>
-        {% else %}{{ ui.empty('Create your first event to open betting.', kind='arena', title='No events yet', href='/games/sabong/schedule' if 'events.view' in perms else '', cta='Go to events', compact=true) }}{% endif %}
+        {% else %}{{ ui.empty('Create your first event to open betting.', kind='arena', title='No events yet', href='/games/sabong/live?pick=1' if 'events.view' in perms else '', cta='Go to events', compact=true) }}{% endif %}
       </div>
     </div>
   </div>

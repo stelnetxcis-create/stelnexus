@@ -1,5 +1,6 @@
-"""Dashboard 'Games' tiles: Meron/Wala is live and clickable; the number game says 'Coming soon'
-while it is dev-only (or switched off) and becomes a link on its own once it is launched."""
+"""Dashboard game cards: the same polished card as the Games hub, one "Enter" button each (playing and managing a game
+are the same place). Sabong is always there; the number game appears when it is switched on and not dev-only-gated
+for the viewer; Esports / NBA are quiet "Soon" cards."""
 import re
 
 import pytest
@@ -23,9 +24,9 @@ def _dash(username="admin"):
 
 
 def _tile(html, name):
-    """The HTML of the game tile whose label is `name` (a <a> or a <div> with class game-tile)."""
-    for m in re.finditer(r'<(a|div) class="game-tile[^"]*"[^>]*>.*?</\1>', html, re.S):
-        if name in m.group(0):
+    """The HTML of the game card whose label is `name` (an <article> with class gcard)."""
+    for m in re.finditer(r'<article class="gcard[^"]*"[^>]*>.*?</article>', html, re.S):
+        if f"<h3>{name}</h3>" in m.group(0):
             return m.group(0)
     return None
 
@@ -49,22 +50,24 @@ def test_fight_view_button_is_gone_from_the_hero_but_the_page_still_links_to_it(
     hero = html.split('<section class="hero">')[1].split("</section>")[0]
     assert "Fight view" not in hero
     assert "Sell ticket" not in hero and "Wallet" in hero      # Seller Desk is gone; the other quick actions are untouched
-    assert 'href="/change_name"' in html                       # still reachable (Live games card, sidebar)
+    assert 'href="/games/sabong/live"' in html                       # still reachable (Live games card, sidebar)
 
 
-def test_meron_wala_tile_is_a_live_link_to_the_games_lobby():
-    tile = _tile(_dash(), "Meron")
-    assert tile is not None
-    assert tile.startswith('<a class="game-tile is-live"') and 'href="/games/sabong/schedule"' in tile
-    assert "Wala" in tile and "game" in tile and "open" in tile
+def test_sabong_card_has_one_enter_button_and_no_play_or_manage():
+    tile = _tile(_dash(), "Sabong")
+    assert tile is not None and tile.startswith('<article class="gcard gcard-sabong ')
+    assert 'class="btn btn-brand gcard-enter" href="/games/sabong/live"' in tile and "Enter" in tile
+    assert ">Play<" not in tile and ">Manage<" not in tile
+    assert "fight" in tile and "open" in tile and "Tickets" in tile
 
 
-def test_number_game_is_a_live_link_when_switched_on_and_never_says_coming_soon():
+def test_number_game_card_enters_the_number_game_when_switched_on_and_never_says_coming_soon():
     before = _set_bola_enabled(True)
     try:
         tile = _tile(_dash(), "Number game")
-        assert tile is not None and tile.startswith('<a class="game-tile is-live"')
-        assert 'href="/bola"' in tile and "Coming soon" not in tile
+        assert tile is not None and tile.startswith('<article class="gcard gcard-bola')
+        assert 'href="/games/bola/live"' in tile and "Coming soon" not in tile and "Enter" in tile
+        assert ">Play<" not in tile and ">Manage<" not in tile
     finally:
         _set_bola_enabled(before)
 
@@ -78,17 +81,24 @@ def test_number_game_tile_is_absent_when_switched_off():
         _set_bola_enabled(before)
 
 
-def test_number_game_becomes_a_link_once_launched():
+def test_number_game_card_shows_its_draws():
     before = _set_bola_enabled(True)
     try:
         tile = _tile(_dash(), "Number game")
-        assert tile.startswith('<a class="game-tile is-live"') and 'href="/bola"' in tile
-        assert "Coming soon" not in tile and "draw" in tile
+        assert 'href="/games/bola/live"' in tile and "Coming soon" not in tile and "draw" in tile
     finally:
         _set_bola_enabled(before)
 
 
-def test_non_dev_roles_get_no_number_game_tile_while_the_dev_gate_is_on_but_keep_meron_wala(monkeypatch):
+def test_esports_and_nba_are_quiet_soon_cards_in_the_same_style():
+    html = _dash()
+    for name in ("Esports", "NBA"):
+        card = _tile(html, name)
+        assert card is not None and card.startswith('<article class="gcard gcard-soon"') and "Soon" in card
+        assert "<a " not in card                                   # nothing to click yet
+
+
+def test_non_dev_roles_get_no_number_game_card_while_the_dev_gate_is_on_but_keep_sabong(monkeypatch):
     """With BOLA_DEV_ONLY switched on, only the Admin has the tile; everyone else sees nothing."""
     monkeypatch.setattr(get_settings(), "BOLA_DEV_ONLY", True)
     import datetime as dt
@@ -104,7 +114,7 @@ def test_non_dev_roles_get_no_number_game_tile_while_the_dev_gate_is_on_but_keep
                             full_name="K", settings=store)
     for who in (f"dm{tag}", f"dk{tag}"):
         html = _dash(who)
-        assert 'href="/games/sabong/schedule"' in _tile(html, "Meron"), who
+        assert 'href="/games/sabong/live"' in _tile(html, "Sabong"), who
         # The Esports tile also says "Coming soon", so assert on the number-game tile itself.
         assert _tile(html, "Number game") is None and "Tumbok" not in html, who
 

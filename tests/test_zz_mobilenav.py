@@ -45,5 +45,5 @@ def test_payout_card_can_be_hidden_from_the_dock_row():
         f = db.query(Fight).first()
     if f is None:
         return
-    page = c.get(f"/change_name?event_id={f.event_id}&fight_id={f.id}")
+    page = c.get(f"/events/{f.event_id}?fight_id={f.id}")
     assert page.status_code == 200 and "data-pbs-hide" in page.text

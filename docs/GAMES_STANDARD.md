@@ -32,3 +32,32 @@ Run once against the live database; remove `list_tickets(player_id)`, `with_play
 ```sql
 SELECT COUNT(*) FROM bola_tickets WHERE player_id IS NOT NULL;
 ```
+
+## One page per session
+
+A session is one page where you watch, bet, declare, sell and (by right) manage it. A Bola draw is `/bola/draws/{id}`; a
+Sabong event is `/events/{id}` (`?fight_id=` picks the fight; it opens on the fight happening now). The cards on Live and
+on Schedule both open that same page. Sections appear by right, the way Bola stacks its Operations:
+
+| Section | Who sees it |
+|---|---|
+| Fight panel: video, bet panel, declare, correct, tickets | everyone with `fights.view`; declare / correct by right |
+| Event head and **All fights** (pools) | everyone; pools hidden from money-blind roles |
+| **Sell tickets** | an account that has players to sell to and may place bets |
+| **Summary**, **Event expenses** | `cashflow.view`, never money-blind roles |
+| **Manage event** (cancel the whole event) | `events.manage` |
+| Delete event / fight | the Admin only |
+
+**Play** (`/games/sabong/live`) goes straight into the event when exactly one is open, otherwise it shows the event cards
+(`?pick=1` always shows them). Old URLs redirect with their query kept: `/change_name?event_id=&fight_id=` becomes
+`/events/{id}?fight_id=`, and `/events/create` opens the Create drawer on Schedule.
+
+Refreshing the `event-head` / `event-body` regions skips every fight-level query; refreshing `fight-panel` skips the
+event-level ones (player list, expenses, summary).
+
+## Stream
+
+The stream is the Declarator's job, so it is a Staff Panel section: `/staff/stream` (rights `streams.view` /
+`streams.manage`, held by Declarators and the Admin, and by a Pawn through the `streams:manage` grant). `/admin/streams`
+redirects there. The public player endpoints (`/_live/stream`) are unchanged.
+

@@ -13,7 +13,7 @@
       try {
         const body = new FormData();
         body.set('url', url); body.set('csrf_token', form.querySelector('[name=csrf_token]').value);
-        const r = await fetch('/admin/streams/detect', { method: 'POST', body, headers: { Accept: 'application/json' }, credentials: 'same-origin' });
+        const r = await fetch('/staff/stream/detect', { method: 'POST', body, headers: { Accept: 'application/json' }, credentials: 'same-origin' });
         const d = await r.json();
         if (!d.ok) { out.innerHTML = '<p class="st-bad">' + esc(d.error || 'That link cannot be used.') + '</p>'; return; }
         const mark = (v, yes, no) => (v === true ? '<li class="st-ok">' + yes + '</li>' : v === false ? '<li class="st-bad">' + no + '</li>' : '');
@@ -58,7 +58,7 @@
       ev.preventDefault();
       save.disabled = true; impact.hidden = true;
       try {
-        const r = await fetch('/admin/streams/assign/impact', { method: 'POST', body: new FormData(af), headers: { Accept: 'application/json' }, credentials: 'same-origin' });
+        const r = await fetch('/staff/stream/assign/impact', { method: 'POST', body: new FormData(af), headers: { Accept: 'application/json' }, credentials: 'same-origin' });
         const d = await r.json();
         if (!d.ok) { impact.hidden = false; impact.innerHTML = '<p class="st-bad">' + esc(d.error || 'Check the form.') + '</p>'; return; }
         impact.hidden = false; impact.innerHTML = '<p><b>Before you save:</b> ' + esc(d.text) + '</p>';

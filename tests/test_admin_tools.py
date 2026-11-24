@@ -57,8 +57,10 @@ def test_bola_tile_and_nav_reach_a_kubrador_with_no_coming_soon():
     html = c.get("/dashboard").text
     assert 'href="/bola"' in html
     assert c.get("/bola").status_code == 200
-    number = html.split('data-game="number"')[0].rsplit("<", 1)[-1]
-    assert "game-tile is-live" in number or "is-live" in html
+    import re
+    card = next(m.group(0) for m in re.finditer(r'<article class="gcard[^"]*"[^>]*>.*?</article>', html, re.S)
+                if "<h3>Number game</h3>" in m.group(0))
+    assert 'href="/games/bola/live"' in card and "Coming soon" not in card and "Enter" in card
 
 
 def test_seller_desk_is_gone():

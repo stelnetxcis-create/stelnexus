@@ -714,6 +714,58 @@ input[type=checkbox]{accent-color:var(--gold)}
   font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
 @media (max-width:640px){.games{grid-template-columns:1fr;gap:10px}.game-tile{padding:14px}.game-name{font-size:19px}}
 
+/* ---- Game cards: one look for the Games hub and the Dashboard ---- */
+.gcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:16px;margin-bottom:18px}
+.gcard{position:relative;display:flex;flex-direction:column;gap:16px;min-width:0;padding:18px 18px 16px;overflow:hidden;isolation:isolate;
+  border:1px solid var(--line-2);border-radius:calc(var(--radius) + 4px);color:var(--ink);box-shadow:var(--shadow);
+  background:linear-gradient(165deg,#17141a 0%,#0f0d11 70%);transition:border-color .25s,transform .25s var(--ease),box-shadow .25s}
+.gcard::before{content:"";position:absolute;inset:0;z-index:-1;opacity:.9;pointer-events:none;
+  background:radial-gradient(120% 90% at 100% 0%,var(--gc-glow,rgba(217,177,85,.16)),transparent 60%)}
+.gcard::after{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,var(--gc-a,var(--gold-lo)),var(--gc-b,var(--gold-hi)),transparent 85%)}
+.gcard-sabong{--gc-glow:rgba(214,64,69,.20);--gc-a:var(--meron);--gc-b:var(--wala);--ac:#ff6b7e;--ac2:#4aa3ff;--ac-soft:rgba(229,56,79,.22)}
+.gcard-soon{--ac:#b79cff;--ac2:#8b5cf6;--ac-soft:rgba(139,92,246,.16)}
+.gcard>*:not(.game-fx){position:relative;z-index:2}
+.gcard:hover .game-fx::after{opacity:1}
+.gcard-soon .game-fx{opacity:.55}
+.gcard-bola{--gc-glow:rgba(88,150,255,.18);--gc-a:#4f86f2;--gc-b:var(--gold-hi);--ac:#f7de93;--ac2:#d9b155;--ac-soft:rgba(217,177,85,.22)}
+.gcard.is-live{border-color:var(--gold-lo);box-shadow:var(--shadow),0 0 34px -20px var(--gold-glow)}
+.gcard:hover{border-color:var(--gold);transform:translateY(-2px)}
+.gcard-top{display:flex;align-items:center;gap:12px}
+.gcard-ico{flex:0 0 auto;display:grid;place-items:center;width:46px;height:46px;border-radius:14px;color:var(--gold-hi);
+  background:rgba(217,177,85,.12);box-shadow:inset 0 0 0 1px rgba(217,177,85,.22)}
+.gcard-ico .ico{width:22px;height:22px}
+.gcard-title{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1 1 auto}
+.gcard-kicker{font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:var(--ink-3)}
+.gcard-title h3{margin:0;font-family:var(--serif);font-size:23px;font-weight:700;letter-spacing:-.01em;line-height:1.15}
+.gcard-state{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;border:1px solid var(--line-2);
+  font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);background:rgba(255,255,255,.03)}
+.gcard-state i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.gcard-state.state-live{color:var(--green);border-color:rgba(76,201,140,.35);background:rgba(76,201,140,.10)}
+.gcard-state.state-live i{box-shadow:0 0 0 0 currentColor;animation:gcard-pulse 1.8s infinite}
+.gcard-state.state-open{color:#e9b84e;border-color:rgba(233,184,78,.35);background:rgba(233,184,78,.10)}
+.gcard-state.state-soon{letter-spacing:.1em}
+@keyframes gcard-pulse{0%{box-shadow:0 0 0 0 rgba(76,201,140,.55)}70%{box-shadow:0 0 0 7px rgba(76,201,140,0)}100%{box-shadow:0 0 0 0 rgba(76,201,140,0)}}
+.gcard-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin:0}
+.gcard-stats>div{display:flex;flex-direction:column-reverse;gap:2px;padding:10px 12px;border-radius:12px;min-width:0;
+  background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.06)}
+.gcard-stats dd{margin:0;font-family:var(--serif);font-size:22px;font-weight:700;line-height:1.1;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gcard-next{display:flex;align-items:baseline;gap:8px;margin:-6px 2px 0;min-width:0;font-size:13px;color:var(--ink-3)}
+.gcard-next span{flex:0 0 auto;font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:700}
+.gcard-next b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-2);font-weight:600}
+.gcard-stats dt{font-size:11.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gcard-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}
+.gcard-enter{flex:1 1 150px;justify-content:center;font-weight:800;letter-spacing:.01em}
+.gcard-enter span{display:inline-block;transition:transform .2s var(--ease)}
+.gcard:hover .gcard-enter span{transform:translateX(4px)}
+.gcard-soon{border-style:dashed;box-shadow:none;background:linear-gradient(165deg,#131115,#0e0d10)}
+.gcard-soon::before,.gcard-soon::after{display:none}
+.gcard-soon:hover{border-color:var(--line-2);transform:none}
+.gcard-soon .gcard-ico{background:var(--slate-bg);color:var(--ink-3);box-shadow:none}
+.gcard-soon h3{color:var(--ink-2)}
+.gcard-note{margin:0;font-size:13px;color:var(--ink-3)}
+@media (max-width:640px){.gcards{grid-template-columns:1fr;gap:12px}.gcard{padding:15px}.gcard-title h3{font-size:21px}}
+@media (prefers-reduced-motion:reduce){.gcard,.gcard-enter span{transition:none!important}.gcard-state.state-live i{animation:none}}
+
 /* dashboard: floating "where to?" menu under a live game tile */
 .games{position:relative;z-index:20}   /* the floating menu must paint above the KPI cards that follow */
 .game-wrap{position:relative;min-width:0}
@@ -890,3 +942,16 @@ a.license-logo{text-decoration:none;border-radius:50%;transition:transform .15s}
 .lic-list{display:grid;gap:10px;margin:14px 0}.lic-list div{display:grid;gap:2px;padding:10px 12px;border:1px solid var(--line,#2a2a30);border-radius:10px}
 .lic-list dt{font-size:11px;letter-spacing:.08em;text-transform:uppercase;opacity:.65}.lic-list dd{margin:0;font-weight:700;word-break:break-word}
 .lic-text{line-height:1.55}.lic-notice{margin:14px 0 6px;font-size:13px;opacity:.8}.lic-foot{line-height:1.6}
+/* Collapsible card: <details class="card fold"><summary><h2>Title</h2></summary>...</details>. The summary is the card head. */
+.fold>summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;border-radius:var(--radius)}
+.fold>summary::-webkit-details-marker{display:none}
+.fold>summary h2{margin:0;font-size:16px}
+.fold>summary .muted{margin-left:auto}
+.fold>summary::after{content:"";flex:none;width:8px;height:8px;border-right:2px solid var(--ink-2);border-bottom:2px solid var(--ink-2);transform:rotate(45deg);transition:transform .15s}
+.fold[open]>summary::after{transform:rotate(-135deg)}
+.fold[open]>summary{border-bottom:1px solid var(--line-2);border-radius:var(--radius) var(--radius) 0 0}
+.fold>summary:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+/* "On air" marker */
+.air-dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px rgba(46,204,113,.18);margin-right:8px;vertical-align:middle;animation:pulse 2.4s ease-in-out infinite}
+.air-dot.off{background:var(--ink-2);box-shadow:none;animation:none}
+@media (prefers-reduced-motion:reduce){.air-dot{animation:none}}

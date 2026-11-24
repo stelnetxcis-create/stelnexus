@@ -768,6 +768,10 @@ class Fight(TimestampMixin, Base):
     settlement_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     pool_account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id", ondelete="RESTRICT"))
     locked_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+    # Declarator's "close betting at" timer. While it is in the future the game stays open; once it passes the game
+    # is locked (events.close_due_fights, and place_bet refuses a late bet itself). None = no timer.
+    auto_close_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+    auto_close_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     # When THIS game went on air (staff pressed "Start stream" on it). From then on the livestream page
     # takes no early bets and shows no bet/chat panel for it; the other, upcoming games stay open.
     started_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())

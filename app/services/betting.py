@@ -277,6 +277,8 @@ def place_bet(
                               f"Fight #{fight.number + 1} opens when it is done.")
     if fight.status != FightStatus.OPEN:
         raise LockedState(f"Fight #{fight.number} is {fight.status} -- betting is closed.")
+    if events.close_reason(fight) is not None:      # the Declarator's timer ran out; the sweeper just has not locked it yet
+        raise LockedState(f"Betting has closed for fight #{fight.number}.")
 
     minimum, maximum = int(settings.get("payout.min_stake_cents")), int(settings.get("payout.max_stake_cents"))
     if stake_cents < minimum or stake_cents > maximum:
@@ -392,7 +394,7 @@ def _big_bet_alert(db: Session, actor: User, ticket: Ticket, fight: Fight, playe
             receivers.add(current.id)
         current = db.get(User, current.parent_id) if current.parent_id else None
     for uid in receivers:
-        db.add(Notification(user_id=uid, level="warning", link=f"/change_name?event_id={fight.event_id}&fight_id={fight.id}",
+        db.add(Notification(user_id=uid, level="warning", link=f"/events/{fight.event_id}?fight_id={fight.id}",
                             message=f"Big bet: {who} put {fmt(ticket.stake_cents)} on {ticket.side.value.upper()} "
                                     f"in fight #{fight.number}"))
     db.flush()

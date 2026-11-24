@@ -182,24 +182,25 @@ def test_admin_streams_page_detect_save_take_and_viewers_poll(monkeypatch):
                                                                          "embeddable": None, "cors": True, "notes": []})
     c, r = login("admin")
     assert r.status_code == 303
-    page = c.get("/admin/streams")
-    assert page.status_code == 200 and "Add a source" in page.text and "Nothing is live" in page.text
-    assert 'href="/admin/streams"' in c.get("/admin").text                    # the tab is there
+    page = c.get("/staff/stream")
+    assert page.status_code == 200 and "Add a source" in page.text and "Nothing is on air" in page.text
+    assert 'href="/staff/stream"' in c.get("/staff").text                    # the tab is there (Staff Panel)
+    assert "/staff/stream" not in c.get("/admin").text                       # and no longer in the Admin Panel
 
-    bad = _post(c, "/admin/streams/detect", url="http://insecure.example.com/a.m3u8")
+    bad = _post(c, "/staff/stream/detect", url="http://insecure.example.com/a.m3u8")
     assert bad.status_code == 200 and bad.json()["ok"] is False and "https" in bad.json()["error"]
-    good = _post(c, "/admin/streams/detect", url="https://cdn.example.com/live/a.m3u8").json()
+    good = _post(c, "/staff/stream/detect", url="https://cdn.example.com/live/a.m3u8").json()
     assert good["ok"] and good["kind"] == "hls" and good["native"] is True and good["live"] is True
 
-    saved = _post(c, "/admin/streams/create", name="Arena HLS", url="https://cdn.example.com/live/a.m3u8", mode="auto")
+    saved = _post(c, "/staff/stream/create", name="Arena HLS", url="https://cdn.example.com/live/a.m3u8", mode="auto")
     assert saved.status_code == 303
     with session_scope() as db:
         sid = db.scalar(select(StreamSource.id).where(StreamSource.name == "Arena HLS"))
-    assert sid and "Take live" in c.get("/admin/streams").text
+    assert sid and "Take live" in c.get("/staff/stream").text
 
     first = c.get("/_live/stream").json()
     assert first["kind"] is None                                              # saved but not taken
-    assert _post(c, f"/admin/streams/{sid}/take").status_code == 303
+    assert _post(c, f"/staff/stream/{sid}/take").status_code == 303
     r1 = c.get("/_live/stream")
     assert r1.json()["kind"] == "hls" and r1.json()["src"] == "https://cdn.example.com/live/a.m3u8"
     assert c.get("/_live/stream", headers={"If-None-Match": r1.headers["ETag"]}).status_code == 304     # idle poll = headers only
@@ -210,7 +211,7 @@ def test_admin_streams_page_detect_save_take_and_viewers_poll(monkeypatch):
     assert "media-src 'self' blob: https://cdn.example.com;" in csp and "connect-src 'self' https://cdn.example.com;" in csp
     assert "script-src 'self';" in csp and "frame-src" not in csp
 
-    assert _post(c, "/admin/streams/stop").status_code == 303
+    assert _post(c, "/staff/stream/stop").status_code == 303
     assert c.get("/_live/stream").json()["kind"] is None
 
 
@@ -219,7 +220,7 @@ def test_streams_pages_need_the_permission():
     from fastapi.testclient import TestClient
     from app.main import app
     bare = TestClient(app)
-    assert bare.get("/admin/streams", follow_redirects=False).status_code in (302, 303, 401, 403)
+    assert bare.get("/staff/stream", follow_redirects=False).status_code in (302, 303, 401, 403)
     assert bare.get("/_live/stream", follow_redirects=False).status_code in (302, 303, 401, 403)
     assert anon is None
 
@@ -236,13 +237,13 @@ def test_fight_player_boots_with_the_taken_source():
                                         settings=SettingsStore(db), check_dns=False)
             streams.take(db, admin, row.id)
         c, _ = login("admin")
-        html = c.get(f"/change_name?event_id={ev_id}&fight_id={fight_id}").text
+        html = c.get(f"/events/{ev_id}?fight_id={fight_id}").text
         assert "data-vp-media" in html and 'data-live-url="/_live/stream/f' in html and "data-vp-mute" in html
         boot = html.split("data-stream='", 1)[1].split("'", 1)[0]
         assert json.loads(boot.replace("\\u0027", "'"))["kind"] == "hls"
         with session_scope() as db:
             streams.stop(db, _admin(db))
-        html = c.get(f"/change_name?event_id={ev_id}&fight_id={fight_id}").text
+        html = c.get(f"/events/{ev_id}?fight_id={fight_id}").text
         assert json.loads(html.split("data-stream='", 1)[1].split("'", 1)[0])["kind"] is None   # back to the sample feed
     finally:
         _cleanup(ev_id)
@@ -406,17 +407,17 @@ def test_admin_assigns_per_event_and_per_game_and_viewers_poll_their_scope():
             from app.db.models import Fight
             number = db.get(Fight, fight_id).number
         c, _ = login("admin")
-        page = c.get("/admin/streams")
+        page = c.get("/staff/stream")
         assert page.status_code == 200 and "What plays where" in page.text and "Event cam" in page.text
-        assert _post(c, "/admin/streams/assign", scope="event", event_id=ev_id, mode="live", s1=a).status_code == 303
-        assert _post(c, "/admin/streams/assign", scope="fight", event_id=ev_id, game_number=number, mode="standby", s1=b).status_code == 303
+        assert _post(c, "/staff/stream/assign", scope="event", event_id=ev_id, mode="live", s1=a).status_code == 303
+        assert _post(c, "/staff/stream/assign", scope="fight", event_id=ev_id, game_number=number, mode="standby", s1=b).status_code == 303
         for bad in (dict(scope="fight", event_id=ev_id, game_number=9999, mode="live", s1=a),    # no such game
                     dict(scope="event", mode="live", s1=a),                                       # no event chosen
                     dict(scope="global", mode="live")):                                           # no source
-            _post(c, "/admin/streams/assign", **bad)
+            _post(c, "/staff/stream/assign", **bad)
         with session_scope() as db:
             assert len(streams.list_assignments(db)) == 2                                         # none of the bad ones was saved
-        assert "Fight #" in c.get("/admin/streams").text and "Event:" in c.get("/admin/streams").text
+        assert "Fight #" in c.get("/staff/stream").text and "Event:" in c.get("/staff/stream").text
 
         e = c.get(f"/_live/stream/e{ev_id}").json()
         g = c.get(f"/_live/stream/f{fight_id}").json()
@@ -426,17 +427,17 @@ def test_admin_assigns_per_event_and_per_game_and_viewers_poll_their_scope():
         r = c.get(f"/_live/stream/f{fight_id}")
         assert c.get(f"/_live/stream/f{fight_id}", headers={"If-None-Match": r.headers["ETag"]}).status_code == 304
 
-        html = c.get(f"/change_name?event_id={ev_id}&fight_id={fight_id}").text      # first paint already has the right video
+        html = c.get(f"/events/{ev_id}?fight_id={fight_id}").text      # first paint already has the right video
         assert f'data-live-url="/_live/stream/f{fight_id}"' in html
         assert json.loads(html.split("data-stream='", 1)[1].split("'", 1)[0].replace("\\u0027", "'"))["mode"] == "standby"
 
         with session_scope() as db:
             gid = next(x.id for x in streams.list_assignments(db) if x.scope_type == "fight")
-        assert _post(c, f"/admin/streams/assignments/{gid}/toggle", on="0").status_code == 303        # pause it: the event setting shows
+        assert _post(c, f"/staff/stream/assignments/{gid}/toggle", on="0").status_code == 303        # pause it: the event setting shows
         assert c.get(f"/_live/stream/f{fight_id}").json()["scope"] == "event"                          # (the live cache was cleared)
-        assert _post(c, f"/admin/streams/assignments/{gid}/toggle", on="1").status_code == 303
+        assert _post(c, f"/staff/stream/assignments/{gid}/toggle", on="1").status_code == 303
         assert c.get(f"/_live/stream/f{fight_id}").json()["scope"] == "fight"
-        assert _post(c, f"/admin/streams/assignments/{gid}/delete").status_code == 303
+        assert _post(c, f"/staff/stream/assignments/{gid}/delete").status_code == 303
         assert c.get(f"/_live/stream/f{fight_id}").json()["scope"] == "event"
     finally:
         _cleanup(ev_id)
@@ -638,19 +639,19 @@ def test_admin_pages_impact_undo_check_now_and_viewer_bad_param(monkeypatch):
             a = _mk(db, admin, "Alpha", "https://cdn.example.com/live/a.m3u8").id
             b = _mk(db, admin, "Bravo", "https://cdn.example.com/live/b.m3u8").id
         c, _ = login("admin")
-        r = _post(c, "/admin/streams/assign/impact", scope="event", event_id=ev_id, mode="live", s1=a)
+        r = _post(c, "/staff/stream/assign/impact", scope="event", event_id=ev_id, mode="live", s1=a)
         assert r.json()["ok"] and "everyone on" in r.json()["text"]
-        assert _post(c, "/admin/streams/assign/impact", scope="event", mode="live", s1=a).json()["ok"] is False
-        assert _post(c, "/admin/streams/assign", scope="global", mode="live", s1=a, s2=b).status_code == 303
+        assert _post(c, "/staff/stream/assign/impact", scope="event", mode="live", s1=a).json()["ok"] is False
+        assert _post(c, "/staff/stream/assign", scope="global", mode="live", s1=a, s2=b).status_code == 303
 
         monkeypatch.setattr(streams, "check_source", lambda src, now: (False, "The host answered 503.", None))
-        _post(c, f"/admin/streams/{a}/check"); _post(c, f"/admin/streams/{a}/check")          # two failed checks
-        page = c.get("/admin/streams").text
+        _post(c, f"/staff/stream/{a}/check"); _post(c, f"/staff/stream/{a}/check")          # two failed checks
+        page = c.get("/staff/stream").text
         assert "Down" in page and "The host answered 503." in page and "Failover:" in page and "Bravo" in page and "Check now" in page
         assert c.get("/_live/stream").json()["name"] == "Bravo"
 
         monkeypatch.setattr(streams, "check_source", lambda src, now: (True, "Live and moving.", 4))
-        _post(c, f"/admin/streams/{a}/check")
+        _post(c, f"/staff/stream/{a}/check")
         assert c.get("/_live/stream").json()["name"] == "Alpha"
         assert c.get(f"/_live/stream?bad={a}").json()["name"] == "Bravo"                       # this viewer's player asked to skip
         assert c.get(f"/_live/stream/e{ev_id}?bad=x,{a},,").status_code == 200                  # junk in ?bad= is ignored
@@ -658,7 +659,7 @@ def test_admin_pages_impact_undo_check_now_and_viewer_bad_param(monkeypatch):
 
         with session_scope() as db:
             gid = streams.list_assignments(db)[0].id
-        assert _post(c, f"/admin/streams/assignments/{gid}/undo").status_code == 303
+        assert _post(c, f"/staff/stream/assignments/{gid}/undo").status_code == 303
         assert c.get("/_live/stream").json()["kind"] is None
     finally:
         _cleanup(ev_id)
@@ -683,3 +684,61 @@ def test_player_failover_code_is_present_and_valid_js():
     if node:
         for f in ("app/static/js/stream.js", "app/static/js/streams-admin.js"):
             assert subprocess.run([node, "--check", f], capture_output=True).returncode == 0
+
+
+# ---------------------------------------------------------------- the stream is the Declarator's job (Staff Panel)
+
+def _declarator(world, name="dc"):
+    from tests.test_teller_declarator import _mk
+    u = _mk(world.db, world.admin, world.store, Role.DECLARATOR, name)
+    world.db.commit()
+    return u
+
+
+def test_a_declarator_runs_the_stream_from_the_staff_panel(world, monkeypatch):
+    monkeypatch.setattr(streams, "assert_public_host", lambda *a, **k: ["93.184.216.34"])
+    d = _declarator(world)
+    c, _ = login(d.username)
+    page = c.get("/staff/stream")
+    assert page.status_code == 200 and "Staff Panel" in page.text and "Nothing is on air" in page.text
+    assert 'href="/staff/stream"' in c.get("/staff").text                      # a tab and an overview card
+    saved = _post(c, "/staff/stream/create", name="Arena HLS", url="https://cdn.example.com/live/a.m3u8", mode="auto")
+    assert saved.status_code == 303 and saved.headers["location"] == "/staff/stream"
+    with session_scope() as db:
+        sid = db.scalar(select(StreamSource.id).where(StreamSource.name == "Arena HLS"))
+    assert _post(c, f"/staff/stream/{sid}/take").status_code == 303
+    live = c.get("/staff/stream").text
+    assert "On air for everyone" in live and "Arena HLS" in live and "/staff/stream/stop" in live
+    assert _post(c, "/staff/stream/stop").status_code == 303
+    assert "Nothing is on air" in c.get("/staff/stream").text
+
+
+def test_the_stream_left_the_admin_panel(world):
+    c, _ = login("admin")
+    assert "/staff/stream" not in c.get("/admin").text and "/admin/streams" not in c.get("/admin").text
+    r = c.get("/admin/streams")                                               # bookmarks still land
+    assert r.status_code == 303 and r.headers["location"] == "/staff/stream"
+    assert c.get("/staff/stream").status_code == 200                           # the Admin can still run it
+
+
+@pytest.mark.parametrize("who", ["master", "cavo", "kub"])
+def test_only_declarators_and_the_admin_get_the_stream_desk(who):
+    from tests.test_bola_dev_gate import _users
+    c, _ = login(_users()[who])
+    assert c.get("/staff/stream").status_code == 403
+    assert c.post("/staff/stream/stop", data={}, follow_redirects=False).status_code in (403, 401, 303, 400)
+
+
+def test_a_pawn_gets_the_stream_desk_only_with_the_grant(world):
+    from app.services import agents
+    from tests.test_teller_declarator import _mk
+    pawn = _mk(world.db, world.admin, world.store, Role.PAWN, "pw")
+    world.db.commit()
+    c, _ = login(pawn.username)
+    assert c.get("/staff/stream").status_code == 403
+    with session_scope() as db:
+        admin = _admin(db)
+        agents.set_pawn_grants(db, admin, pawn.id, ["streams:manage"])
+    c, _ = login(pawn.username)
+    assert c.get("/staff/stream").status_code == 200
+    assert c.get("/staff").status_code == 200                                   # the grant brings the Staff Panel with it

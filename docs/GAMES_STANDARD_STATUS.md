@@ -99,3 +99,10 @@ Six dead templates deleted (done).
 - **Dead number-game player code: kept on purpose.** `player_id` / `with_player` are not dead: the Admin "view as player" preview uses `preview_player_id`, and the live bets feed uses `with_player`. In the `dev.db` you sent, 0 of 10 Bola tickets have a `player_id`, but removing it would break the preview, so it stays.
 - Full suite: **570 passed, 1 skipped**.
 - Nothing else is open from the plan.
+
+## Update (round 7): Stream to Staff, one Sabong page per event
+- **Stream moved to the Staff Panel** (`/staff/stream`, redesigned: On air hero, Sources first, Add a source and What plays where as collapsible cards). Declarators now hold `streams.view` / `streams.manage`; `/admin/streams` redirects; the Admin Panel no longer lists it; the `streams:manage` grant opens the Staff Panel instead.
+- **Sabong is one page per event, like a Bola draw:** `/events/{id}` is the Fight View plus the old betting sheet (Sell tickets, All fights, Summary, Expenses, Manage event) in right-gated sections with an in-page nav. `event_detail.html` is gone; `/change_name` and `/events/create` redirect. Play jumps into the one open event; the event opens on the fight happening now.
+- Tests: `tests/test_sabong_one_page.py` (11), stream tests in `tests/test_streams.py`. Many old tests now use `/events/{id}?fight_id=`.
+- Still open: Bola reports parity (`/bola/reports` still its own page), the Bola Play/Watch label (`bola.place` vs `bola.view`), row actions (Open / Close / Cancel) on the Schedule cards.
+

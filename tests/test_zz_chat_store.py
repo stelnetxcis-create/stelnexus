@@ -113,7 +113,7 @@ def test_chat_is_locked_without_pass_or_token_but_still_readable():
         assert state["can_send"] is False and state["reason"] == "locked"
         denied = c.post(f"/fights/{fight_id}/chat/send", headers=h, json={"body": "let me in"})
         assert denied.status_code == 422 and "locked" in denied.json()["detail"].lower()
-        page = c.get(f"/change_name?event_id={event_id}&fight_id={fight_id}")
+        page = c.get(f"/events/{event_id}?fight_id={fight_id}")
         assert "data-fightchat" in page.text and "is-locked" in page.text and "999.00" in page.text
     finally:
         _cleanup(event_id)
@@ -169,7 +169,7 @@ def test_chat_closes_when_the_declarator_announces_the_winner():
         assert state["result"]["side"] == "meron" and state["messages"][-1]["body"] == "go meron"   # history stays
         late = c.post(f"/fights/{fight_id}/chat/send", headers=h, json={"body": "too late"})
         assert late.status_code == 422 and "closed" in late.json()["detail"].lower()
-        page = c.get(f"/change_name?event_id={event_id}&fight_id={fight_id}")
+        page = c.get(f"/events/{event_id}?fight_id={fight_id}")
         assert "is-closed" in page.text and "Declarator announced" in page.text
     finally:
         _cleanup(event_id)
@@ -236,13 +236,13 @@ def test_fight_view_has_a_playable_dummy_player_and_pass_only_skip_buttons():
     name, event_id, (fight_id, _) = _setup()
     try:
         c, _ = login(name)
-        page = c.get(f"/change_name?event_id={event_id}&fight_id={fight_id}").text
+        page = c.get(f"/events/{event_id}?fight_id={fight_id}").text
         assert "data-player" in page and 'data-pass="0"' in page
         for hook in ("data-vp-play", "data-vp-prev", "data-vp-next"):
             assert hook in page
         assert "Battle Pass" in page and asset_urls("js", "stream")[0] in page
         c.post("/store/pass", headers={"X-CSRF-Token": _csrf(c)}, data={"idempotency_key": "pass-vp"})
-        page = c.get(f"/change_name?event_id={event_id}&fight_id={fight_id}").text
+        page = c.get(f"/events/{event_id}?fight_id={fight_id}").text
         assert 'data-pass="1"' in page and "Previous and forward come with" not in page
     finally:
         _cleanup(event_id)
@@ -325,7 +325,7 @@ def test_lux_vip_costs_2999_has_pass_perks_flashy_chat_and_a_thank_you():
         assert c.post(f"/fights/{fight_id}/chat/send", headers=h, json={"body": "flex"}).status_code == 200
         msgs = c.get(f"/fights/{fight_id}/chat", headers=JSON).json()["messages"]
         assert msgs[-1]["lux"] is True and msgs[-1]["pass"] is True
-        assert 'data-pass="1"' in c.get(f"/change_name?event_id={event_id}&fight_id={fight_id}").text
+        assert 'data-pass="1"' in c.get(f"/events/{event_id}?fight_id={fight_id}").text
     finally:
         _cleanup(event_id)
 

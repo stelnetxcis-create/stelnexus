@@ -276,7 +276,7 @@
 {% if user %}
 <nav class="tabbar" aria-label="Quick navigation">
   {% for key, href, icon, label, perm in [('dashboard','/dashboard','i-home','Home','dashboard.view'),
-                                          ('events','/events','i-calendar','Sabong','events.view'),
+                                          ('events','/games/sabong/live','i-calendar','Sabong','events.view'),
                                           ('admin','/admin','i-sliders','Panel','panel.view')] %}
     {% if perm in perms %}
     <a class="tab {{ 'is-active' if active == key }}" href="{{ href }}"><svg class="ico"><use href="#{{ icon }}"/></svg><span>{{ label }}</span></a>

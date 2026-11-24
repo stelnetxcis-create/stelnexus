@@ -26,6 +26,7 @@ from app.core import ttlcache
 from app.core.config import get_settings
 from app.core.rbac import sees_house, Perm, hides_totals
 from app.core.money import bps_of
+from app.db.base import utcnow
 from app.db.models import (AppSetting, Event, Fight, FightStatus, PayoutModel, RunStatus, SettlementRun, StreamAssignment,
                            StreamSource, Ticket, TicketStatus)
 from app.services import betting, events, reports
@@ -128,7 +129,7 @@ def _rows(db, store, event, fights: list[Fight], hide: bool, cur_id: int | None,
     rows = []
     for f in fights:
         row = {"id": f.id, "n": f.number, "st": f.status.value, "res": f.result.value if f.result else "",
-               "mode": f.bet_mode, "lla": f.llamado_side or "", "nm": f.entry_name_meron, "nw": f.entry_name_wala,
+               "mode": f.bet_mode, "ac": int(f.auto_close_at.timestamp() * 1000) if (f.auto_close_at and f.status == FightStatus.OPEN) else 0, "lla": f.llamado_side or "", "nm": f.entry_name_meron, "nw": f.entry_name_wala,
                "cam": bool(f.proof_file), "sd": f.started_at is not None,
                "ph": events.stream_phase(f, cur_id),
                "at": f.declared_at.isoformat() if f.declared_at else ""}
@@ -166,14 +167,17 @@ def _rows(db, store, event, fights: list[Fight], hide: bool, cur_id: int | None,
 
 def _live_event_pack(ctx: Ctx, event_id: int, hide: bool, house: bool) -> tuple[str, bytes]:
     event = events.get_event(ctx.db, event_id)
+    events.close_due_fights(ctx.db, event_id)       # the Declarator's timer: close betting when it runs out
     fights = events.fights_of(ctx.db, event_id)
     cur = events.current_fight(ctx.db, event_id)
     cur_id = cur.id if cur else None
     cut_bps = events.house_cut_for(ctx.db, event, ctx.store)
     rows = _rows(ctx.db, ctx.store, event, fights, hide, cur_id, cut_bps, house)
-    return _pack({"event": {"id": event.id, "st": event.status.value, "live": event.live_started_at is not None,
-                            "cur": cur_id, "cutbps": cut_bps,
-                            "pcbps": events.platform_cut_for(ctx.store)}, "hide": hide, "fights": rows})
+    head = {"id": event.id, "st": event.status.value, "live": event.live_started_at is not None,
+            "cur": cur_id, "cutbps": cut_bps, "pcbps": events.platform_cut_for(ctx.store)}
+    if any(r.get("ac") for r in rows):
+        head["sn"] = int(utcnow().timestamp() * 1000)     # server clock, only while a timer runs, so clients count down correctly
+    return _pack({"event": head, "hide": hide, "fights": rows})
 
 
 @router.get("/_live/event/{event_id}")

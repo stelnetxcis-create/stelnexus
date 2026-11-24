@@ -28,7 +28,7 @@ def test_desk_has_spectate_clock_and_keys(world):
 
 def test_bet_panel_has_additive_chips_clear_and_stack(world):
     c, _ = login("admin")        # the panel is for accounts that hold credit; a Declarator has none, so it is not drawn
-    html = c.get(f"/change_name?event_id={world.event.id}&fight_id={world.games[0].id}").text
+    html = c.get(f"/events/{world.event.id}?fight_id={world.games[0].id}").text
     assert 'data-amt="100"' in html and ">+100<" in html                # chips say they add
     assert "data-clear" in html and 'data-sl="stack"' in html           # Clear + the stack of tapped chips
 

@@ -348,14 +348,19 @@ def home_for(user: User | None) -> str:
     if user is None:
         return "/login"
     if user.preview_player_id is not None:
-        return "/games/sabong/schedule"
+        return "/games/sabong/live?pick=1"
     if user.role.value == "declarator":
-        return "/change_name"
+        return "/games/sabong/live"
     if user.role.value == "teller":
         return "/wallet?t=approvals"
     if user.role.value == "pawn":
-        return "/admin" if Perm.PANEL_VIEW in permissions_of(user) else "/change_name"
+        return "/admin" if Perm.PANEL_VIEW in permissions_of(user) else "/games/sabong/live"
     return "/dashboard"
+
+
+def event_url(event_id: int, fight_id: int | None = None) -> str:
+    """The one page of a Sabong event (watch, bet, declare and run it), optionally on a given fight."""
+    return f"/events/{int(event_id)}" + (f"?fight_id={int(fight_id)}" if fight_id else "")
 
 
 def flash_redirect(url: str, message: str | None = None, level: str = "success",

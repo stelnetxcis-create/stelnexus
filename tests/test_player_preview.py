@@ -90,7 +90,7 @@ def csrf(client, path="/dashboard"):
 
 def preview(c, scene):
     r = c.post("/dev/view-as", data={"csrf_token": csrf(c), "player_id": str(scene["stella"])})
-    assert r.status_code == 303 and r.headers["location"] == "/games/sabong/schedule"
+    assert r.status_code == 303 and r.headers["location"] == "/games/sabong/live?pick=1"
     return r
 
 
@@ -98,13 +98,13 @@ def test_dev_menu_lists_players_and_chip_starts_the_preview(admin_c, scene):
     html = admin_c.get("/dashboard").text
     assert 'name="role" value="player"' in html and f'value="{scene["stella"]}"' in html
     r = admin_c.post("/dev/view-as", data={"csrf_token": csrf(admin_c), "role": "player"})
-    assert r.status_code == 303 and r.headers["location"] == "/games/sabong/schedule"
+    assert r.status_code == 303 and r.headers["location"] == "/games/sabong/live?pick=1"
 
 
 def test_every_player_menu_page_stays_in_the_player_preview(admin_c, scene):
     c = admin_c
     preview(c, scene)
-    for path in ("/events", "/change_name", "/history", "/betlogs", "/bola", "/bola/betlogs", "/bola/results",
+    for path in ("/events", "/games/sabong/live?pick=1", "/history", "/betlogs", "/bola", "/bola/betlogs", "/bola/results",
                  "/wallet"):
         r = c.get(path, follow_redirects=True)
         assert r.status_code == 200, (path, r.status_code)
@@ -158,7 +158,7 @@ def test_preview_is_read_only(admin_c, scene):
     c = admin_c
     preview(c, scene)
     before = counts()
-    token = csrf(c, "/games/sabong/schedule")
+    token = csrf(c, "/games/sabong/live?pick=1")
     r = c.post("/events/create", data={"csrf_token": token, "title": "nope", "event_date": "2026-12-01",
                                        "fight_count": "2"})
     assert r.status_code == 303 and counts() == before
@@ -169,7 +169,7 @@ def test_preview_is_read_only(admin_c, scene):
 def test_exit_preview_restores_the_admin_console(admin_c, scene):
     c = admin_c
     preview(c, scene)
-    assert c.post("/dev/view-as/exit", data={"csrf_token": csrf(c, "/games/sabong/schedule")}).status_code == 303
+    assert c.post("/dev/view-as/exit", data={"csrf_token": csrf(c, "/games/sabong/live?pick=1")}).status_code == 303
     c.cookies.delete(VIEWAS_COOKIE)
     html = c.get("/dashboard").text
     assert 'title="Admin Panel"' in html and "Previewing as" not in html
@@ -192,7 +192,7 @@ def test_preview_never_writes(admin_c, scene):
         before = (db.scalar(select(func.count(Account.id))), db.scalar(select(func.count(LedgerEntry.id))))
     c = admin_c
     preview(c, scene)
-    for path in ("/events", "/change_name", "/betlogs", "/bola", "/bola/betlogs", "/wallet", "/history"):
+    for path in ("/events", "/games/sabong/live?pick=1", "/betlogs", "/bola", "/bola/betlogs", "/wallet", "/history"):
         c.get(path)
     with session_scope() as db:
         after = (db.scalar(select(func.count(Account.id))), db.scalar(select(func.count(LedgerEntry.id))))
@@ -204,12 +204,12 @@ def test_the_player_can_bet_so_the_bet_panel_and_slip_show_with_their_own_credit
     must be there in the preview. Pressing Place is refused only because the preview is read-only."""
     c = admin_c
     preview(c, scene)
-    page = c.get(f"/change_name?event_id={scene['event']}&fight_id={scene['fight']}").text
+    page = c.get(f"/events/{scene['event']}?fight_id={scene['fight']}").text
     assert 'aria-label="Bet panel"' in page
     assert "Place a bet" in page
     bola_page = c.get(f"/bola/draws/{scene['draw']}").text
     assert "data-bola-slip" in bola_page
-    token = csrf(c, "/games/sabong/schedule")
+    token = csrf(c, "/games/sabong/live?pick=1")
     r = c.post("/bets/live/place", data={"csrf_token": token, "event_id": str(scene["event"])},
                headers={"Accept": "application/json"})
     assert r.status_code in (303, 403)

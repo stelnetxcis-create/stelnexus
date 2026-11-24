@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
 {% import "_lobby.html" as lobby %}
-{% block title %}{{ game.label }} · Schedule · {{ brand }}{% endblock %}
-{% block heading %}{{ game.label }} · Schedule{% endblock %}
+{% block title %}{{ game.label }}{% if game.schedule_view != 'cards' %} · Schedule{% endif %} · {{ brand }}{% endblock %}
+{% block heading %}{{ game.label }}{% if game.schedule_view != 'cards' %} · Schedule{% endif %}{% endblock %}
 {% block actions %}
 {% if spec %}<button class="btn btn-sm btn-brand" data-modal="{{ spec.modal_id }}"><svg class="ico"><use href="#i-plus"/></svg>{{ spec.title }}</button>
 {% if spec.generate %}<button class="btn btn-sm" data-modal="{{ spec.generate.modal_id }}">{{ spec.generate.title }}</button>{% endif %}{% endif %}

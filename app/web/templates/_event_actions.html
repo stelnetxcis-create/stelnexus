@@ -1,0 +1,22 @@
+{# Event status controls (header). Moved from the old betting sheet: one page per event, like a Bola draw. #}
+{% if 'events.manage' in perms %}
+<form method="post" action="/events/{{ event.id }}/status" class="inline-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <select name="status" aria-label="Event status">
+    {% for value in ['draft','open','closed'] %}<option value="{{ value }}" {{ 'selected' if event.status.value == value }}>{{ value | upper }}</option>{% endfor %}
+  </select>
+  <button class="btn btn-sm btn-primary">Set</button>
+</form>
+{% elif 'events.open' in perms and event.status.value in ('draft', 'closed') %}
+<form method="post" action="/events/{{ event.id }}/status" class="inline-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="status" value="open">
+  <button class="btn btn-sm btn-primary">Open event</button>
+</form>
+{% elif 'events.open' in perms and event.status.value == 'open' %}
+<form method="post" action="/events/{{ event.id }}/status" class="inline-form" data-confirm="Close this event? Every fight with bets must be declared first.">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="status" value="closed">
+  <button class="btn btn-sm">Close event</button>
+</form>
+{% endif %}

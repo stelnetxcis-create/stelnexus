@@ -124,7 +124,7 @@
     const rows = recentRows();
     if (!rows.length) return '<div class="dk-empty"><p>Nothing was declared in the last 24 hours.</p></div>';
     return rows.map((r) => {
-      const href = r.kind === 'bola' ? '/bola/draws/' + r.id : '/change_name?event_id=' + r.ev + '&fight_id=' + r.id;
+      const href = r.kind === 'bola' ? '/bola/draws/' + r.id : '/events/' + r.ev + '?fight_id=' + r.id;
       const chip = r.kind === 'bola'
         ? '<span class="dk-chip ' + (r.res === 'void' ? 'res-void' : 'is-ball') + '">' + esc(r.res ? r.res.toUpperCase() : '—') + '</span>'
         : '<span class="dk-chip res-' + esc(r.res) + '">' + esc(RES[r.res] || r.res) + '</span>';
@@ -159,9 +159,10 @@
   const draft = (key) => (st.drafts[key] = st.drafts[key] || { armed: '', note: '', proof: null, thumb: '', b1: '', b2: '' });
   const errHtml = () => (st.error ? '<div class="dk-err" role="alert">' + esc(st.error) + '</div>' : '');
   const dis = () => (st.busy ? ' disabled' : '');
+  root.addEventListener('input', (ev) => { if (ev.target.matches && ev.target.matches('[data-timer-secs]')) st.timerSecs = ev.target.value; });
 
   function emptyStage() {
-    const links = '<div class="dk-actions"><a class="btn" href="/change_name">Fight View</a>' +
+    const links = '<div class="dk-actions"><a class="btn" href="/games/sabong/live">Sabong</a>' +
       (data.draws.length || data.can.bola ? '<a class="btn" href="/bola">Bola</a>' : '') + '</div>';
     return '<div class="dk-panel"><div class="dk-empty"><img src="/static/img/empty/arena.svg" alt="" width="150" height="110">' +
       '<h3>All clear</h3><p>No fight is waiting for you. The board updates by itself when one needs a result.</p>' + links + '</div></div>';
@@ -246,7 +247,34 @@
       : '<button type="button" class="btn btn-danger" data-act="lock"' + dis() + '>Close betting</button>');
     return '<div class="dk-panel"><h5>Fight controls</h5><div class="dk-actions">' + b.join('') + '</div>' +
       '<p class="dk-hint">Starting a fight closes betting and chat for it, and opens the next fight after it is declared.</p>' +
-      (st.error && !draft('f' + g.id).armed ? errHtml() : '') + '</div>';
+      (st.error && !draft('f' + g.id).armed ? errHtml() : '') + '</div>' + timerPanel(g) + balancerPanel(g);
+  }
+
+  /* Auto-close: close betting by itself after a time you set. Only while betting is open and the game is not on air. */
+  function timerPanel(g) {
+    if (g.st !== 'open' || g.sd) return '';
+    const run = g.ac ? '<p class="dk-timer" role="status"><b>Closing betting in <span data-until="' + g.ac + '" data-done="closing now">--:--</span></b>' +
+      '<button type="button" class="btn btn-sm" data-act="timer-cancel"' + dis() + '>Cancel timer</button></p>' : '';
+    const picks = [30, 60, 90, 120].map((n) => '<button type="button" class="btn btn-sm" data-act="timer" data-secs="' + n + '"' + dis() + '>' + (n < 60 ? n + 's' : n / 60 + ' min') + '</button>').join('');
+    return '<div class="dk-panel"><h5>Close betting automatically</h5>' + run +
+      '<div class="dk-actions">' + picks +
+      '<span class="dk-custom"><input type="number" inputmode="numeric" min="5" max="3600" placeholder="seconds" value="' + esc(st.timerSecs || '') + '" aria-label="Seconds until betting closes" data-timer-secs>' +
+      '<button type="button" class="btn btn-sm" data-act="timer-custom"' + dis() + '>Set</button></span></div>' +
+      '<p class="dk-hint">Betting closes by itself when the time is up. You can still close it yourself earlier, or cancel the timer.</p></div>';
+  }
+
+  /* Emergency manual balancer: stop bets on one side so the other side can catch up. Use only when the automatic
+     balancing is not enough. Blocking Meron leaves Wala open (and the other way round). */
+  function balancerPanel(g) {
+    if (g.st !== 'open' || g.sd) return '';
+    const mBlocked = g.bm === 'wala', wBlocked = g.bm === 'meron';
+    const btn = (side, blocked) => '<button type="button" class="btn ' + (blocked ? 'btn-danger' : '') + '" data-act="' + (blocked ? 'unblock' : 'block-' + side) + '"' + dis() + '>' +
+      (blocked ? 'Unblock ' : 'Block ') + side.charAt(0).toUpperCase() + side.slice(1) + '</button>';
+    const status = mBlocked ? 'MERON is blocked. Only WALA takes bets.' : wBlocked ? 'WALA is blocked. Only MERON takes bets.' : 'Both sides are open.';
+    return '<div class="dk-panel' + (g.bm !== 'all' ? ' is-alert' : '') + '"><h5>Emergency balancer</h5>' +
+      '<p class="dk-hint" role="status"><b>' + esc(status) + '</b></p>' +
+      '<div class="dk-actions">' + btn('meron', mBlocked) + btn('wala', wBlocked) + '</div>' +
+      '<p class="dk-hint">Only if the automatic balancing is not working. The blocked side cannot be pressed by players; the other side can.</p></div>';
   }
 
   function phaseOf(g, e) {
@@ -263,13 +291,13 @@
       : g.res === 'draw' ? 'Draw' : 'Fight cancelled';
     return '<div class="dk-verdict" style="--wc:' + colour + '"><b>' + label + '</b><span>declared ' + esc(at(g.at)) + '</span>' +
       (g.cam ? '<a href="/fights/' + g.id + '/proof" target="_blank" rel="noopener">Result picture</a>' : '') +
-      '<a href="/change_name?event_id=' + e.id + '&fight_id=' + g.id + '">Open in Fight View</a></div>';
+      '<a href="/events/' + e.id + '?fight_id=' + g.id + '">Open fight</a></div>';
   }
 
   /* Spectate: the Fight View (live video, pools, Meron / Wala) in a pop-out window next to the desk. One window is
      reused; while it is open it follows the event's current game, so the declarator is always watching what they will
      have to declare. */
-  const watchUrl = (e, g) => '/change_name?event_id=' + e.id + '&fight_id=' + g.id;
+  const watchUrl = (e, g) => '/events/' + e.id + '?fight_id=' + g.id;
   const follow = { win: null, ev: 0, game: 0 };
   const watching = () => !!(follow.win && !follow.win.closed);
   function openSpectate(e, g) {
@@ -540,6 +568,12 @@
         case 'reset': return twoTap(t, () => run(() => post('/staff/declarator/events/' + c.e.id + '/stream', { action: 'reset', fight_id: g.id })));
         case 'lock': return twoTap(t, () => run(() => post('/staff/declarator/fights/' + g.id + '/lock', { locked: '1' })));
         case 'unlock': return twoTap(t, () => run(() => post('/staff/declarator/fights/' + g.id + '/lock', { locked: '0' })));
+        case 'block-meron': return twoTap(t, () => run(() => post('/staff/declarator/fights/' + g.id + '/block', { side: 'meron' })));
+        case 'block-wala': return twoTap(t, () => run(() => post('/staff/declarator/fights/' + g.id + '/block', { side: 'wala' })));
+        case 'unblock': return run(() => post('/staff/declarator/fights/' + g.id + '/block', { side: 'none' }));
+        case 'timer': return run(() => post('/staff/declarator/fights/' + g.id + '/timer', { seconds: t.dataset.secs }));
+        case 'timer-custom': { const v = $('[data-timer-secs]'); return run(() => post('/staff/declarator/fights/' + g.id + '/timer', { seconds: v ? v.value : '' })); }
+        case 'timer-cancel': return run(() => post('/staff/declarator/fights/' + g.id + '/timer', { seconds: '0' }));
         case 'declare':
           if (!d.armed) return;
           return run(() => post('/staff/declarator/fights/' + g.id + '/declare', { result: d.armed, reason: d.note }, d.proof || null),

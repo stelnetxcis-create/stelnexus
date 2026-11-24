@@ -61,7 +61,7 @@ class SabongAdapter(GameAdapter):
     # ---- workspace -------------------------------------------------------------------
     def workspace_urls(self, ctx) -> dict[str, str | None]:
         return {
-            "live": "/change_name" if ctx.can(Perm.FIGHTS_VIEW) else None,
+            "live": "/games/sabong/live" if ctx.can(Perm.FIGHTS_VIEW) else None,
             "schedule": "/games/sabong/schedule" if ctx.can(Perm.EVENTS_VIEW) else None,
             "tickets": "/records?tab=tickets&game=sabong" if ctx.can(Perm.BETS_VIEW) and can_see_money(ctx) else None,
             "declare": "/staff/declarator" if ctx.can(Perm.STAFF_DECLARATOR) else None,
@@ -101,6 +101,11 @@ class SabongAdapter(GameAdapter):
                             location=e.location.name if e.location else "—",
                             detail=f"{e.fight_count} fights", url=f"/events/{e.id}")
                 for e in self._events_for(ctx, when)]
+
+    async def live(self, request, ctx):
+        """Play: straight into the one open event, otherwise the event cards (web layer imported lazily)."""
+        from app.web.routes_fights import sabong_live
+        return await sabong_live(request, ctx)
 
     def schedule_context(self, ctx, when: str) -> dict:
         evs = self._events_for(ctx, when)
@@ -192,7 +197,7 @@ class SabongAdapter(GameAdapter):
                 at=x.declared_at, detail=(f"Meron {snap['meron']/100:,.2f} · Wala {snap['wala']/100:,.2f} · "
                                           f"Draw {snap['draw']/100:,.2f}") if snap else "",
                 url=f"/events/{x.event_id}", role=events.role_of(x, x.result.value if x.result else None) or "",
-                proof_url=f"/change_name?event_id={x.event_id}&fight_id={x.id}" if x.proof_file else "",
+                proof_url=f"/events/{x.event_id}?fight_id={x.id}" if x.proof_file else "",
                 location=" · ".join(p for p in (locs[evs[x.event_id].location_id].name,
                                                locs[evs[x.event_id].location_id].city) if p)
                 if x.event_id in evs and evs[x.event_id].location_id in locs else ""))

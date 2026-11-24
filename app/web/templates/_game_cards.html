@@ -1,0 +1,40 @@
+{# One look for every game, used on the Games hub and on the Dashboard.
+   {% from "_game_cards.html" import game_card, soon_card %}{{ game_card(c) }}
+   c = {game: adapter, summary: {state, rounds, next, tickets, staked}, urls: {...}}. One "Enter" button, because
+   playing and managing a game are the same place: the page you land on has everything your role may do. #}
+{% macro game_card(c) %}
+{% set g = c.game %}{% set s = c.summary %}
+{% set tone = {'live': 'live now', 'open': 'open', 'closed': 'closed'}[s.state] %}
+<article class="gcard gcard-{{ g.key }} is-{{ s.state }}" data-game="{{ g.key }}">
+  <div class="gcard-top">
+    <span class="gcard-ico"><svg class="ico"><use href="#{{ g.icon }}"/></svg></span>
+    <div class="gcard-title">
+      <span class="gcard-kicker">{% if g.key == 'sabong' %}Meron or Wala{% elif g.key == 'bola' %}Tumbok-Sahod{% else %}{{ g.vocabulary.session }}{% endif %}</span>
+      <h3>{{ g.label }}</h3>
+    </div>
+    <span class="gcard-state state-{{ s.state }}"><i aria-hidden="true"></i>{{ tone }}</span>
+  </div>
+  <dl class="gcard-stats">
+    <div><dd>{{ s.rounds }}</dd><dt>{{ g.vocabulary.round | lower }}{{ '' if s.rounds == 1 else 's' }} open</dt></div>
+    {% if s.tickets is not none %}<div><dd>{{ s.tickets }}</dd><dt>ticket{{ '' if s.tickets == 1 else 's' }} today</dt></div>{% endif %}
+    {% if s.staked is not none %}<div><dd>{{ s.staked | money }}</dd><dt>staked today</dt></div>{% endif %}
+  </dl>
+  {% if s.next %}<p class="gcard-next"><span>Next up</span><b>{{ s.next }}</b></p>{% endif %}
+  <div class="gcard-actions">
+    <a class="btn btn-brand gcard-enter" href="/games/{{ g.key }}/live">Enter <span aria-hidden="true">→</span></a>
+    {% if c.urls.tickets %}<a class="btn btn-ghost" href="/records?tab=tickets&amp;game={{ g.key }}">Tickets</a>{% endif %}
+  </div>
+</article>
+{% endmacro %}
+
+{# A game that is announced but not playable yet: same card, quiet. #}
+{% macro soon_card(key, label, kicker, icon, note) %}
+<article class="gcard gcard-soon" data-game="{{ key }}" aria-disabled="true">
+  <div class="gcard-top">
+    <span class="gcard-ico"><svg class="ico"><use href="#{{ icon }}"/></svg></span>
+    <div class="gcard-title"><span class="gcard-kicker">{{ kicker }}</span><h3>{{ label }}</h3></div>
+    <span class="gcard-state state-soon">Soon</span>
+  </div>
+  <p class="gcard-note">{{ note }}</p>
+</article>
+{% endmacro %}

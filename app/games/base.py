@@ -166,6 +166,10 @@ class GameAdapter:
         """None when the viewer may not create sessions or rounds."""
         raise NotImplementedError
 
+    async def live(self, request, ctx):
+        """Render the Live tab in place. Only games whose workspace_urls['live'] is /games/<key>/live implement it."""
+        raise NotImplementedError
+
     def schedule_context(self, ctx, when: str) -> dict:
         """Extra template context for games whose schedule_view is not the plain table."""
         return {}

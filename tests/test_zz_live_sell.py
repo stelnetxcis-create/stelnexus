@@ -77,7 +77,7 @@ def test_locking_a_game_offers_an_undo_toast():
         c, _ = login("admin")
         r = c.post(f"/fights/{fight_id}/lock", data={"csrf_token": _csrf(c), "locked": "1"})
         assert r.status_code == 303
-        page = c.get(f"/change_name?event_id={event_id}&fight_id={fight_id}")
+        page = c.get(f"/events/{event_id}?fight_id={fight_id}")
         assert f'data-undo-action="/fights/{fight_id}/lock"' in page.text
         assert '"locked":"0"' in page.text.replace(" ", "")
     finally:
@@ -88,12 +88,16 @@ def test_fight_view_has_strip_early_bet_panel_and_no_seller_panel():
     ev_id, fight_id, player_id = _setup()
     c, r = login("admin")
     assert r.status_code == 303
-    html = c.get(f"/change_name?event_id={ev_id}&fight_id={fight_id}").text
+    html = c.get(f"/events/{ev_id}?fight_id={fight_id}").text
     assert "data-fv-strip" in html and 'class="fv-chip' in html and "data-vp-orient" in html
     assert "game-tile" not in html
     # the panel posts to /bets/live/*; there is no Seller Desk
     assert "data-bp" in html and 'data-place-url="/bets/live/place"' in html
-    assert "/sell/place" not in html and "Sell tickets" not in html
+    # no Seller Desk inside the fight panel (the video box). The event's own Sell ticket card, which posts to
+    # /bets/place for an agent's players, lives lower on the same page since the betting sheet merged into it.
+    from app.web.conditional import extract_region
+    panel = extract_region(html, "fight-panel") or ""
+    assert "/sell/place" not in html and "Sell tickets" not in panel and 'id="sell"' not in panel
     assert 'data-self="1"' in html and 'data-sl="player"' not in html   # bets as the logged-in account, no picker
     assert "Start fight" in html and "pre-show" in html
 
@@ -122,7 +126,7 @@ def test_early_bet_follows_the_game_order():
     # game 1 goes on air: everything closed
     assert c.post(f"/events/{ev_id}/stream", data={"action": "start", "fight_id": fight_id,
                                                    "csrf_token": _csrf(c)}).status_code in (302, 303)
-    page = c.get(f"/change_name?event_id={ev_id}&fight_id={fight_id}").text
+    page = c.get(f"/events/{ev_id}?fight_id={fight_id}").text
     assert "is on air" in page and 'data-phase="onair"' in page and 'data-live="1"' in page
     late = early(fight_id, "e-3")
     assert late.status_code >= 400 and "fight #1 has started" in late.text
@@ -160,7 +164,7 @@ def test_payout_scene_live_and_final():
                                               "idempotency_key": "sc-1", "csrf_token": tok},
                    headers={"Accept": "application/json", "X-CSRF-Token": tok})
         assert r.status_code == 200, r.text
-        page = c.get(f"/change_name?event_id={ev_id}&fight_id={fight_id}").text
+        page = c.get(f"/events/{ev_id}?fight_id={fight_id}").text
         assert "data-pbs" in page and 'data-state="open"' in page and 'data-pbn="mm"' in page
         row = {f["id"]: f for f in c.get(f"/_live/event/{ev_id}").json()["fights"]}[fight_id]
         assert row["pm"] == 10000 and row["tt"] == 10000 and row["cm"] == 1
@@ -170,7 +174,7 @@ def test_payout_scene_live_and_final():
         final = c.get(f"/_live/fight/{fight_id}/final").json()
         assert final["res"] == "meron" and final["tt"] == 10000 and final["tickets"] == 1
         assert {"mult", "paid", "cut", "winners", "np"} <= set(final)
-        page = c.get(f"/change_name?event_id={ev_id}&fight_id={fight_id}").text
+        page = c.get(f"/events/{ev_id}?fight_id={fight_id}").text
         assert 'data-state="ended"' in page and "MERON WINS" in page
     finally:
         _cleanup(event_id=ev_id)
@@ -219,7 +223,7 @@ def test_account_bets_as_itself_from_its_own_credit():
             uid = user.id
         c, r = login(name)
         assert r.status_code == 303
-        page = c.get(f"/change_name?event_id={ev_id}&fight_id={fight_id}").text
+        page = c.get(f"/events/{ev_id}?fight_id={fight_id}").text
         assert 'data-self="1"' in page and 'data-sl="player"' not in page and "Your credit" in page
         tok = _csrf(c)
         hdr = {"Accept": "application/json", "X-CSRF-Token": tok}

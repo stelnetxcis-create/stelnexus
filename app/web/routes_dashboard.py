@@ -12,31 +12,9 @@ from app.services import bola as _bola
 from app.services import agents as agents_svc
 from app.services import reports, settlement, events, snapshots
 from app.web.deps import Ctx, render, require_ctx
+from app.web.routes_games import game_cards
 
 router = APIRouter()
-
-
-def _sabong_tile(ctx: Ctx, open_games: int) -> dict | None:
-    """Meron / Wala: the finished game. Sellers go to the events lobby; result-only roles
-    (declarators, pawns) go to the fight view. No access to either -> no tile."""
-    if ctx.can(Perm.EVENTS_VIEW):
-        href = "/games/sabong/schedule"
-    elif ctx.can(Perm.FIGHTS_VIEW):
-        href = "/change_name"
-    else:
-        return None
-    hint = f"{open_games} fight{'' if open_games == 1 else 's'} open"
-    return {"href": href, "hint": hint}
-
-
-def _number_game_tile(ctx: Ctx, bola_card: dict | None) -> dict | None:
-    """Number game tile: a link for every account that may see the game while it is switched on.
-    Nothing is shown when it is off, or when BOLA_DEV_ONLY hides it from this account (no
-    'Coming soon' placeholder any more)."""
-    if bool(ctx.store.get("bola.enabled")) and ctx.can(Perm.BOLA_VIEW):
-        n = int(bola_card["open"]) if bola_card else 0
-        return {"state": "live", "href": "/bola", "hint": f"{n} draw{'' if n == 1 else 's'} open"}
-    return None
 
 
 @router.get("/dashboard")
@@ -76,7 +54,7 @@ async def dashboard(ctx: Ctx = Depends(require_ctx)):
             attention.append({"label": "Corrections awaiting approval", "count": len(pending),
                               "href": "/dashboard#corrections", "tone": "amber"})
         attention.append({"label": "Locked fights waiting for a result", "count": stats["locked_fights"],
-                          "href": "/change_name", "tone": "red"})
+                          "href": "/games/sabong/live", "tone": "red"})
     bola_card = reports.bola_dashboard(ctx.db, ctx.user, ctx.store) if ctx.can(Perm.BOLA_VIEW) else None
     if bola_card and ctx.user.is_top and ctx.can(Perm.BOLA_APPROVE) and bola_card["pending_corrections"]:
         attention.append({"label": "Bola corrections awaiting approval",
@@ -84,5 +62,4 @@ async def dashboard(ctx: Ctx = Depends(require_ctx)):
     return render(ctx, "dashboard.html", active="dashboard", stats=stats, show_money=show_money,
                   pending=pending, recent_events=recent_events, top_agents=top_agents, mine=mine,
                   attention=attention, bola_card=bola_card, bola_local=_bola.local,
-                  sabong_tile=_sabong_tile(ctx, stats["open_fights"]),
-                  number_tile=_number_game_tile(ctx, bola_card))
+                  game_cards=game_cards(ctx))

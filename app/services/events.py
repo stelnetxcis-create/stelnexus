@@ -235,6 +235,8 @@ def set_stream_live(db: Session, actor: User, event_id: int, live: bool, fight_i
     before = {"started_at": fight.started_at}
     if live and fight.started_at is None:
         fight.started_at = utcnow()
+        fight.auto_close_at = None               # on air: betting is closed anyway, the timer has nothing left to do
+        fight.auto_close_by_id = None
     elif not live:
         fight.started_at = None
     db.flush()
@@ -295,10 +297,89 @@ def lock_fight(db: Session, actor: User, fight_id: int, locked: bool = True) -> 
     before = {"status": fight.status}
     fight.status = FightStatus.LOCKED if locked else FightStatus.OPEN
     fight.locked_at = dt.datetime.now(dt.timezone.utc) if locked else None
+    fight.auto_close_at = None                    # a manual close / re-open replaces any running timer
+    fight.auto_close_by_id = None
     db.flush()
     audit.record(db, actor, "fight.lock" if locked else "fight.unlock",
                  entity_type="fight", entity_id=fight.id, before=before, after={"status": fight.status})
     return fight
+
+
+# ---------------------------------------------------------------------------
+# Auto-close timer (set by the Declarator). v1 is a plain countdown. Anything smarter later (pool imbalance,
+# stream phase, ticket count) plugs into ``close_reason`` and nothing else has to change.
+# ---------------------------------------------------------------------------
+
+AUTO_CLOSE_MIN_SECONDS = 5
+AUTO_CLOSE_MAX_SECONDS = 3600
+
+
+def close_reason(fight: Fight, now: dt.datetime | None = None) -> str | None:
+    """Why this OPEN game should be closed right now, or None. The single place that decides auto-close."""
+    from app.db.base import utcnow
+    now = now or utcnow()
+    if fight.status != FightStatus.OPEN:
+        return None
+    if fight.auto_close_at is not None and fight.auto_close_at <= now:
+        return "timer"
+    return None
+
+
+def set_auto_close(db: Session, actor: User, fight_id: int, seconds: int | None) -> Fight:
+    """Close betting on this game in ``seconds`` from now. ``None`` / 0 cancels the timer."""
+    from app.db.base import utcnow
+    fight = get_fight(db, fight_id)
+    before = {"auto_close_at": fight.auto_close_at}
+    if not seconds:
+        if fight.auto_close_at is None:
+            return fight
+        fight.auto_close_at = None
+        fight.auto_close_by_id = None
+        db.flush()
+        audit.record(db, actor, "fight.auto_close_cancel", entity_type="fight", entity_id=fight.id,
+                     before=before, after={"auto_close_at": None})
+        return fight
+    if fight.status != FightStatus.OPEN:
+        raise LockedState("Betting is already closed for this game.")
+    if fight.started_at is not None:
+        raise LockedState("This game is on air: betting is already closed.")
+    seconds = int(seconds)
+    if seconds < AUTO_CLOSE_MIN_SECONDS or seconds > AUTO_CLOSE_MAX_SECONDS:
+        raise ValidationError(f"Choose between {AUTO_CLOSE_MIN_SECONDS} seconds and {AUTO_CLOSE_MAX_SECONDS // 60} minutes.")
+    fight.auto_close_at = utcnow() + dt.timedelta(seconds=seconds)
+    fight.auto_close_by_id = actor.id
+    db.flush()
+    audit.record(db, actor, "fight.auto_close_set", entity_type="fight", entity_id=fight.id,
+                 before=before, after={"auto_close_at": fight.auto_close_at, "seconds": seconds})
+    return fight
+
+
+def close_due_fights(db: Session, event_id: int | None = None, now: dt.datetime | None = None) -> int:
+    """Lock every OPEN game whose timer has run out. Called by the live polls and the Declarator Desk, so
+    it happens within a poll of the deadline even when nobody is betting. Returns how many were closed."""
+    from app.db.base import utcnow
+    now = now or utcnow()
+    q = select(Fight).where(Fight.status == FightStatus.OPEN, Fight.auto_close_at.is_not(None),
+                            Fight.auto_close_at <= now)
+    if event_id is not None:
+        q = q.where(Fight.event_id == event_id)
+    closed = 0
+    for fight in db.scalars(q.with_for_update().limit(50)).all():
+        if close_reason(fight, now) is None:
+            continue
+        before = {"status": fight.status}
+        by = fight.auto_close_by_id
+        fight.status = FightStatus.LOCKED
+        fight.locked_at = fight.auto_close_at
+        fight.auto_close_at = None
+        fight.auto_close_by_id = None
+        db.flush()
+        audit.record(db, None, "fight.auto_close", entity_type="fight", entity_id=fight.id,
+                     before=before, after={"status": fight.status, "timer_set_by": by})
+        closed += 1
+    if closed:
+        ttlcache.invalidate_after_commit(db)
+    return closed
 
 
 def house_cut_for(db: Session, event: Event, settings: SettingsStore) -> int:

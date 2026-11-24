@@ -1,59 +1,9 @@
-{% extends "base.html" %}
+{# The event-level half of the Sabong page (what the betting sheet used to be): sell, all fights, summary, expenses,
+   cancel. Shown under the fight panel by right, the way a Bola draw page stacks its Operations. #}
 {% import "_macros.html" as ui %}
-{% import "_lobby.html" as lobby %}
-{% block title %}{{ event.title }} · {{ brand }}{% endblock %}
-{% block heading %}{{ event.title }}{% if event.location %} <small class="muted">· {{ event.location.name }}</small>{% endif %}{% endblock %}
-{% block actions %}
-<a class="btn btn-sm" href="/change_name?event_id={{ event.id }}"><svg class="ico"><use href="#i-target"/></svg>Fight view</a>
-{% if 'events.manage' in perms %}
-<form method="post" action="/events/{{ event.id }}/status" class="inline-form">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  <select name="status" aria-label="Event status">
-    {% for value in ['draft','open','closed'] %}<option value="{{ value }}" {{ 'selected' if event.status.value == value }}>{{ value | upper }}</option>{% endfor %}
-  </select>
-  <button class="btn btn-sm btn-primary">Set</button>
-</form>
-{% elif 'events.open' in perms and event.status.value in ('draft', 'closed') %}
-<form method="post" action="/events/{{ event.id }}/status" class="inline-form">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  <input type="hidden" name="status" value="open">
-  <button class="btn btn-sm btn-primary">Open event</button>
-</form>
-{% elif 'events.open' in perms and event.status.value == 'open' %}
-<form method="post" action="/events/{{ event.id }}/status" class="inline-form" data-confirm="Close this event? Every fight with bets must be declared first.">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  <input type="hidden" name="status" value="closed">
-  <button class="btn btn-sm">Close event</button>
-</form>
-{% endif %}
-{% endblock %}
-{% block content %}
-{% call ui.region('event-head') %}
-<div class="grid grid-4">
-  {{ ui.stat('Date', event.event_date | date, event.status.value | upper, 'dark') }}
-  {{ ui.stat('Fights', event.fight_count, 'numbered 1–' ~ event.fight_count) }}
-  {{ ui.stat('Payout model', event.payout_model.value | upper, 'per-event setting') }}
-  {{ ui.stat('Tong', '%.2f%%' | format(house_cut / 100), 'house cut of Meron + Wala pool') }}
-</div>
-
-{% if event.status.value == 'canceled' %}
-<div class="alert alert-danger">This event was <strong>cancelled</strong>. All open stakes were refunded.</div>
-{% elif event.status.value != 'open' %}
-<div class="alert alert-warning">This event is <strong>{{ event.status.value }}</strong>. Set it to OPEN before selling tickets.</div>
-{% endif %}
-{% endcall %}
-
-<div class="card">
-  <div class="card-head"><h2>Fights</h2><span class="muted small">tap a box to open that fight</span></div>
-  <div class="card-body">
-    {{ lobby.game_tiles(fights, event.id) }}
-    <div class="tile-legend"><span class="lg st-open">Open</span><span class="lg st-locked">Locked</span><span class="lg res-meron">Meron</span><span class="lg res-wala">Wala</span><span class="lg res-draw">Draw</span><span class="lg st-void">Void / cancelled</span></div>
-  </div>
-</div>
-
 {% call ui.region('event-body') %}
-{% if 'bets.place' in perms and not hide_totals and event.status.value != 'canceled' %}
-<div class="card">
+{% if can_sell %}
+<div class="card" id="sell">
   <div class="card-head"><h2>Sell ticket</h2><span class="muted small">Meron / Wala / Draw · printed receipt with unique code</span></div>
   <div class="card-body">
     <form method="post" action="/bets/place">
@@ -90,8 +40,8 @@
 </div>
 {% endif %}
 
-<div class="card">
-  <div class="card-head"><h2>Live pools</h2><span class="muted small">pools update as tickets are sold</span></div>
+<div class="card" id="pools">
+  <div class="card-head"><h2>All fights</h2><span class="muted small">pools update as tickets are sold</span></div>
   <div class="card-body tight">
     <div class="table-wrap"><table class="table" data-table data-page-size="30">
       <thead><tr><th>#</th><th>Meron entry</th><th>Wala entry</th>{% if not hide_totals %}<th class="right">Meron pool</th><th class="right">Wala pool</th><th class="right">Draw</th><th class="right">Total</th>{% endif %}<th>Result</th><th>Status</th><th class="right">Manage</th></tr></thead>
@@ -110,7 +60,7 @@
           {% endif %}
           <td>{% if fight.bet_mode != 'all' %}{{ ui.badge(fight.bet_mode ~ ' only', 'amber') }} {% endif %}{% if fight.result %}{{ ui.badge(fight.result, 'meron' if fight.result.value=='meron' else ('wala' if fight.result.value=='wala' else 'purple')) }}{% else %}<span class="muted">—</span>{% endif %}</td>
           <td>{{ ui.status_badge(fight.status) }}</td>
-          <td class="right"><a class="btn btn-sm" href="/change_name?event_id={{ event.id }}&fight_id={{ fight.id }}">Open</a></td>
+          <td class="right"><a class="btn btn-sm{{ ' btn-primary' if active_fight_id == fight.id }}" href="/events/{{ event.id }}?fight_id={{ fight.id }}#top">{{ 'Viewing' if active_fight_id == fight.id else 'Open' }}</a></td>
         </tr>
       {% endfor %}
       </tbody>
@@ -119,7 +69,7 @@
 </div>
 
 {% if summary %}
-<div class="card">
+<div class="card" id="summary">
   <div class="card-head"><h2>Event summary</h2><span class="muted small">net income = house take − agent commission − expenses</span></div>
   <div class="card-body">
     <div class="figures">
@@ -156,7 +106,7 @@
 {% endif %}
 
 {% if 'events.manage' in perms and event.status.value != 'canceled' %}
-<div class="card">
+<div class="card" id="manage">
   <div class="card-head"><h2>Cancel whole event</h2>{{ ui.badge('refunds everyone', 'red') }}</div>
   <div class="card-body">
     <p class="notice">Every fight that is not yet settled is cancelled and all stakes are refunded in full (no tong, no commission). Fights already settled are left as they are.</p>
@@ -181,4 +131,3 @@
 </div>
 {% endif %}
 {% endcall %}
-{% endblock %}

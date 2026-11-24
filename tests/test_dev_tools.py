@@ -86,7 +86,7 @@ def test_admin_keeps_house_money_and_reports_live_in_account_menu(admin_c):
 
 def test_games_events_label_and_install_in_sidebar(admin_c):
     c = admin_c
-    for path in ("/dashboard", "/games/sabong/schedule", "/agents"):
+    for path in ("/dashboard", "/games/sabong/live?pick=1", "/agents"):
         html = c.get(path).text
         aside = html[html.index('<aside class="sidebar"'):html.index("</aside>")]
         assert "<span>Sabong</span>" in aside and "<span>All games</span>" in aside and "Games Events" not in html and "Main Event" not in html

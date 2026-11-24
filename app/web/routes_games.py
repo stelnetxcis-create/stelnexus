@@ -24,16 +24,18 @@ def remember(response, key: str) -> None:
     response.set_cookie(GAME_COOKIE, key, max_age=60 * 60 * 24 * 365, samesite="lax", httponly=True)
 
 
-@router.get("/games")
-async def games_hub(ctx: Ctx = Depends(require_ctx)):
+def game_cards(ctx: Ctx) -> list[dict]:
+    """The cards on the Games hub and on the Dashboard: one per game this account may see. Each has ONE way in
+    (/games/<key>/live): playing and managing a game are the same place, and what you can do there follows your role."""
     cards = []
     for adapter in games.visible_games(ctx):
-        urls = adapter.workspace_urls(ctx)
-        summary = adapter.summary_today(ctx)
-        cards.append({"game": adapter, "urls": urls, "summary": summary, "can_play": adapter.can(ctx, "place"),
-                      "play": urls.get("live") or urls.get("schedule"),
-                      "manage": urls.get("schedule") if adapter.can(ctx, "manage") else None})
-    return render(ctx, "games_hub.html", active="games", cards=cards)
+        cards.append({"game": adapter, "urls": adapter.workspace_urls(ctx), "summary": adapter.summary_today(ctx)})
+    return cards
+
+
+@router.get("/games")
+async def games_hub(ctx: Ctx = Depends(require_ctx)):
+    return render(ctx, "games_hub.html", active="games", cards=game_cards(ctx))
 
 
 @router.get("/games/{key}")
@@ -49,6 +51,12 @@ async def game_tab(key: str, tab: str, request: Request, ctx: Ctx = Depends(requ
     target = adapter.workspace_urls(ctx).get(tab)
     if not target:
         raise NotFound("That page does not exist.")
+    if tab == "schedule" and adapter.schedule_view == "cards" and target == f"/games/{key}/schedule":
+        # Sabong: the events list (with Create event) IS the game's page, so the old "Manage" address lands there.
+        query = request.url.query
+        response = RedirectResponse(f"/games/{key}/live?pick=1" + (f"&{query}" if query else ""), status_code=303)
+        remember(response, key)
+        return response
     if tab == "schedule" and target == f"/games/{key}/schedule":
         # the shared page renders in place; `?create=1` (old link) still opens the create drawer via pages.js
         when = request.query_params.get("when")
@@ -61,6 +69,10 @@ async def game_tab(key: str, tab: str, request: Request, ctx: Ctx = Depends(requ
         response = render(ctx, "games_schedule.html", active=adapter.nav_active[0] if adapter.nav_active else "games",
                           game=adapter, when=when, filters=SCHEDULE_FILTERS, rows=rows,
                           spec=adapter.create_spec(ctx), **extra)
+        remember(response, key)
+        return response
+    if tab == "live" and target == f"/games/{key}/live":
+        response = await adapter.live(request, ctx)          # may itself redirect (Sabong: into the one open event)
         remember(response, key)
         return response
     query = request.url.query

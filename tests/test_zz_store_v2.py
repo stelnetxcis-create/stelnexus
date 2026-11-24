@@ -296,7 +296,7 @@ def test_layout_uses_container_queries_lux_name_flashes_and_page_loads_fresh_css
     name, event_id, (fight_id, _) = _setup()
     try:
         cu, _ = login(name)
-        page = cu.get(f"/change_name?event_id={event_id}&fight_id={fight_id}").text
+        page = cu.get(f"/events/{event_id}?fight_id={fight_id}").text
         assert asset_urls("css", "store")[0] in page      # hashed (built) or mtime-versioned (unbuilt): never a stale hand-set ?v=
     finally:
         _cleanup(event_id)

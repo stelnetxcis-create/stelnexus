@@ -38,7 +38,7 @@ def test_delete_one_game_and_whole_event(admin_c):
     with session_scope() as db:
         fids = [f.id for f in db.scalars(select(Fight).where(Fight.event_id == eid).order_by(Fight.number))]
         ledger_before = db.scalar(select(func.count(LedgerEntry.id)))
-    game_page = admin_c.get(f"/change_name?event_id={eid}&fight_id={fids[0]}").text
+    game_page = admin_c.get(f"/events/{eid}?fight_id={fids[0]}").text
     assert f"/dev/purge/fight/{fids[0]}" in game_page
     assert all(k in game_page for k in ('data-fc-overlay', 'data-fc-toggle', 'data-fc-alpha', 'data-fc-grip', 'data-stage'))      # chat floats + collapses
     assert admin_c.post(f"/dev/purge/fight/{fids[0]}", data={"csrf_token": csrf(admin_c)}).status_code == 303

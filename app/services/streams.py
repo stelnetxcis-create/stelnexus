@@ -880,7 +880,7 @@ def refresh() -> None:
 def csp_extras(path: str) -> dict:
     """Hosts the policy may add for this request. The Streams admin page sees every saved source (so Preview works
     before a source is switched on); every other page only sees enabled ones."""
-    return _csp["all" if path.startswith("/admin/streams") else "enabled"]
+    return _csp["all" if path.startswith("/staff/stream") else "enabled"]
 
 
 def extend_csp(csp: str, extras: dict) -> str:

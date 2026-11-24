@@ -6,6 +6,8 @@
 {% block actions %}
 <a class="btn btn-sm" href="/bola/results">Results</a>
 {% if can_manage %}
+<a class="btn btn-sm" href="/games/bola/schedule">Schedule</a>
+<a class="btn btn-sm" href="/bola/cancelled">Cancelled</a>
 <form method="post" action="/bola/draws/generate" class="inline-form" style="display:inline-flex;gap:6px">
   {{ ui.csrf(csrf_token) }}<input type="hidden" name="days" value="1">
   <button class="btn btn-sm btn-brand" type="submit">Generate today's draws</button>

@@ -135,7 +135,7 @@ def test_only_the_admin_can_undo_a_bet(role):
         ticket_id = placed.json()["ticket"]["id"]
 
         # the page does not even offer Undo (data-undo="-1") ...
-        page = c.get(f"/change_name?event_id={event_id}&fight_id={fight_id}").text
+        page = c.get(f"/events/{event_id}?fight_id={fight_id}").text
         assert 'data-undo="-1"' in page
         # ... and the endpoints refuse it, so the bet stays
         t = _csrf(c)
@@ -263,10 +263,10 @@ def test_fight_page_gross_and_platform_rows_are_for_the_admin_only():
             from app.core.settings_registry import SettingsStore
             SettingsStore(db).set("payout.platform_cut_bps", "500", 1)
         c, _ = login("admin")
-        page = c.get(f"/change_name?event_id={event_id}&fight_id={fight_id}").text
+        page = c.get(f"/events/{event_id}?fight_id={fight_id}").text
         assert 'data-pbn="cut"' in page and "Payout pool" in page and 'data-pbn="gt"' in page
         p, _ = login(name)
-        page = p.get(f"/change_name?event_id={event_id}&fight_id={fight_id}").text
+        page = p.get(f"/events/{event_id}?fight_id={fight_id}").text
         assert 'data-pbn="cut"' in page and "Payout pool" in page      # the house cut calculation is public
         assert 'data-pbn="gt"' not in page and 'data-pbn="pc"' not in page
     finally:

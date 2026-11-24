@@ -43,8 +43,12 @@ def test_every_game_exposes_all_workspace_urls_to_the_admin(key):
     from app.web.deps import Ctx  # noqa: F401  (the route builds the Ctx; here we check through the web layer)
     for tab in WORKSPACE_TABS:
         r = c.get(f"/games/{key}/{tab}")
-        if tab == "schedule":                       # the shared Schedule page renders in place
+        if tab == "schedule" and key == "sabong":   # Sabong's events list IS its game page: Manage and Play are one place
+            assert r.status_code == 303 and r.headers["location"] == "/games/sabong/live?pick=1", (key, tab)
+        elif tab == "schedule":                     # the shared Schedule page renders in place
             assert r.status_code == 200, (key, tab)
+        elif tab == "live" and key == "sabong":     # the event cards, or straight into the one open event
+            assert r.status_code == 200 or (r.status_code == 303 and r.headers["location"].startswith("/events/")), (key, tab)
         else:
             assert r.status_code == 303 and r.headers["location"].startswith("/"), (key, tab)
 
@@ -94,21 +98,30 @@ def test_bola_schedule_page_renders_with_every_filter_and_a_create_drawer():
         assert 'data-modal="create-modal"' in r.text and 'data-modal="generate-modal"' in r.text
 
 
-def test_sabong_schedule_is_the_shared_page_with_the_events_lobby():
+def test_sabong_game_page_is_the_events_lobby_with_create_and_filters():
+    """Play and Manage are one page: the events list with Create event and the Today / Upcoming / Past / All filters."""
     c, _ = login("admin")
-    page = c.get("/games/sabong/schedule")
+    page = c.get("/games/sabong/live?pick=1")
     assert page.status_code == 200
     # the pieces pages.js and the realtime refresh look for must be on the shared page
     for needle in ('data-modal="event-modal"', 'id="ev-location"', 'id="loc-quick-link"', 'id="loc-quick-modal"'):
         assert needle in page.text, needle
+    assert "Schedule" not in page.text.split("<h1")[1].split("</h1>")[0] if "<h1" in page.text else True
     for when in ("today", "upcoming", "past", "all", "nonsense"):
-        assert c.get(f"/games/sabong/schedule?when={when}").status_code == 200, when
+        assert c.get(f"/games/sabong/live?pick=1&when={when}").status_code == 200, when
+
+
+def test_old_sabong_manage_address_lands_on_the_same_page_and_keeps_its_query():
+    c, _ = login("admin")
+    r = c.get("/games/sabong/schedule?create=1&when=past")
+    assert r.status_code == 303 and r.headers["location"] == "/games/sabong/live?pick=1&create=1&when=past"
+    assert c.get(r.headers["location"]).status_code == 200
 
 
 def test_old_events_url_redirects_and_keeps_its_query():
     c, _ = login("admin")
     r = c.get("/events?create=1")
-    assert r.status_code == 303 and r.headers["location"] == "/games/sabong/schedule?create=1"
+    assert r.status_code == 303 and r.headers["location"] == "/games/sabong/live?pick=1&create=1"
 
 
 def test_vocabulary_no_game_number_in_templates():

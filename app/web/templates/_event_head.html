@@ -1,0 +1,15 @@
+{% import "_macros.html" as ui %}
+{% call ui.region('event-head') %}
+<div class="grid grid-4">
+  {{ ui.stat('Date', event.event_date | date, event.status.value | upper, 'dark') }}
+  {{ ui.stat('Fights', event.fight_count, 'numbered 1–' ~ event.fight_count) }}
+  {{ ui.stat('Payout model', event.payout_model.value | upper, 'per-event setting') }}
+  {{ ui.stat('Tong', '%.2f%%' | format(house_cut / 100), 'house cut of Meron + Wala pool') }}
+</div>
+
+{% if event.status.value == 'canceled' %}
+<div class="alert alert-danger">This event was <strong>cancelled</strong>. All open stakes were refunded.</div>
+{% elif event.status.value != 'open' %}
+<div class="alert alert-warning">This event is <strong>{{ event.status.value }}</strong>. Set it to OPEN before selling tickets.</div>
+{% endif %}
+{% endcall %}

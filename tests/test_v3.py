@@ -164,8 +164,8 @@ def test_livestream_chat_is_admin_and_granted_pawns_only(chain):
         assert c.get("/chat/messages?after=0", headers={"Accept": "application/json"}).status_code == 403
         assert c.post("/chat/send", data={"csrf_token": _csrf(c), "body": "hi"}).status_code in (303, 403)
     # the experimental staff room no longer has a menu entry: chat is shown through the games
-    assert 'title="Livestream Chat"' not in _login(chat.username).get("/change_name").text
-    assert 'href="/chat"' not in _login(plain.username).get("/change_name").text
+    assert 'title="Livestream Chat"' not in _login(chat.username).get("/games/sabong/live?pick=1").text
+    assert 'href="/chat"' not in _login(plain.username).get("/games/sabong/live?pick=1").text
 
 
 # ------------------------------------------------ who may declare
@@ -181,7 +181,7 @@ def test_only_declare_roles_can_declare_cavo_and_kubrador_are_players(chain):
     game = _fresh_game(w)
     for u in (w.cavo, w.kub):
         c = _login(u.username)
-        assert "Declare &amp; settle" not in c.get(f"/change_name?event_id={w.event.id}&fight_id={game.id}").text
+        assert "Declare &amp; settle" not in c.get(f"/events/{w.event.id}?fight_id={game.id}").text
         r = c.post(f"/fights/{game.id}/declare", data={"csrf_token": _csrf(c), "result": "meron"})
         assert r.status_code == 303
     w.db.expire_all()
@@ -256,7 +256,7 @@ def test_pawn_must_upload_a_picture_to_declare(chain):
     pawn = _pawn(w, name="pp")
     c = _login(pawn.username)
     game = _fresh_game(w)
-    page = c.get(f"/change_name?event_id={w.event.id}&fight_id={game.id}").text
+    page = c.get(f"/events/{w.event.id}?fight_id={game.id}").text
     assert 'type="file" name="proof"' in page and "required" in page.split('name="proof"')[1].split(">")[0]
 
     assert _declare(c, game).status_code == 303                          # no picture: refused
@@ -275,7 +275,7 @@ def test_pawn_must_upload_a_picture_to_declare(chain):
     assert done.proof_file and done.proof_mime == "image/png" and done.proof_by_id == pawn.id
     assert proofs.path_of(done).read_bytes() == PNG
 
-    shown = c.get(f"/change_name?event_id={w.event.id}&fight_id={game.id}").text
+    shown = c.get(f"/events/{w.event.id}?fight_id={game.id}").text
     assert f'src="/fights/{game.id}/proof"' in shown
     img = c.get(f"/fights/{game.id}/proof")
     assert img.status_code == 200 and img.headers["content-type"] == "image/png" and img.content == PNG
@@ -293,7 +293,7 @@ def test_admin_and_declarator_may_skip_the_picture_but_it_shows_if_given(chain):
     assert a.get(f"/fights/{g1.id}/proof").status_code == 404
 
     g2 = _fresh_game(w)
-    assert 'name="proof"' in d.get(f"/change_name?event_id={w.event.id}&fight_id={g2.id}").text
+    assert 'name="proof"' in d.get(f"/events/{w.event.id}?fight_id={g2.id}").text
     assert _declare(d, g2).status_code == 303                          # a Declarator needs no picture
     w.db.expire_all()
     assert w.db.get(Fight, g2.id).result is not None and not w.db.get(Fight, g2.id).proof_file
@@ -302,7 +302,7 @@ def test_admin_and_declarator_may_skip_the_picture_but_it_shows_if_given(chain):
     assert _declare(d, g3, PNG, result="wala").status_code == 303      # ...but may add one
     w.db.expire_all()
     assert w.db.get(Fight, g3.id).proof_file
-    assert f'src="/fights/{g3.id}/proof"' in a.get(f"/change_name?event_id={w.event.id}&fight_id={g3.id}").text
+    assert f'src="/fights/{g3.id}/proof"' in a.get(f"/events/{w.event.id}?fight_id={g3.id}").text
 
     # Admin can add or replace a picture on a finished game; Cavo cannot
     r = a.post(f"/fights/{g1.id}/proof", data={"csrf_token": _csrf(a)}, files={"proof": ("p.png", PNG, "image/png")})
@@ -323,7 +323,7 @@ def test_master_cannot_declare(chain):
     w.db.commit()
     m = _login(w.master.username)
     game = _fresh_game(w)
-    assert "Declare &amp; settle" not in m.get(f"/change_name?event_id={w.event.id}&fight_id={game.id}").text
+    assert "Declare &amp; settle" not in m.get(f"/events/{w.event.id}?fight_id={game.id}").text
     assert _declare(m, game, PNG).status_code == 303
     w.db.expire_all()
     assert w.db.get(Fight, game.id).status == FightStatus.OPEN and w.db.get(Fight, game.id).result is None
@@ -374,12 +374,11 @@ def test_games_lobby_boxes_are_clickable(chain):
     assert "lobby-card" in html and f'href="/events/{w.event.id}"' in html and w.event.title in html
     assert "Main event" not in html and "Main Event" not in html
     detail = a.get(f"/events/{w.event.id}").text
-    assert detail.count('class="game-tile ') == w.event.fight_count      # the wrapper is game-tiles
-    assert f"/change_name?event_id={w.event.id}&amp;fight_id={w.games[0].id}" in detail or \
-        f"/change_name?event_id={w.event.id}&fight_id={w.games[0].id}" in detail
-    picker = a.get("/change_name").text                                  # no event chosen: the same boxes
-    assert "lobby-card" in picker and f'href="/change_name?event_id={w.event.id}"' in picker
-    assert 'fv-chip' in a.get(f"/change_name?event_id={w.event.id}").text   # the game strip (was the games grid)
+    assert detail.count('class="game-tile ') + detail.count('fv-chip ') >= w.event.fight_count   # tiles, or the fight strip once one is open
+    assert f"/events/{w.event.id}?fight_id={w.games[0].id}" in detail
+    picker = a.get("/games/sabong/live?pick=1").text                                  # no event chosen: the same boxes
+    assert "lobby-card" in picker and f'href="/events/{w.event.id}"' in picker
+    assert 'fv-chip' in a.get(f"/events/{w.event.id}").text   # the game strip (was the games grid)
 
 
 def test_lobby_stats_count_games(chain):

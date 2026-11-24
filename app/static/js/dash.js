@@ -45,9 +45,10 @@
     },
     nba: function (fx) { fx.appendChild(mk('i', 'sh')); fx.appendChild(mk('i', 'ball')); }
   };
-  document.querySelectorAll('.games .game-tile[data-game]').forEach(function (tile) {
-    var b = builders[tile.getAttribute('data-game')]; if (!b) return;
-    var fx = mk('span', 'game-fx fx-' + tile.getAttribute('data-game')); fx.setAttribute('aria-hidden', 'true');
+  document.querySelectorAll('.gcards .gcard[data-game]').forEach(function (tile) {
+    var key = tile.getAttribute('data-game'); if (key === 'bola') key = 'number';      // the Number game card
+    var b = builders[key]; if (!b) return;
+    var fx = mk('span', 'game-fx fx-' + key); fx.setAttribute('aria-hidden', 'true');
     b(fx); tile.insertBefore(fx, tile.firstChild);
   });
 })();

@@ -84,7 +84,7 @@ def _count(client, path):
 
 # Pages whose query count must NOT grow with the number of rows they list (N+1 guard).
 LISTS = ["/agents", "/records?tab=commissions", "/clp", "/wallet", "/cashflow", "/records?tab=tickets&game=sabong",
-         "/records?tab=tickets&game=all", "/records?tab=cancelled&game=all", "/games/sabong/schedule", "/games/bola/schedule", "/records?tab=history&game=all",
+         "/records?tab=tickets&game=all", "/records?tab=cancelled&game=all", "/games/sabong/live?pick=1", "/games/bola/schedule", "/records?tab=history&game=all",
          "/records?tab=reports&view=archive&game=sabong"]
 
 

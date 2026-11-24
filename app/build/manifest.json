@@ -1,13 +1,13 @@
 {
-  "build": "c945e87c",
-  "inputs": "befeab8827154576553997ba7c3969183d7484b25a8e2a404c94a6c6d4281667",
+  "build": "664eecc3",
+  "inputs": "e49797f146e59d3e6e7fbd9e352a1116063aa3869b0d62b929116b4da54ec44c",
   "css": {
-    "auth": "/static/dist/auth.66b2ed3b.css",
-    "site": "/static/dist/site.8a4d05b3.css",
-    "store": "/static/dist/store.47b86275.css",
+    "auth": "/static/dist/auth.b13c8280.css",
+    "site": "/static/dist/site.65c9e6e9.css",
+    "store": "/static/dist/store.05f49e0f.css",
     "bola-ui": "/static/dist/bola-ui.c8fefe2d.css",
     "livestream": "/static/dist/livestream.f6922ca2.css",
-    "declarator": "/static/dist/declarator.fac8ae8d.css"
+    "declarator": "/static/dist/declarator.06cc963e.css"
   },
   "js": {
     "nav-init": "/static/dist/nav-init.f71a574e.js",
@@ -16,22 +16,22 @@
     "bola": "/static/dist/bola.ef0ee78a.js",
     "bola-live": "/static/dist/bola-live.0f128a91.js",
     "chat": "/static/dist/chat.a5798df9.js",
-    "dash": "/static/dist/dash.8f6468b6.js",
-    "declarator": "/static/dist/declarator.c18ef9db.js",
-    "dock": "/static/dist/dock.ca34cfe4.js",
-    "fightchat": "/static/dist/fightchat.d3dcc91d.js",
-    "fightview": "/static/dist/fightview.39470e3e.js",
+    "dash": "/static/dist/dash.274e77b5.js",
+    "declarator": "/static/dist/declarator.4d8ca24e.js",
+    "dock": "/static/dist/dock.e7c50c6e.js",
+    "fightchat": "/static/dist/fightchat.06a8e427.js",
+    "fightview": "/static/dist/fightview.0eadac65.js",
     "referrals": "/static/dist/referrals.0ec603de.js",
     "hls": "/static/dist/hls.63709b99.js",
     "stream": "/static/dist/stream.2487be79.js",
-    "streams-admin": "/static/dist/streams-admin.89b59090.js"
+    "streams-admin": "/static/dist/streams-admin.e3b53d22.js"
   },
   "preload": [
     "/static/dist/fonts/manrope-latin-wght-normal.a30ddcd3.woff2",
     "/static/dist/fonts/cormorant-garamond-latin-600-normal.ae062b6d.woff2"
   ],
   "shell": [
-    "/static/dist/site.8a4d05b3.css",
+    "/static/dist/site.65c9e6e9.css",
     "/static/dist/site.1fcbcff8.js",
     "/static/dist/nav-init.f71a574e.js"
   ]

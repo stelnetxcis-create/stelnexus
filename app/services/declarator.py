@@ -59,7 +59,7 @@ def _game(f: Fight, cur_id: int | None) -> dict:
         "ph": events.stream_phase(f, cur_id),
         "res": f.result.value if f.result else "",
         "nm": f.entry_name_meron, "nw": f.entry_name_wala,
-        "lla": f.llamado_side or "",
+        "lla": f.llamado_side or "", "bm": f.bet_mode, "ac": _ms(f.auto_close_at),
         "sd": f.started_at is not None, "sa": _ms(f.started_at), "lk": _ms(f.locked_at),
         "at": _ms(f.declared_at), "cam": bool(f.proof_file),
     }
@@ -75,6 +75,7 @@ def _lane_of_game(cur: Fight) -> str:
 
 def _sabong(db: Session, now: dt.datetime) -> list[dict]:
     """Open events with their games, plus draft events a Declarator may open."""
+    events.close_due_fights(db, now=now)             # a timer that ran out closes betting even if nobody is betting
     open_events = list(db.scalars(
         select(Event).options(selectinload(Event.location))
         .where(Event.status == EventStatus.OPEN)

@@ -35,7 +35,7 @@ def test_bad_password_then_retry_with_stale_cookie():
 
 def test_pages_render_for_admin():
     c, _ = login("admin")
-    for path in ["/dashboard", "/events", "/change_name", "/history", "/archives", "/chat",
+    for path in ["/dashboard", "/events", "/games/sabong/live?pick=1", "/history", "/archives", "/chat",
                  "/wallet", "/admin/variables", "/agents", "/betlogs", "/cancelT", "/cashflow"]:
         assert c.get(path, follow_redirects=True).status_code == 200, path
 
@@ -97,5 +97,5 @@ def test_declarator_is_restricted():
     assert r.status_code == 303
     for path in ["/dashboard", "/betlogs", "/cashflow", "/chat", "/archives"]:
         assert c.get(path).status_code == 403, path
-    assert c.get("/change_name").status_code == 200
+    assert c.get("/games/sabong/live?pick=1").status_code == 200
     assert c.get("/history", follow_redirects=True).status_code == 200

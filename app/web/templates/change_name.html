@@ -3,22 +3,30 @@
 {% import "_lobby.html" as lobby %}
 {% import "_player.html" as pl %}
 {% import "_betpanel.html" as bpl %}
-{% block title %}Fight View · {{ brand }}{% endblock %}
-{% block heading %}Fight View{% if event %} — {{ event.title }}{% endif %}{% endblock %}
+{% block title %}{% if event %}{{ event.title }}{% else %}Sabong{% endif %} · {{ brand }}{% endblock %}
+{% block heading %}{% if event %}{{ event.title }}{% if event.location %} <small class="muted">· {{ event.location.name }}</small>{% endif %}{% else %}Sabong{% endif %}{% endblock %}
 {% block head %}{{ css('store') }}{% endblock %}
 {% block actions %}
-{% if event %}<a class="btn btn-sm" href="/events/{{ event.id }}">Betting sheet</a>{% endif %}
+{% if event %}<a class="btn btn-sm btn-ghost" href="/games/sabong/live?pick=1">All events</a>{% include "_event_actions.html" %}{% endif %}
 {% endblock %}
 {% block content %}
 
 {% if not event %}
 {% if events %}
 <p class="muted small" style="margin:0 0 12px">Choose an event to open its fights.</p>
-{{ lobby.event_cards(events, stats, '/change_name?event_id=') }}
+{{ lobby.event_cards(events, stats, '/events/') }}
 {% else %}
-<div class="card"><div class="card-body">{{ ui.empty('Create an event first, then its games appear here.', kind='arena', title='No events yet', href='/games/sabong/schedule', cta='Go to events') }}</div></div>
+<div class="card"><div class="card-body">{{ ui.empty('Create an event first, then its fights appear here.', kind='arena', title='No events yet', href='/games/sabong/live?pick=1', cta='Go to events') }}</div></div>
 {% endif %}
 {% else %}
+{% include "_event_head.html" %}
+<nav class="subtabs event-nav" id="top" aria-label="On this page">
+  <a class="subtab is-active" href="#top">Fight</a>
+  {% if can_sell %}<a class="subtab" href="#sell">Sell tickets</a>{% endif %}
+  <a class="subtab" href="#pools">All fights</a>
+  {% if summary %}<a class="subtab" href="#summary">Summary</a>{% endif %}
+  {% if 'events.manage' in perms and event.status.value != 'canceled' %}<a class="subtab" href="#manage">Manage event</a>{% endif %}
+</nav>
 
 {% if pending and 'fights.approve' in perms %}
 <div class="card">
@@ -94,7 +102,7 @@
           <button type="button" class="pbs-hide" data-pbs-hide aria-label="Hide payout" title="Hide payout"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button>
 
           <div class="pbs-pane pbs-open" data-pbs-pane="open"{% if ph == 'onair' %} data-closed{% endif %}>
-            <div class="pbs-kicker"><i></i><span data-pb="kick">{{ 'Betting closed' if ph == 'onair' else 'Betting open' }}</span><span class="pbs-dot">&middot;</span>Fight #<span data-pb="gn">{{ fight.number }}</span></div>
+            <div class="pbs-kicker"><i></i><span data-pb="kick">{{ 'Betting closed' if ph == 'onair' else 'Betting open' }}</span><span class="pbs-dot">&middot;</span>Fight #<span data-pb="gn">{{ fight.number }}</span><span class="cd-chip" data-ac hidden></span></div>
             <div class="pbs-duel">
               <div class="pbs-side meron{% if multipliers and multipliers.meron.capped %} is-max{% endif %}" data-pb-side="meron">
                 <div class="pbs-tag"><span>MERON</span><em data-pb="tm">{{ role_of(fight, 'meron') or '' }}</em></div>
@@ -440,6 +448,7 @@
   <div class="form-actions"><button class="btn btn-danger" type="submit">Cancel &amp; refund</button></div>
 </form>
 {% endcall %}
+{% if event %}{% include "_event_manage.html" %}{% endif %}
 {% if fight %}{% if is_dev and not viewing_as %}
 <div class="card" style="border-color:rgba(255,59,92,.45)">
   <div class="card-head"><h2>Delete this fight</h2>{{ ui.badge('DEV only', 'red') }}</div>

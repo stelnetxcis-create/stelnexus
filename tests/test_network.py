@@ -189,7 +189,7 @@ def test_permissions_master_is_admin_minus_admin_panel(monkeypatch):
                   Perm.CHAT_USE,
                   # account tools, IP bans
                   Perm.ACCOUNTS_VIEW, Perm.ACCOUNTS_EDIT, Perm.ACCOUNTS_REMOVE, Perm.IPBANS_MANAGE,
-                  # the Streams admin page (video sources): Admin only, Pawns by grant
+                  # the Stream desk (video sources): Admin and Declarator, Pawns by grant; never Master or below
                   Perm.STREAMS_VIEW, Perm.STREAMS_MANAGE,
                   Perm.CANCEL_LOG,
                   # the King and Bishops' own rights: appoint Bishops, the King desk, answering requests for rights
@@ -247,7 +247,7 @@ def test_web_master_sees_ops_not_hidden_pages(chain):
     w.master.must_change_password = False
     w.db.flush(); w.db.commit()
     c = _login(w.master.username)
-    for path in ["/dashboard", "/agents", "/referrals", "/commissions", "/change_name", "/wallet",
+    for path in ["/dashboard", "/agents", "/referrals", "/commissions", "/games/sabong/live?pick=1", "/wallet",
                  "/wallet?t=approvals", "/events"]:
         assert c.get(path, follow_redirects=True).status_code == 200, path
     # house money (cashflow, report archives) is dev-only now

@@ -241,7 +241,8 @@ def test_bad_dates_fall_back_to_today_and_ranges_are_capped(net):
 def test_sidebar_links_resolve(net):
     """The nav entries for these two pages shipped before the pages did; keep them honest."""
     a, _ = login("admin")
-    html = a.get("/dashboard").text
+    dashboard = a.get("/dashboard").text
+    assert 'href="/records?tab=commissions"' in dashboard                    # the account menu
+    assert 'href="/bola/cancelled"' in a.get("/bola").text                   # the number game's own page (was a dashboard menu)
     for href in ("/bola/cancelled", "/records?tab=commissions"):
-        assert f'href="{href}"' in html
         assert a.get(href, follow_redirects=True).status_code == 200

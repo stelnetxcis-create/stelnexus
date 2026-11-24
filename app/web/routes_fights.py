@@ -13,7 +13,10 @@ from app.db.models import EventStatus, PayoutModel, Result
 from app.services import accounts, betting, events, locations, proofs, reports, settlement, streams
 from app.services import players as player_service
 from app.services import store as store_svc
-from app.web.deps import Ctx, form_data, flash_redirect, render, require_ctx
+from urllib.parse import urlencode
+
+from app.web.conditional import wants_fragment
+from app.web.deps import Ctx, event_url, flash_redirect, form_data, render, require_ctx
 from app.web.paging import paginate
 
 router = APIRouter()
@@ -43,7 +46,7 @@ async def events_page(request: Request, ctx: Ctx = Depends(require_ctx)):
     """Moved: Games > Sabong > Schedule (Games Standard 4.8). Kept as a redirect so old links work."""
     ctx.need(Perm.EVENTS_VIEW)
     query = request.url.query
-    return RedirectResponse("/games/sabong/schedule" + (f"?{query}" if query else ""), status_code=303)
+    return RedirectResponse("/games/sabong/live?pick=1" + (f"&{query}" if query else ""), status_code=303)
 
 
 @router.post("/events/create")
@@ -74,7 +77,7 @@ async def location_quick(request: Request, ctx: Ctx = Depends(require_ctx)):
     data = await form_data(request)
     row = locations.create_location(ctx.db, ctx.user, name=data.get("name", ""),
                                     address=data.get("address"), city=data.get("city"))
-    return flash_redirect("/games/sabong/schedule?create=1", f"Location '{row.name}' registered. Pick it for the new event.")
+    return flash_redirect("/games/sabong/live?pick=1&create=1", f"Location '{row.name}' registered. Pick it for the new event.")
 
 
 @router.post("/events/{event_id}/stream")
@@ -86,7 +89,7 @@ async def event_stream(event_id: int, request: Request, ctx: Ctx = Depends(requi
     live = data.get("action") == "start"
     fid = data.get("fight_id", "")
     fight = events.set_stream_live(ctx.db, ctx.user, event_id, live, int(fid) if str(fid).isdigit() else None)
-    back = f"/change_name?event_id={event_id}&fight_id={fight.id}"
+    back = event_url(event_id, fight.id)
     return flash_redirect(back, (f"Fight #{fight.number} is on air: betting and chat are closed until it is declared. "
                                  "The next game opens after that." if live
                                  else f"Fight #{fight.number} is back to pre-show: betting and chat are open."))
@@ -105,50 +108,79 @@ async def events_status(event_id: int, request: Request, ctx: Ctx = Depends(requ
     return flash_redirect(f"/events/{event_id}", "Event status updated.", undo=undo)
 
 
+@router.get("/events/create")
+async def events_create_page(ctx: Ctx = Depends(require_ctx)):
+    """Old link: creating an event is the Create drawer on Games > Sabong > Schedule."""
+    ctx.need(Perm.EVENTS_CREATE)
+    return RedirectResponse("/games/sabong/live?pick=1&create=1", status_code=303)
+
+
 @router.get("/events/{event_id}")
-async def event_detail(event_id: int, ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.EVENTS_VIEW)
-    event = events.get_event(ctx.db, event_id)
-    fights = events.fights_of(ctx.db, event_id)
-    pools = {fight.id: betting.pool_snapshot(ctx.db, fight) for fight in fights}
-    from app.services import players as player_service
-    hide = hides_totals(ctx.user)
-    my_players = [] if hide else player_service.list_players(ctx.db, ctx.user, limit=300)
-    show_money = ctx.can(Perm.CASHFLOW_VIEW) and not hide
-    return render(ctx, "event_detail.html", active="events", event=event, fights=fights,
-                  pools=pools, my_players=my_players, hide_totals=hide,
-                  house_cut=events.house_cut_for(ctx.db, event, ctx.store),
-                  expenses=events.list_expenses(ctx.db, event.id) if show_money else [],
-                  summary=reports.event_summary(ctx.db, event.id) if show_money else None,
-                  role_of=events.role_of)
+async def event_page(event_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
+    """The one page of a Sabong event, the way /bola/draws/{id} is for a draw: watch and bet on the fight, declare it,
+    sell tickets, and (by right) open / close / cancel the event, all here. ?fight_id= picks the fight."""
+    ctx.need(Perm.FIGHTS_VIEW)
+    return await _render_event(request, ctx, event_id)
+
+
+async def sabong_live(request: Request, ctx: Ctx):
+    """Games > Sabong > Live. Straight into the event when exactly one is open; otherwise the event cards."""
+    ctx.need(Perm.FIGHTS_VIEW)
+    q = request.query_params
+    legacy = _int(q.get("event_id") or q.get("id"))
+    if legacy:                                                # an old /change_name?event_id=... link
+        return _legacy_event_redirect(request, legacy)
+    listed = events.list_events(ctx.db, limit=50)
+    if not q.get("pick"):
+        open_now = [e for e in listed if e.status == EventStatus.OPEN]
+        if len(open_now) == 1:
+            return RedirectResponse(event_url(open_now[0].id), status_code=303)
+    # No single open event to jump into: show the game's page. It is the same page managers use to create and filter
+    # events (Today / Upcoming / Past / All, "Create event"), so playing and managing Sabong are one place.
+    from app import games
+    from app.games.base import SCHEDULE_FILTERS
+    adapter = games.get("sabong")
+    when = q.get("when")
+    when = when if when in SCHEDULE_FILTERS else adapter.schedule_default
+    extra = adapter.schedule_context(ctx, when)
+    return render(ctx, "games_schedule.html", active="events", game=adapter, when=when, filters=SCHEDULE_FILTERS,
+                  rows=[], spec=adapter.create_spec(ctx), **extra)
+
+
+def _legacy_event_redirect(request: Request, event_id: int) -> RedirectResponse:
+    rest = {k: v for k, v in request.query_params.items() if k not in ("event_id", "id")}
+    return RedirectResponse(f"/events/{event_id}" + (f"?{urlencode(rest)}" if rest else ""), status_code=303)
 
 
 @router.get("/change_name")
 async def change_name(request: Request, ctx: Ctx = Depends(require_ctx)):
-    """Fight view: entry names, declare, recompute, redeclare (was change_name.php)."""
+    """Old URL of the Fight View. Kept so bookmarks, printed links and old notifications still land."""
     ctx.need(Perm.FIGHTS_VIEW)
+    event_id = _int(request.query_params.get("event_id") or request.query_params.get("id"))
+    if event_id:
+        return _legacy_event_redirect(request, event_id)
+    return RedirectResponse("/games/sabong/live?pick=1", status_code=303)
+
+
+async def _render_event(request: Request, ctx: Ctx, event_id: int):
     params = request.query_params
-    event_id = _int(params.get("event_id") or params.get("id"))
     fight_id = _int(params.get("fight_id"))
     number = _int(params.get("gs") or params.get("fight"))
-
-    if not event_id:
-        open_events = events.list_events(ctx.db, limit=50)
-        return render(ctx, "change_name.html", active="change_name", event=None, fight=None,
-                      events=open_events, fights=[], stats=events.lobby_stats(ctx.db, [e.id for e in open_events]),
-                      pending=settlement.pending_runs(ctx.db) if ctx.user.is_top else [])
-
+    frag = wants_fragment(request)
     event = events.get_event(ctx.db, event_id)
     fights = events.fights_of(ctx.db, event_id)
+    # The event regions (head / body) never show a fight, so refreshing them skips every fight-level query.
+    only_event = frag in ("event-head", "event-body")
     fight = None
-    if fight_id:
-        fight = events.get_fight(ctx.db, fight_id)
-        if fight.event_id != event.id:
-            raise ValidationError("That fight does not belong to this event.")
-    elif number:
-        fight = events.get_fight_by_number(ctx.db, event.id, number)
-    elif fights:
-        fight = fights[0]
+    if not only_event:
+        if fight_id:
+            fight = events.get_fight(ctx.db, fight_id)
+            if fight.event_id != event.id:
+                raise ValidationError("That fight does not belong to this event.")
+        elif number:
+            fight = events.get_fight_by_number(ctx.db, event.id, number)
+        elif fights:
+            fight = events.current_fight(ctx.db, event.id) or fights[0]      # open on what is happening now
 
     plan = None
     snapshot = None
@@ -186,11 +218,20 @@ async def change_name(request: Request, ctx: Ctx = Depends(require_ctx)):
             "can_undo": ctx.can(Perm.BETS_CANCEL),
             "undo_window": int(ctx.store.get("fight.cancel_window_seconds") or 0),
         }
-    return render(ctx, "change_name.html", active="change_name", event=event, fight=fight, bet_panel=bet_panel,
+    # The event-level half (what the betting sheet was): every fight's pool in ONE grouped query; the heavier parts
+    # (player picker, expenses, summary) are skipped when only the fight panel is being refreshed.
+    from app.services import players as player_service
+    with_event_body = frag != "fight-panel"
+    show_money = ctx.can(Perm.CASHFLOW_VIEW) and not hide
+    my_players = player_service.list_players(ctx.db, ctx.user, limit=300) if (with_event_body and not hide) else []
+    # selling a ticket needs someone to sell it to: a form with an empty player list could never be submitted
+    can_sell = (ctx.can(Perm.BETS_PLACE) and not hide and event.status != EventStatus.CANCELED
+                and bool(my_players) and with_event_body)
+    return render(ctx, "change_name.html", active="events", event=event, fight=fight, bet_panel=bet_panel,
                   fights=fights, events=[], snapshot=snapshot, runs=runs, tickets=tickets,
                   tickets_pager=tickets_pager, preview=plan, figures=figures, multipliers=multipliers, hide_totals=hide,
                   can_house=sees_house(ctx.user) and not hide,
-                  house_cut_bps=events.house_cut_for(ctx.db, event, ctx.store),
+                  house_cut_bps=events.house_cut_for(ctx.db, event, ctx.store), house_cut=events.house_cut_for(ctx.db, event, ctx.store),
                   platform_cut_bps=events.platform_cut_for(ctx.store), figs=figs,
                   role_of=events.role_of, proof_required=proofs.required_for(ctx.user, ctx.store),
                   fv_phase=events.stream_phase_of(ctx.db, fight) if fight is not None else None,
@@ -199,7 +240,11 @@ async def change_name(request: Request, ctx: Ctx = Depends(require_ctx)):
                   chat_tokens=store_svc.tokens_for_fight(ctx.db, ctx.user, fight) if fight is not None else 0,
                   stream_pass=store_svc.has_stream_perks(ctx.db, ctx.user) if fight is not None else False,
                   stream_payload=streams.payload(ctx.db, event_id=event.id, fight_id=fight.id) if fight is not None else None,
-                  pending=settlement.pending_runs(ctx.db) if ctx.user.is_top else [])
+                  pending=settlement.pending_runs(ctx.db) if ctx.user.is_top else [],
+                  pools=betting.pool_snapshots(ctx.db, [f.id for f in fights]), my_players=my_players, can_sell=can_sell,
+                  active_fight_id=fight.id if fight is not None else 0,
+                  expenses=events.list_expenses(ctx.db, event.id) if (show_money and with_event_body) else [],
+                  summary=reports.event_summary(ctx.db, event.id) if (show_money and with_event_body) else None)
 
 
 @router.post("/change_name/rename")
@@ -208,7 +253,7 @@ async def rename(request: Request, ctx: Ctx = Depends(require_ctx)):
     data = await form_data(request)
     fight = events.rename_entries(ctx.db, ctx.user, _int(data.get("fight_id")),
                                   meron=data.get("meron", ""), wala=data.get("wala", ""))
-    return flash_redirect(f"/change_name?event_id={fight.event_id}&fight_id={fight.id}", "Entry names updated.")
+    return flash_redirect(event_url(fight.event_id, fight.id), "Entry names updated.")
 
 
 @router.post("/fights/{fight_id}/lock")
@@ -217,7 +262,7 @@ async def lock(fight_id: int, request: Request, ctx: Ctx = Depends(require_ctx))
     data = await form_data(request)
     locking = data.get("locked", "1") == "1"
     fight = events.lock_fight(ctx.db, ctx.user, fight_id, locked=locking)
-    return flash_redirect(f"/change_name?event_id={fight.event_id}&fight_id={fight.id}",
+    return flash_redirect(event_url(fight.event_id, fight.id),
                           "Betting closed for this fight." if locking else "Betting re-opened.",
                           undo={"action": f"/fights/{fight.id}/lock", "fields": {"locked": "0" if locking else "1"}})
 
@@ -228,7 +273,7 @@ async def odds(fight_id: int, request: Request, ctx: Ctx = Depends(require_ctx))
     data = await form_data(request)
     fight = events.set_fixed_odds(ctx.db, ctx.user, fight_id,
                                   meron_bps=_int(data.get("meron_bps")), wala_bps=_int(data.get("wala_bps")))
-    return flash_redirect(f"/change_name?event_id={fight.event_id}&fight_id={fight.id}", "Odds updated.")
+    return flash_redirect(event_url(fight.event_id, fight.id), "Odds updated.")
 
 
 @router.post("/fights/{fight_id}/betmode")
@@ -238,7 +283,7 @@ async def betmode(fight_id: int, request: Request, ctx: Ctx = Depends(require_ct
     previous_mode = events.get_fight(ctx.db, fight_id).bet_mode
     fight = events.set_bet_mode(ctx.db, ctx.user, fight_id, data.get("mode", "all"))
     text = {"all": "All sides open.", "meron": "Only MERON is open.", "wala": "Only WALA is open."}[fight.bet_mode]
-    return flash_redirect(f"/change_name?event_id={fight.event_id}&fight_id={fight.id}", text,
+    return flash_redirect(event_url(fight.event_id, fight.id), text,
                           undo={"action": f"/fights/{fight.id}/betmode", "fields": {"mode": previous_mode}})
 
 
@@ -248,7 +293,7 @@ async def llamado(fight_id: int, request: Request, ctx: Ctx = Depends(require_ct
     data = await form_data(request)
     previous_side = events.get_fight(ctx.db, fight_id).llamado_side or ""
     fight = events.set_llamado(ctx.db, ctx.user, fight_id, data.get("side"))
-    return flash_redirect(f"/change_name?event_id={fight.event_id}&fight_id={fight.id}",
+    return flash_redirect(event_url(fight.event_id, fight.id),
                           f"Llamado set to {fight.llamado_side.upper()}." if fight.llamado_side
                           else "Llamado cleared.",
                           undo={"action": f"/fights/{fight.id}/llamado", "fields": {"side": previous_side}})
@@ -293,7 +338,7 @@ async def declare(fight_id: int, request: Request, ctx: Ctx = Depends(require_ct
                              reason=data.get("reason"))
     if proof is not None:
         proofs.attach(ctx.db, ctx.user, fight, proof)
-    where = f"/change_name?event_id={fight.event_id}&fight_id={fight_id}"
+    where = event_url(fight.event_id, fight_id)
     if (run.totals or {}).get("auto_cancel"):
         floor = int(ctx.store.get("payout.min_odds_bps")) / 10000
         return flash_redirect(where, f"Fight {fight.number}: the winning side would pay below {floor:.2f}x even "
@@ -330,7 +375,7 @@ async def proof_attach(fight_id: int, request: Request, ctx: Ctx = Depends(requi
         raise ValidationError("Choose a picture to upload.")
     fight = events.get_fight(ctx.db, fight_id)
     proofs.attach(ctx.db, ctx.user, fight, proof)
-    return flash_redirect(f"/change_name?event_id={fight.event_id}&fight_id={fight.id}", "Result picture saved.")
+    return flash_redirect(event_url(fight.event_id, fight.id), "Result picture saved.")
 
 
 @router.post("/fights/{fight_id}/correct")
@@ -348,14 +393,14 @@ async def correct(fight_id: int, request: Request, ctx: Ctx = Depends(require_ct
         proofs.attach(ctx.db, ctx.user, fight, proof)
     message = ("Correction applied." if run.status.value == "applied"
                else "Correction queued — a second approver (Master or Admin) must approve it.")
-    return flash_redirect(f"/change_name?event_id={fight.event_id}&fight_id={fight_id}", message)
+    return flash_redirect(event_url(fight.event_id, fight_id), message)
 
 
 @router.post("/settlement/{run_id}/approve")
 async def approve_run(run_id: int, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.FIGHTS_APPROVE)
     run = settlement.approve(ctx.db, ctx.user, run_id=run_id, settings=ctx.store)
-    return flash_redirect(f"/change_name?event_id={run.fight.event_id}&fight_id={run.fight_id}",
+    return flash_redirect(event_url(run.fight.event_id, run.fight_id),
                           "Correction approved and applied.")
 
 
@@ -364,5 +409,5 @@ async def reject_run(run_id: int, request: Request, ctx: Ctx = Depends(require_c
     ctx.need(Perm.FIGHTS_APPROVE)
     data = await form_data(request)
     run = settlement.reject(ctx.db, ctx.user, run_id=run_id, note=data.get("note", "no reason given"))
-    return flash_redirect(f"/change_name?event_id={run.fight.event_id}&fight_id={run.fight_id}",
+    return flash_redirect(event_url(run.fight.event_id, run.fight_id),
                           "Correction rejected.")
