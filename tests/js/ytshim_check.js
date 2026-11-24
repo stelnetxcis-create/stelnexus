@@ -48,3 +48,14 @@ sent.length = 0; s.volume = 0.5; s.muted = true;
 assert(sent.map((x) => x.func).join() === 'setVolume,mute' && sent[0].args[0] === 50, 'volume + mute commands');
 // handshake
 assert(true, 'handshake is sent by the interval: ' + JSON.stringify({ event: 'listening', id: 'snx', channel: 'widget' }));
+
+// YouTube's own live-edge numbers win, a seek holds the reading, and a frozen clock is detected
+const y2 = ytShim(frame, hooks, true); msg({ event: 'onReady' });
+msg({ event: 'infoDelivery', info: { playerState: 1, currentTime: 5, duration: 3600, progressState: { current: 3590, duration: 3600, seekableStart: 10, seekableEnd: 3598, isAtLiveHead: false } } });
+assert(y2.currentTime === 3590 && y2.seekable.end(0) === 3598 && y2.seekable.start(0) === 10, 'progressState gives the real position and seekable window');
+assert(y2.atLiveHead === false, 'isAtLiveHead is read');
+sent.length = 0; y2.currentTime = 99999;
+assert(y2.currentTime === 3598 && sent[0].func === 'seekTo' && sent[0].args[0] === 3598, 'go live seeks to the seekable end, not the raw duration');
+msg({ event: 'infoDelivery', info: { playerState: 1, currentTime: 3590 } });
+assert(y2.currentTime === 3598, 'the old position is ignored for a moment after a seek');
+assert(y2.frozen === false, 'a clock that just moved is not frozen');

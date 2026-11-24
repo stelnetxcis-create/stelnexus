@@ -25,7 +25,8 @@
      Commands sent before the frame answers are queued. hooks: ready(), change(), error(code). */
   const YT_ORIGIN = /^https:\/\/(www\.)?youtube(-nocookie)?\.com$/;
   function ytShim(frame, hooks, startMuted) {
-    const st = { time: 0, dur: 0, state: -1, vol: 100, muted: startMuted !== false, ready: false };
+    const st = { time: 0, dur: 0, start: 0, end: 0, head: null, state: -1, vol: 100, muted: startMuted !== false, ready: false,
+                 hold: 0, moved: Date.now() };
     const queue = [];
     let hs = 0;
     const send = (obj) => { try { frame.contentWindow.postMessage(JSON.stringify(obj), '*'); } catch (e) { /* frame is gone */ } };
@@ -36,16 +37,25 @@
       let d = ev.data;
       if (typeof d === 'string') { try { d = JSON.parse(d); } catch (e) { return; } }
       if (!d || typeof d !== 'object' || !d.event) return;
+      window.snxYtLast = d;                          // last raw message: open the console and type snxYtLast to see what YouTube says
       if (!st.ready) { st.ready = true; clearInterval(hs); queue.splice(0).forEach(send); if (hooks.ready) hooks.ready(); }
       if (d.event === 'onStateChange') { st.state = Number(d.info); hooks.change(); }
       else if (d.event === 'onError') { if (hooks.error) hooks.error(Number(d.info)); }
       else if ((d.event === 'infoDelivery' || d.event === 'initialDelivery') && d.info && typeof d.info === 'object') {
-        const i = d.info;
-        if (typeof i.currentTime === 'number') st.time = i.currentTime;
+        const i = d.info, held = Date.now() < st.hold;      // right after a seek the old position is still being reported
+        if (!held && typeof i.currentTime === 'number') { if (Math.abs(i.currentTime - st.time) > 0.05) st.moved = Date.now(); st.time = i.currentTime; }
         if (typeof i.duration === 'number') st.dur = i.duration;
         if (typeof i.playerState === 'number') st.state = i.playerState;
         if (typeof i.volume === 'number') st.vol = i.volume;
         if (typeof i.muted === 'boolean') st.muted = i.muted;
+        const p = i.progressState;                          // YouTube's own live-edge numbers, when it sends them
+        if (p && typeof p === 'object') {
+          if (!held && typeof p.current === 'number') { if (Math.abs(p.current - st.time) > 0.05) st.moved = Date.now(); st.time = p.current; }
+          if (typeof p.duration === 'number' && p.duration > 0) st.dur = p.duration;
+          if (typeof p.seekableStart === 'number') st.start = p.seekableStart;
+          if (typeof p.seekableEnd === 'number' && p.seekableEnd > 0) st.end = p.seekableEnd;
+          if (typeof p.isAtLiveHead === 'boolean') st.head = p.isAtLiveHead;
+        }
         hooks.change();
       }
     }
@@ -56,13 +66,18 @@
       get ready() { return st.ready; },
       get paused() { return !(st.state === 1 || st.state === 3); },      // 1 playing, 3 buffering
       get ended() { return st.state === 0; },
+      isYt: true,
       get currentTime() { return st.time; },
+      get atLiveHead() { return st.head; },                                // true / false when YouTube says, otherwise null
+      get frozen() { return !(st.state === 1) ? false : Date.now() - st.moved > 4000; },   // playing but the clock never moves: its numbers cannot be trusted
       set currentTime(t) {                                                // no known window (live without rewind): never seek, or "go live" would jump to 0
-        if (!(st.dur > 0)) return;
-        st.time = Math.min(st.dur, Math.max(0, Number(t) || 0)); cmd('seekTo', [st.time, true]); hooks.change();
+        const end = st.end > 0 ? st.end : st.dur;
+        if (!(end > 0)) return;
+        st.time = Math.min(end, Math.max(st.start || 0, Number(t) || 0)); st.hold = Date.now() + 1500;
+        cmd('seekTo', [st.time, true]); hooks.change();
       },
       get duration() { return st.dur > 0 ? st.dur : NaN; },               // a live stream without a rewind window reports 0
-      get seekable() { const d = st.dur; return { length: d > 0 ? 1 : 0, start: () => 0, end: () => d }; },
+      get seekable() { const e = st.end > 0 ? st.end : st.dur; return { length: e > 0 ? 1 : 0, start: () => st.start || 0, end: () => e }; },
       get muted() { return st.muted; },
       set muted(v) { st.muted = !!v; cmd(v ? 'mute' : 'unMute'); hooks.change(); },
       get volume() { return st.vol / 100; },
@@ -87,7 +102,7 @@
     let playing = false, behind = 0, tick = 0;
     const mediaHost = $('[data-vp-media]'), msg = $('[data-vp-msg]'), mute = $('[data-vp-mute]');
     const vol = $('[data-vp-vol]'), snd = $('[data-vp-sound]');
-    let guardTimer = 0;                              // YouTube did not answer in time: fall back to its own controls
+    let guardTimer = 0, liveCheck = 0;                              // YouTube did not answer in time: fall back to its own controls
     // ---- real video state (media === null and embed === false means the sample feed)
     let media = null, embed = false, hls = null, cfg = null, isLive = true, rev = '', failures = 0, retryTimer = 0, mediaFixes = 0;
     const LIVE_SLACK = 12;                           // a real HLS edge is a few seconds behind the encoder: that still counts as LIVE
@@ -95,7 +110,7 @@
     const edge = () => { const r = media.seekable; return r && r.length ? r.end(r.length - 1) : (isFinite(media.duration) ? media.duration : 0); };
     const floorT = () => { const r = media.seekable; return r && r.length ? Math.max(r.start(0), edge() - DVR()) : 0; };
     const win = () => (media ? (isLive ? DVR() : (media.duration || 0)) : WINDOW);
-    const lag = () => (media ? (isLive ? Math.max(0, Math.round(edge() - media.currentTime)) : 0) : behind);
+    const lag = () => (media ? (isLive ? (media.isYt && (media.atLiveHead === true || media.frozen) ? 0 : Math.max(0, Math.round(edge() - media.currentTime))) : 0) : behind);
     const isPlaying = () => (media ? !media.paused && !media.ended : playing);
     const showMsg = (t) => { if (msg) { msg.hidden = !t; msg.textContent = t || ''; } };
 
@@ -143,9 +158,22 @@
       if (snd) snd.hidden = !(media && media.muted && on && !ended);   // autoplay starts muted: one tap gives the sound (a tap is the gesture browsers want)
     }
 
+    // YouTube: seek to the live edge, then check it really got there. Its live positions are quirky and a seek can be
+    // ignored; if we are still behind after a moment, reload the frame (a live video always starts at the live head).
+    function ytGoLive() {
+      clearTimeout(liveCheck);
+      const m = media, c = cfg;
+      m.currentTime = edge(); m.play(); paint();
+      liveCheck = setTimeout(() => { if (media === m && isLive && c && lag() > LIVE_SLACK) reloadYt(c); }, 2800);
+    }
+    function reloadYt(c) {
+      unmount(); cfg = c; root.classList.add('has-media');
+      mountYouTube(c);
+    }
     function goLive() {
       if (!media) { behind = 0; return; }
       if (!isLive) return;
+      if (media.isYt) { ytGoLive(); return; }
       const t = hls && hls.liveSyncPosition ? hls.liveSyncPosition : edge();
       media.currentTime = Math.max(floorT(), t - 1);
     }
@@ -233,7 +261,7 @@
       document.head.appendChild(el);
     }
     function unmount() {
-      clearTimeout(retryTimer); clearTimeout(guardTimer);
+      clearTimeout(retryTimer); clearTimeout(guardTimer); clearTimeout(liveCheck);
       if (hls) { try { hls.destroy(); } catch (e) { /* ignore */ } hls = null; }
       if (media) { try { media.pause(); media.removeAttribute('src'); media.load(); } catch (e) { /* ignore */ } if (media.destroy) media.destroy(); }
       if (mediaHost) mediaHost.replaceChildren();
