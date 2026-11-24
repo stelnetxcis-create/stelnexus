@@ -145,7 +145,7 @@ def _on_air(db: Session, ctx: Ctx) -> dict:
                          "at": _bola.local(draw.scheduled_at).strftime("%H:%M"),
                          "iso": draw.scheduled_at.isoformat(),
                          "cutoff_iso": draw.cutoff_at.isoformat(),
-                         "bettable": _bola.bettable(draw)}
+                         "bettable": _bola.bettable(draw, settings=ctx.store)}
         for draw in db.scalars(select(BolaDraw).where(BolaDraw.status == DrawStatus.SETTLED)
                                .order_by(BolaDraw.declared_at.desc().nulls_last(), BolaDraw.id.desc())
                                .limit(3)).all():

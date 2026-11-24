@@ -4,7 +4,7 @@
 {% block heading %}Admin Panel{% endblock %}
 {% block content %}
 {% include "_panel_nav.html" %}
-<p class="notice">Daily draw times per area (the old <em>Mga Oras ng Bola</em>). Times are <strong>Manila local time</strong>; betting closes {{ cutoff_minutes }} minutes before each draw. A slot set to <strong>00:00</strong> or marked inactive means "no draw" and is skipped by Generate. Changing a time here does not move draws that already exist.</p>
+<p class="notice">Daily draw times per area (the old <em>Mga Oras ng Bola</em>). Times are <strong>Manila local time</strong>; betting closes {{ cutoff_minutes }} minutes before each draw. A slot marked inactive{% if not midnight_ok %}, or set to <strong>00:00</strong>,{% endif %} means "no draw" and is skipped by Generate. Tick <strong>Also move upcoming draws</strong> when saving to apply a new time to draws that were already generated (draws that are closed, settled or void never move).{% if not midnight_ok %} For a real midnight draw, turn on <span class="mono">bola.allow_midnight_draw</span> in Variables.{% endif %}</p>
 {% if not enabled %}<div class="alert alert-warning">The number game is switched off (<span class="mono">bola.enabled</span>). Schedules can be prepared now; draws only take bets once it is on.</div>{% endif %}
 
 <div class="card">
@@ -19,6 +19,7 @@
         <select name="slot">{% for i in range(1, 7) %}<option value="{{ i }}">{{ i }}</option>{% endfor %}</select></label>
       {{ ui.field('Draw time (Manila)', 'draw_time', 'time', '', true) }}
       <label class="switch"><input type="checkbox" name="is_active" value="1" checked><span>Active</span></label>
+      <label class="switch"><input type="checkbox" name="apply_existing" value="1" checked><span>Also move upcoming draws</span></label>
       <button class="btn btn-brand" type="submit">Save draw time</button>
     </form>
     <p class="small muted">Saving the same area + slot again updates that slot.</p>
@@ -41,6 +42,7 @@
             <input type="hidden" name="slot" value="{{ s.slot }}">
             <input type="time" name="draw_time" value="{{ s.draw_time.strftime('%H:%M') }}" required aria-label="Draw time">
             <label class="switch small"><input type="checkbox" name="is_active" value="1" {{ 'checked' if s.is_active }}><span>Active</span></label>
+            <label class="switch small"><input type="checkbox" name="apply_existing" value="1" checked><span>Move upcoming</span></label>
             <button class="btn btn-sm" type="submit">Save</button>
           </form>
         </td>
@@ -58,6 +60,17 @@
 {% endfor %}
 
 <div class="card">
+  <div class="card-head"><h2>Cut-off</h2></div>
+  <div class="card-body">
+    <form method="post" action="/admin/bola/schedules/resync" class="inline-form">
+      {{ ui.csrf(csrf_token) }}
+      <button class="btn" type="submit">Re-apply the {{ cutoff_minutes }}-minute cut-off to upcoming draws</button>
+    </form>
+    <p class="small muted">A draw keeps the cut-off it was created with. After changing <span class="mono">bola.cutoff_minutes</span>, press this so draws that already exist follow the new value.</p>
+  </div>
+</div>
+
+<div class="card">
   <div class="card-head"><h2>Generate draws</h2></div>
   <div class="card-body">
     <form method="post" action="/bola/draws/generate" class="inline-form">
@@ -65,7 +78,7 @@
       {{ ui.field('Days ahead', 'days', 'number', '1', false, attrs='min=1 max=31') }}
       <button class="btn btn-brand" type="submit">Generate from schedules</button>
     </form>
-    <p class="small muted">One draw per active slot per day, starting today (Manila). Running it twice is harmless: existing draws are skipped. On the server, cron runs <span class="mono">bola-generate --days 2</span> nightly and <span class="mono">bola-tick</span> every minute.</p>
+    <p class="small muted">One draw per active slot per day, starting today (Manila). Slots whose time has already passed today are skipped. Running it twice is harmless: existing draws are skipped. On the server, cron runs <span class="mono">bola-generate --days 2</span> nightly and <span class="mono">bola-tick</span> every minute.</p>
   </div>
 </div>
 {% endblock %}

@@ -40,6 +40,10 @@
       <button type="button" class="vp-btn vp-mute" data-vp-mute aria-label="Sound" aria-pressed="false" title="Sound">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10v4h4l5 4V6L7 10z" fill="currentColor"/><path data-vp-wave d="M15.5 9a4 4 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
       <input type="range" class="vp-vol" data-vp-vol min="0" max="100" step="5" value="100" aria-label="Volume">
+      <div class="vp-q" data-vp-q hidden>
+        <button type="button" class="vp-btn vp-qbtn" data-vp-qbtn aria-haspopup="true" aria-expanded="false" title="Quality"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zM19.4 13l1.6 1.2-1.6 2.8-1.9-.6a7 7 0 0 1-1.6.9L15.5 19h-3.2l-.4-1.7a7 7 0 0 1-1.6-.9l-1.9.6-1.6-2.8L8.4 13a7 7 0 0 1 0-1.9L6.8 9.8l1.6-2.8 1.9.6a7 7 0 0 1 1.6-.9L12.3 5h3.2l.4 1.7a7 7 0 0 1 1.6.9l1.9-.6 1.6 2.8-1.6 1.3a7 7 0 0 1 0 1.9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" transform="translate(-2 0)"/></svg><span data-vp-qlabel>Auto</span></button>
+        <ul class="vp-qmenu" data-vp-qmenu role="menu" aria-label="Quality" hidden></ul>
+      </div>
       <span class="vp-spacer"></span>
       <button type="button" class="vp-btn vp-orient" data-vp-orient aria-label="Full screen, landscape" aria-pressed="false" title="Full screen, landscape (phones)">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="7" width="13" height="10" rx="1.6" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19 8.5v7M19 8.5l-1.6 1.6M19 8.5l1.6 1.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>

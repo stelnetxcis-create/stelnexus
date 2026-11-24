@@ -385,15 +385,36 @@ def create_draw(db: Session, actor: User, *, location_id: int, draw_date: dt.dat
     return draw
 
 
+def _open_lead(settings: SettingsStore) -> dt.timedelta:
+    return dt.timedelta(hours=int(settings.get("bola.open_hours_before")))
+
+
+def _is_draw_slot(row: BolaSchedule, settings: SettingsStore) -> bool:
+    """An active slot generates draws. 00:00 still means "no draw" (the old panel's rule, so schedules
+    saved that way keep working) unless ``bola.allow_midnight_draw`` is on."""
+    if not row.is_active:
+        return False
+    return row.draw_time != dt.time(0, 0) or bool(settings.get("bola.allow_midnight_draw"))
+
+
 def generate_draws(db: Session, actor: User | None, *, settings: SettingsStore,
-                   date: dt.date | None = None, days: int = 1) -> dict:
-    """One draw per active schedule row per day. Skips 00:00 rows (legacy "no draw") and
-    anything that already exists, so running it twice is harmless."""
+                   date: dt.date | None = None, days: int = 1,
+                   skip_past: bool | None = None) -> dict:
+    """One draw per active schedule row per day. Skips "no draw" rows and anything that already
+    exists, so running it twice is harmless.
+
+    ``skip_past``: do not create a draw whose draw time has already gone by (generating at 3 pm must not
+    drop an 11:00 draw into today's list just to be locked and left waiting for a result). Defaults to
+    on when starting from "today" and off when the caller names a date (back-filling on purpose).
+    """
     start = date or utcnow().astimezone(MANILA).date()
+    if skip_past is None:
+        skip_past = date is None
     days = max(1, min(int(days), 31))
+    now = utcnow()
     created: list[BolaDraw] = []
-    skipped = 0
-    rows = [s for s in schedules(db) if s.is_active and s.draw_time != dt.time(0, 0)]
+    skipped = skipped_past = 0
+    rows = [s for s in schedules(db) if _is_draw_slot(s, settings)]
     for offset in range(days):
         day = start + dt.timedelta(days=offset)
         for row in rows:
@@ -404,6 +425,9 @@ def generate_draws(db: Session, actor: User | None, *, settings: SettingsStore,
                 skipped += 1
                 continue
             instant = local_instant(day, row.draw_time)
+            if skip_past and instant <= now:
+                skipped_past += 1
+                continue
             draw = BolaDraw(
                 location_id=row.location_id, draw_date=day, slot=row.slot, scheduled_at=instant,
                 cutoff_at=cutoff_for(instant, settings), status=DrawStatus.SCHEDULED,
@@ -414,8 +438,84 @@ def generate_draws(db: Session, actor: User | None, *, settings: SettingsStore,
             created.append(draw)
     if created:
         audit.record(db, actor, "bola.draw.generate", entity_type="bola_draw",
-                     after={"from": start, "days": days, "created": len(created), "skipped": skipped})
-    return {"created": created, "skipped": skipped}
+                     after={"from": start, "days": days, "created": len(created), "skipped": skipped,
+                            "skipped_past": skipped_past})
+    return {"created": created, "skipped": skipped, "skipped_past": skipped_past}
+
+
+def reschedule_draw(db: Session, actor: User, draw_id: int, *, draw_time: str | dt.time,
+                    settings: SettingsStore, reason: str | None = None) -> BolaDraw:
+    """Move ONE existing draw to another time on its own date (Manila wall time).
+
+    The cut-off is recomputed from the current ``bola.cutoff_minutes``. Settled and void draws are
+    history and never move. Tickets already sold stay valid: only the clock changes. A draw that had
+    already locked because its old cut-off passed stays locked; a Master re-opens it by hand.
+    """
+    draw = _lock_draw(db, draw_id)
+    if draw.status in (DrawStatus.SETTLED, DrawStatus.VOID):
+        raise LockedState(f"This draw is {draw.status}; its time can no longer change.")
+    wall = draw_time if isinstance(draw_time, dt.time) else parse_time(draw_time)
+    instant = local_instant(draw.draw_date, wall)
+    now = utcnow()
+    if instant <= now:
+        raise ValidationError("The new draw time must still be in the future.")
+    before = {"scheduled_at": draw.scheduled_at, "cutoff_at": draw.cutoff_at, "status": str(draw.status)}
+    draw.scheduled_at = instant
+    draw.cutoff_at = cutoff_for(instant, settings)
+    db.flush()
+    audit.record(db, actor, "bola.draw.reschedule", entity_type="bola_draw", entity_id=draw.id,
+                 before=before, after={"scheduled_at": draw.scheduled_at, "cutoff_at": draw.cutoff_at,
+                                       "status": str(draw.status)},
+                 reason=(reason or "").strip()[:255] or None)
+    return draw
+
+
+def apply_schedule_to_upcoming(db: Session, actor: User, row: BolaSchedule,
+                               settings: SettingsStore) -> int:
+    """After a schedule time changed: move the already-generated, not-yet-closed draws of that area and
+    slot to the new time (generate runs 2 days ahead, so without this a change takes 2 days to show up).
+    Returns how many draws moved. Skips draws that are settled/void/locked, in the past, or already
+    at the new time; an inactive or "no draw" slot moves nothing (void those by hand)."""
+    if not _is_draw_slot(row, settings):
+        return 0
+    now = utcnow()
+    today = now.astimezone(MANILA).date()
+    moved = 0
+    for draw in db.scalars(select(BolaDraw).where(
+            BolaDraw.location_id == row.location_id, BolaDraw.slot == row.slot,
+            BolaDraw.draw_date >= today,
+            BolaDraw.status.in_([DrawStatus.SCHEDULED, DrawStatus.OPEN])).with_for_update()).all():
+        instant = local_instant(draw.draw_date, row.draw_time)
+        if instant <= now or instant == draw.scheduled_at:
+            continue
+        before = {"scheduled_at": draw.scheduled_at, "cutoff_at": draw.cutoff_at}
+        draw.scheduled_at = instant
+        draw.cutoff_at = cutoff_for(instant, settings)
+        moved += 1
+        audit.record(db, actor, "bola.draw.reschedule", entity_type="bola_draw", entity_id=draw.id,
+                     before=before, after={"scheduled_at": instant, "cutoff_at": draw.cutoff_at,
+                                           "by": "schedule change"})
+    db.flush()
+    return moved
+
+
+def resync_cutoffs(db: Session, actor: User, settings: SettingsStore) -> int:
+    """Re-apply the current ``bola.cutoff_minutes`` to draws that are not closed yet (a draw's cut-off is
+    fixed when it is created, so changing the setting alone leaves existing draws on the old value)."""
+    now = utcnow()
+    changed = 0
+    for draw in db.scalars(select(BolaDraw).where(
+            BolaDraw.status.in_([DrawStatus.SCHEDULED, DrawStatus.OPEN]),
+            BolaDraw.scheduled_at > now).with_for_update()).all():
+        wanted = cutoff_for(draw.scheduled_at, settings)
+        if wanted != draw.cutoff_at:
+            draw.cutoff_at = wanted
+            changed += 1
+    if changed:
+        audit.record(db, actor, "bola.draw.cutoff_resync", entity_type="bola_draw",
+                     after={"draws": changed, "cutoff_minutes": int(settings.get("bola.cutoff_minutes"))})
+    db.flush()
+    return changed
 
 
 def set_status(db: Session, actor: User, draw_id: int, status: DrawStatus) -> BolaDraw:
@@ -446,16 +546,24 @@ def lock_draw(db: Session, actor: User, draw_id: int) -> BolaDraw:
 
 def tick(db: Session, settings: SettingsStore, *, now: dt.datetime | None = None,
          actor: User | None = None) -> dict:
-    """Display-only status flips for cron (`python -m app.cli bola-tick`).
+    """Status flips for cron (`python -m app.cli bola-tick`): SCHEDULED -> OPEN -> LOCKED.
 
-    Betting never depends on this: `place_bola_bet` checks the clock itself inside the
-    transaction, which is what actually stops a bet after the cut-off.
+    Safety never depends on this: `place_bola_bet` checks the cut-off clock itself inside the bet
+    transaction. Availability is covered too: a bet (and `bettable`) treats a SCHEDULED draw that is inside
+    its open window as open, so a stopped timer cannot lock players out. The tick just keeps the labels
+    and the audit log tidy.
+
+    It only touches draws that can change right now (inside the open window, or past the cut-off) rather
+    than every upcoming draw, and it skips rows a bet is holding (they are looked at next minute), so it
+    never queues players behind it.
     """
     now = now or utcnow()
-    lead = dt.timedelta(hours=int(settings.get("bola.open_hours_before")))
+    lead = _open_lead(settings)
     opened = locked = 0
     rows = db.scalars(select(BolaDraw).where(
-        BolaDraw.status.in_([DrawStatus.SCHEDULED, DrawStatus.OPEN])).with_for_update()).all()
+        BolaDraw.status.in_([DrawStatus.SCHEDULED, DrawStatus.OPEN]),
+        or_(BolaDraw.scheduled_at <= now + lead, BolaDraw.cutoff_at <= now),
+    ).with_for_update(skip_locked=True)).all()
     for draw in rows:
         if now >= draw.cutoff_at:
             if draw.status == DrawStatus.OPEN or now >= draw.scheduled_at:
@@ -509,9 +617,18 @@ def next_draw(db: Session, *, location_id: int | None = None) -> BolaDraw | None
     return db.scalar(stmt.order_by(BolaDraw.scheduled_at.asc()).limit(1))
 
 
-def bettable(draw: BolaDraw, now: dt.datetime | None = None) -> bool:
+def in_open_window(draw: BolaDraw, now: dt.datetime, settings: SettingsStore | None = None) -> bool:
+    """A SCHEDULED draw whose betting window has begun counts as open even if the tick has not flipped it
+    yet. Without ``settings`` the default 12 h window is assumed."""
+    lead = _open_lead(settings) if settings is not None else dt.timedelta(hours=12)
+    return draw.status == DrawStatus.SCHEDULED and draw.scheduled_at - lead <= now < draw.cutoff_at
+
+
+def bettable(draw: BolaDraw, now: dt.datetime | None = None, settings: SettingsStore | None = None) -> bool:
     now = now or utcnow()
-    return draw.status == DrawStatus.OPEN and now < draw.cutoff_at
+    if now >= draw.cutoff_at:
+        return False
+    return draw.status == DrawStatus.OPEN or in_open_window(draw, now, settings)
 
 
 # ---------------------------------------------------------------------------
@@ -742,6 +859,13 @@ def place_bola_bet(
             return _replay(existing, draw_id=draw_id, kind=kind, numbers=numbers,
                            tumbok_cents=tumbok_cents, sahod_cents=sahod_cents, user_id=actor.id)
     now = utcnow()
+    if in_open_window(draw, now, settings):
+        # The every-minute tick has not opened it yet (or is not running). Its window has begun and it was
+        # never locked by hand, so open it here rather than turn the player away.
+        draw.status = DrawStatus.OPEN
+        db.flush()
+        audit.record(db, actor, "bola.draw.open", entity_type="bola_draw", entity_id=draw.id,
+                     after={"by": "first bet"})
     if draw.status != DrawStatus.OPEN:
         raise LockedState(f"Betting for this draw is {draw.status}.")
     if now >= draw.cutoff_at:

@@ -12,6 +12,7 @@ from app.games.base import (CreateSpec, Filters, GameAdapter, ReportRow, RoundRo
                             can_see_money)
 from app.games.sabong import canceller_names, day_bounds, range_bounds, usernames
 from app.services import bola, locations, reports
+from app.services import insights as insights_svc
 
 
 def _draw_label(d: BolaDraw) -> str:
@@ -137,6 +138,21 @@ class BolaAdapter(GameAdapter):
                          detail=f"{d.ball_first}, {d.ball_second}" if d.ball_first is not None else "",
                          url=f"/bola/draws/{d.id}", location=d.location.name if d.location else "")
                 for d in draws]
+
+    # ---- insights --------------------------------------------------------------------
+    def insights(self, ctx, f: Filters, sort: str = "stake") -> dict | None:
+        if not can_see_money(ctx):
+            return None
+        since, until = range_bounds(f)
+        return insights_svc.bola_insights(ctx.db, ctx.user, ctx.who, since=since, until=until,
+                                          location_id=f.location_id, draw_id=f.round_id or f.session_id, sort=sort)
+
+    def insight_choices(self, ctx) -> dict:
+        areas = [(str(a.id), a.name) for a in locations.list_locations(ctx.db)]
+        draws = ctx.db.scalars(select(BolaDraw).options(joinedload(BolaDraw.location))
+                               .order_by(BolaDraw.scheduled_at.desc(), BolaDraw.id.desc()).limit(40)).unique().all()
+        return {"areas": areas, "area_label": "Area", "session_label": "Draw",
+                "sessions": [(str(d.id), f"{d.draw_date:%Y-%m-%d} · {_draw_label(d)}") for d in draws]}
 
     # ---- reports ---------------------------------------------------------------------
     @staticmethod

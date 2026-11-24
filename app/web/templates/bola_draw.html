@@ -157,6 +157,17 @@
     </form>
     {% endif %}
 
+    {% if can_manage and draw.status.value in ('scheduled', 'open', 'locked') %}
+    <div class="hr"></div>
+    <form method="post" action="/bola/draws/{{ draw.id }}/reschedule" class="inline-form">
+      {{ ui.csrf(csrf_token) }}
+      {{ ui.field('New draw time (Manila, same day)', 'draw_time', 'time', local(draw.scheduled_at).strftime('%H:%M'), true) }}
+      {{ ui.field('Reason (optional)', 'reason', 'text', '', false, attrs='maxlength=255') }}
+      <button class="btn" type="submit">Change draw time</button>
+    </form>
+    <p class="small muted">Tickets already sold stay valid. The cut-off is recalculated from the current setting. If betting had already closed, re-open it by hand after the move.</p>
+    {% endif %}
+
     {% if can_manage and draw.status.value != 'void' %}
     <div class="hr"></div>
     <form method="post" action="/bola/draws/{{ draw.id }}/void" class="inline-form" data-confirm="Void this draw and refund every stake?">

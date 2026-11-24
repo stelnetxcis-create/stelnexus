@@ -15,9 +15,9 @@ from app.core.rbac import hides_totals
 RIGHTS = ("view", "place", "cancel", "report", "manage", "declare")
 # Workspace tabs (plan 4.3) and Records tabs (plan 4.4): same names for every game.
 WORKSPACE_TABS = ("live", "schedule", "tickets", "declare")
-RECORD_TABS = ("tickets", "cancelled", "commissions", "history", "reports")
+RECORD_TABS = ("tickets", "cancelled", "commissions", "history", "insights", "reports")
 TAB_LABELS = {"tickets": "Tickets", "cancelled": "Cancelled", "commissions": "Commissions",
-              "history": "History", "reports": "Reports"}
+              "history": "History", "insights": "Insights", "reports": "Reports"}
 
 
 def can_see_money(ctx) -> bool:
@@ -35,6 +35,7 @@ class Filters:
     round_id: int | None = None        # fight (sabong)
     limit: int = 100
     offset: int = 0
+    location_id: int | None = None     # number game: one area
 
 
 @dataclass(frozen=True)
@@ -177,6 +178,14 @@ class GameAdapter:
     def report_archive(self, ctx, f: Filters) -> list[ReportRow]:
         """Finished sessions, newest first (the old Report archives page). Optional per game."""
         return []
+
+    def insights(self, ctx, f: Filters, sort: str = "stake") -> dict | None:
+        """Records > Insights: KPIs and the breakdowns that suit this game. None = nothing to show."""
+        return None
+
+    def insight_choices(self, ctx) -> dict:
+        """Dropdown choices for the Insights filters: {"areas": [(id, name)], "sessions": [(id, label)], ...}."""
+        return {}
 
     def commission_url(self, ctx) -> str:
         return f"/commissions?game={self.key}"

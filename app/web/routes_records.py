@@ -22,7 +22,8 @@ router = APIRouter()
 PER_PAGE = 100
 ARCHIVE_PER_PAGE = 50
 # right needed per tab; every game answers it through adapter.can(ctx, right)
-TAB_RIGHT = {"tickets": "tickets", "cancelled": "cancel", "history": "view", "reports": "report"}
+TAB_RIGHT = {"tickets": "tickets", "cancelled": "cancel", "history": "view", "insights": "report",
+             "reports": "report"}
 
 
 def _safe(value: str) -> str:
@@ -124,6 +125,46 @@ def build_filters(request: Request, per_page: int, *, csv_mode: bool = False) ->
                    limit=per_page + 1 if not csv_mode else 5000, offset=page * per_page)
 
 
+INSIGHT_RANGES = ("today", "yesterday", "7d", "30d", "all")
+
+
+def insight_period(p) -> tuple[dt.date | None, dt.date | None, str]:
+    """(start, end, chip) for Insights. Explicit dates win; otherwise a quick range; default is the last 7 days."""
+    start, end = _date(p.get("start")), _date(p.get("end"))
+    if start or end:
+        return start, end, "custom"
+    key = p.get("range") if p.get("range") in INSIGHT_RANGES else "7d"
+    today = _today()
+    if key == "today":
+        return today, today, key
+    if key == "yesterday":
+        day = today - dt.timedelta(days=1)
+        return day, day, key
+    if key == "30d":
+        return today - dt.timedelta(days=29), today, key
+    if key == "all":
+        return None, None, key
+    return today - dt.timedelta(days=6), today, "7d"
+
+
+def insight_sections(ctx: Ctx, game: str, p) -> tuple[list[dict], dict]:
+    """[{key, label, data}] for the chosen game(s) plus the filter state the template needs."""
+    start, end, chip = insight_period(p)
+    sort = p.get("sort") if p.get("sort") in ("stake", "tickets") else "stake"
+    pool = games_for(ctx, "insights", game)
+    single = len(pool) == 1
+    area, session = (_int(p.get("area")), _int(p.get("session"))) if single else (None, None)
+    f = Filters(start=start, end=end, session_id=session, location_id=area)
+    sections = []
+    for g in pool:
+        data = g.insights(ctx, f, sort)
+        if data is not None:
+            sections.append({"key": g.key, "label": g.label, "data": data})
+    meta = {"start": start, "end": end, "range": chip, "sort": sort, "single": single,
+            "area": area, "session": session, "choices": pool[0].insight_choices(ctx) if single else {}}
+    return sections, meta
+
+
 def report_rows(ctx: Ctx, game: str, p) -> tuple[str, list[tuple[str, object]], dt.date | str | None]:
     """(view, [(game_label, ReportRow)], what was asked). View: daily | monthly | session."""
     pool = games_for(ctx, "reports", game)
@@ -176,7 +217,10 @@ async def records(request: Request, ctx: Ctx = Depends(require_ctx)):
     pager = None
     rows: list = []
     p = request.query_params
-    if tab == "reports":
+    if tab == "insights":
+        sections, ins = insight_sections(ctx, game, p)
+        ctx_extra.update(sections=sections, ins=ins)
+    elif tab == "reports":
         view, rows, asked = report_rows(ctx, game, p)
         if view == "archive":
             has_next = len(rows) > ARCHIVE_PER_PAGE
@@ -219,7 +263,45 @@ async def records_csv(request: Request, ctx: Ctx = Depends(require_ctx)):
         raise NotFound("Use /commissions.csv for statements.")
     out = io.StringIO()
     w = csv.writer(out)
-    if tab == "reports":
+    if tab == "insights":
+        sections, ins = insight_sections(ctx, game, request.query_params)
+        for sec in sections:
+            d, k = sec["data"], sec["data"]["kpis"]
+            w.writerow([sec["label"], "Period", ins["start"] or "", ins["end"] or ""])
+            w.writerow(["Tickets", "Staked", "Paid out", "Hit rate %", "House on settled", "Cancelled"])
+            w.writerow([k["tickets"], _money(k["staked_cents"]), _money(k["paid_cents"]), k["hit_rate"],
+                        _money(k["house_cents"]), k["cancelled"]])
+            w.writerow([])
+            if sec["key"] == "bola":
+                w.writerow(["Top numbers", "Tickets", "Money on it"])
+                for r in d["numbers"]:
+                    w.writerow([r["number"], r["tickets"], _money(r["backed_cents"])])
+                w.writerow([])
+                w.writerow(["Top pairs", "Tickets", "Tumbok", "Sahod", "Total"])
+                for r in d["pairs"]:
+                    w.writerow([f"{r['first']}-{r['second']}", r["tickets"], _money(r["tumbok_cents"]),
+                                _money(r["sahod_cents"]), _money(r["total_cents"])])
+                w.writerow([])
+                w.writerow(["Draw", "Date", "Result", "Tickets", "Staked", "Paid out", "Top numbers"])
+                for r in d["draws"]:
+                    w.writerow([_safe(r["label"]), r["date"], r["result"], r["tickets"], _money(r["staked_cents"]),
+                                _money(r["paid_cents"]), " ".join(str(n["number"]) for n in r["leaders"])])
+            else:
+                w.writerow(["Side", "Tickets", "Staked", "Paid out", "Share %"])
+                for r in d["sides"]:
+                    w.writerow([r["side"], r["tickets"], _money(r["staked_cents"]), _money(r["paid_cents"]), r["percent"]])
+                w.writerow([])
+                w.writerow(["Fight", "Result", "Tickets", "Meron", "Wala", "Draw", "Total", "Backed most"])
+                for r in d["fights"]:
+                    w.writerow([_safe(r["label"]), r["result"], r["tickets"], _money(r["meron_cents"]),
+                                _money(r["wala_cents"]), _money(r["draw_cents"]), _money(r["staked_cents"]), r["lead"]])
+            w.writerow([])
+            w.writerow(["Top bettors", "Tickets", "Staked", "Paid out"])
+            for r in d["bettors"]:
+                w.writerow([_safe(r["who"]), r["tickets"], _money(r["staked_cents"]), _money(r["paid_cents"])])
+            w.writerow([])
+        name = f"insights-{game}"
+    elif tab == "reports":
         view, rows, asked = report_rows(ctx, game, request.query_params)
         w.writerow(["Game", "Label", "Staked", "Paid out", "House", "Commission", "Expenses", "Net"])
         for label, r in rows:

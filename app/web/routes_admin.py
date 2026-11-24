@@ -220,7 +220,8 @@ async def bola_schedules_page(ctx: Ctx = Depends(require_ctx)):
     return panel(ctx, "bola", "admin_bola_schedules.html",
                  areas=locations.list_locations(ctx.db), by_area=by_area,
                  enabled=bool(ctx.store.get("bola.enabled")),
-                 cutoff_minutes=int(ctx.store.get("bola.cutoff_minutes")))
+                 cutoff_minutes=int(ctx.store.get("bola.cutoff_minutes")),
+                 midnight_ok=bool(ctx.store.get("bola.allow_midnight_draw")))
 
 
 @router.post("/admin/bola/schedules/save")
@@ -235,8 +236,20 @@ async def bola_schedules_save(request: Request, ctx: Ctx = Depends(require_ctx))
     row = bola.upsert_schedule(
         ctx.db, ctx.user, location_id=location_id, slot=slot,
         draw_time=data.get("draw_time", ""), is_active=data.get("is_active") == "1")
+    moved = bola.apply_schedule_to_upcoming(ctx.db, ctx.user, row, ctx.store) \
+        if data.get("apply_existing") == "1" else 0
+    extra = f" {moved} upcoming draw(s) moved to the new time." if moved else ""
     return flash_redirect("/admin/bola/schedules",
-                          f"Slot {row.slot} saved for {row.location.name}.")
+                          f"Slot {row.slot} saved for {row.location.name}.{extra}")
+
+
+@router.post("/admin/bola/schedules/resync")
+async def bola_schedules_resync(ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.BOLA_MANAGE)
+    changed = bola.resync_cutoffs(ctx.db, ctx.user, ctx.store)
+    return flash_redirect("/admin/bola/schedules",
+                          f"Cut-off re-applied to {changed} upcoming draw(s) "
+                          f"({int(ctx.store.get('bola.cutoff_minutes'))} min before the draw).")
 
 
 @router.post("/admin/bola/schedules/{schedule_id}/delete")

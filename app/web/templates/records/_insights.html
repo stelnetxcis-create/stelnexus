@@ -1,0 +1,184 @@
+{# Records > Insights. One block per game: KPIs, then the breakdowns that suit it. Money-only: the route
+   hides the whole tab from roles that may not see totals. Bars are widths relative to the biggest row. #}
+<style>
+  .ins-chips{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}
+  .ins-chips .subtab.is-active{color:var(--gold-hi);border-color:var(--gold)}
+  .ins-title{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:22px 0 8px}
+  .ins-title h2{font-size:18px}
+  .ins-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}
+  @media (max-width:900px){.ins-two{grid-template-columns:1fr}}
+  .ins-bar{position:relative;min-width:90px;height:8px;border-radius:99px;background:var(--panel-2);overflow:hidden}
+  .ins-bar>i{position:absolute;inset:0 auto 0 0;border-radius:99px;background:var(--gold-grad)}
+  .ins-bar.meron>i{background:var(--meron)} .ins-bar.wala>i{background:var(--wala)} .ins-bar.draw>i{background:var(--green)}
+  .ins-ball{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:30px;padding:0 8px;border-radius:99px;
+    border:1px solid var(--line-2);background:var(--panel-2);font-weight:700;font-variant-numeric:tabular-nums}
+  .ins-ball.is-top{border-color:var(--gold);color:var(--gold-hi)}
+  .ins-lead{display:inline-flex;gap:4px;flex-wrap:wrap}
+  .ins-lead .ins-ball{min-width:26px;height:26px;font-size:12px}
+  .ins-rank{width:34px;color:var(--ink-3)}
+  .ins-side{display:flex;align-items:center;gap:10px}
+  .ins-dot{width:10px;height:10px;border-radius:50%;background:var(--ink-3)}
+  .ins-dot.meron{background:var(--meron)} .ins-dot.wala{background:var(--wala)} .ins-dot.draw{background:var(--green)}
+  .ins-note{margin:8px 2px 0}
+</style>
+
+<div class="ins-chips" role="group" aria-label="Period">
+  {% for key, label in [('today', 'Today'), ('yesterday', 'Yesterday'), ('7d', 'Last 7 days'), ('30d', 'Last 30 days'), ('all', 'All time')] %}
+    <a class="subtab {{ 'is-active' if ins.range == key }}" href="/records?tab=insights&amp;game={{ game }}&amp;range={{ key }}{{ '&sort=' ~ ins.sort if ins.sort != 'stake' }}{{ '&area=' ~ ins.area if ins.area }}{{ '&session=' ~ ins.session if ins.session }}">{{ label }}</a>
+  {% endfor %}
+</div>
+
+<form method="get" class="inline-form" style="margin:0 0 12px">
+  <input type="hidden" name="tab" value="insights"><input type="hidden" name="game" value="{{ game }}">
+  <label class="field"><span>From</span><input type="date" name="start" value="{{ ins.start or '' }}"></label>
+  <label class="field"><span>To</span><input type="date" name="end" value="{{ ins.end or '' }}"></label>
+  {% if ins.single and ins.choices.areas %}<label class="field"><span>{{ ins.choices.area_label or 'Area' }}</span><select name="area">
+    <option value="">all</option>{% for value, label in ins.choices.areas %}<option value="{{ value }}" {{ 'selected' if ins.area|string == value }}>{{ label }}</option>{% endfor %}</select></label>{% endif %}
+  {% if ins.single and ins.choices.sessions %}<label class="field"><span>{{ ins.choices.session_label or 'Session' }}</span><select name="session">
+    <option value="">all</option>{% for value, label in ins.choices.sessions %}<option value="{{ value }}" {{ 'selected' if ins.session|string == value }}>{{ label }}</option>{% endfor %}</select></label>{% endif %}
+  <button class="btn btn-sm" type="submit">Apply</button>
+</form>
+<p class="small muted" style="margin:-4px 0 8px">Showing {% if ins.start or ins.end %}{{ ins.start or 'the beginning' }} to {{ ins.end or 'today' }}{% else %}all time{% endif %}, by when the ticket was placed. Cancelled and refunded tickets are left out of the figures.{% if not ins.single %} Pick one game to narrow by area, draw or event.{% endif %}</p>
+
+{% if not sections %}
+  {{ ui.empty('Nothing to show for your role.') }}
+{% endif %}
+
+{% for sec in sections %}
+{% set d = sec.data %}{% set k = d.kpis %}
+{% if sections | length > 1 %}<div class="ins-title"><h2>{{ sec.label }}</h2></div>{% endif %}
+
+<div class="grid grid-4">
+  {{ ui.stat('Tickets', k.tickets, (k.cancelled ~ ' cancelled') if k.cancelled else '') }}
+  {{ ui.stat('Staked', k.staked_cents | money, 'avg ' ~ (k.avg_stake_cents | money) ~ ' · biggest ' ~ (k.biggest_stake_cents | money)) }}
+  {{ ui.stat('Paid out', k.paid_cents | money, k.winners ~ ' of ' ~ k.settled ~ ' settled won · ' ~ k.hit_rate ~ '%') }}
+  {{ ui.stat('House on settled', k.house_cents | money, 'stakes minus payouts, settled tickets only', 'green' if k.house_cents >= 0 else 'red') }}
+</div>
+
+{% if not k.tickets %}
+  <div class="card" style="margin-top:14px"><div class="card-body">{{ ui.empty('No tickets in this period.') }}</div></div>
+{% elif sec.key == 'bola' %}
+
+  <div class="ins-title"><h2>Most picked numbers</h2>
+    <span class="subtabs">
+      <a class="subtab {{ 'is-active' if d.sort == 'stake' }}" href="/records?tab=insights&amp;game={{ game }}&amp;range={{ ins.range }}&amp;sort=stake{{ '&area=' ~ ins.area if ins.area }}{{ '&session=' ~ ins.session if ins.session }}{{ '&start=' ~ ins.start if ins.start }}{{ '&end=' ~ ins.end if ins.end }}">By money</a>
+      <a class="subtab {{ 'is-active' if d.sort == 'tickets' }}" href="/records?tab=insights&amp;game={{ game }}&amp;range={{ ins.range }}&amp;sort=tickets{{ '&area=' ~ ins.area if ins.area }}{{ '&session=' ~ ins.session if ins.session }}{{ '&start=' ~ ins.start if ins.start }}{{ '&end=' ~ ins.end if ins.end }}">By tickets</a>
+    </span></div>
+  <div class="card"><div class="card-body tight">
+    <div class="table-wrap"><table class="table"><thead><tr>
+      <th class="ins-rank">#</th><th>Number</th><th class="right">Tickets</th><th class="right">Money on it</th><th></th>
+    </tr></thead><tbody>
+    {% for r in d.numbers %}
+      <tr><td class="ins-rank">{{ loop.index }}</td>
+        <td><span class="ins-ball {{ 'is-top' if loop.first }}">{{ r.number }}</span></td>
+        <td class="right num">{{ r.tickets }}</td><td class="right num">{{ r.backed_cents | money }}</td>
+        <td><div class="ins-bar" role="img" aria-label="{{ r.share }}% of the top number"><i style="width:{{ r.share }}%"></i></div></td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  </div></div>
+  <p class="small muted ins-note">A pair of numbers backs both of them, so each number's money counts the whole line stake and the column adds up to about twice the amount staked. Ticket counts are exact.</p>
+
+  <div class="ins-title"><h2>Most backed pairs</h2><span class="small muted">in the order picked: tumbok pays if drawn first-second, sahod if second-first</span></div>
+  <div class="card"><div class="card-body tight">
+    <div class="table-wrap"><table class="table"><thead><tr>
+      <th class="ins-rank">#</th><th>Pair</th><th class="right">Tickets</th><th class="right">Tumbok</th><th class="right">Sahod</th><th class="right">Total</th><th></th>
+    </tr></thead><tbody>
+    {% for r in d.pairs %}
+      <tr><td class="ins-rank">{{ loop.index }}</td>
+        <td><span class="ins-ball {{ 'is-top' if loop.first }}">{{ r.first }}</span> <span class="muted">→</span> <span class="ins-ball {{ 'is-top' if loop.first }}">{{ r.second }}</span></td>
+        <td class="right num">{{ r.tickets }}</td><td class="right num">{{ r.tumbok_cents | money }}</td><td class="right num">{{ r.sahod_cents | money }}</td>
+        <td class="right num"><strong>{{ r.total_cents | money }}</strong></td>
+        <td><div class="ins-bar"><i style="width:{{ r.share }}%"></i></div></td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  </div></div>
+
+  <div class="ins-title"><h2>Each draw: top numbers</h2><span class="small muted">newest {{ d.draws | length }} draw(s) in the period</span></div>
+  <div class="card"><div class="card-body tight">
+    <div class="table-wrap"><table class="table"><thead><tr>
+      <th>Date</th><th>Draw</th><th>Result</th><th class="right">Tickets</th><th class="right">Staked</th><th class="right">Paid out</th><th>Most picked (number · tickets · money)</th>
+    </tr></thead><tbody>
+    {% for r in d.draws %}
+      <tr><td class="small nowrap">{{ r.date }}</td><td><a href="{{ r.url }}">{{ r.label }}</a></td>
+        <td class="num">{{ r.result or '—' }}</td>
+        <td class="right num">{{ r.tickets }}</td><td class="right num">{{ r.staked_cents | money }}</td><td class="right num">{{ r.paid_cents | money if r.paid_cents else '—' }}</td>
+        <td><span class="ins-lead">{% for n in r.leaders %}<span class="ins-ball {{ 'is-top' if loop.first }}" title="{{ n.tickets }} ticket(s) · {{ n.backed_cents | money }}">{{ n.number }}</span>{% endfor %}</span>
+          {% if r.leaders %}<span class="small muted"> {{ r.leaders[0].tickets }} · {{ r.leaders[0].backed_cents | money }}</span>{% endif %}</td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  </div></div>
+
+{% elif sec.key == 'sabong' %}
+
+  <div class="ins-title"><h2>Where the money went</h2><span class="small muted">share of money staked per side</span></div>
+  <div class="card"><div class="card-body tight">
+    <div class="table-wrap"><table class="table"><thead><tr>
+      <th>Side</th><th class="right">Tickets</th><th class="right">Staked</th><th class="right">Paid out</th><th class="right">Share</th><th></th>
+    </tr></thead><tbody>
+    {% for r in d.sides %}
+      <tr><td><span class="ins-side"><span class="ins-dot {{ r.side }}"></span>{{ r.side | title }}</span></td>
+        <td class="right num">{{ r.tickets }}</td><td class="right num">{{ r.staked_cents | money }}</td><td class="right num">{{ r.paid_cents | money if r.paid_cents else '—' }}</td>
+        <td class="right num">{{ r.percent }}%</td>
+        <td><div class="ins-bar {{ r.side }}"><i style="width:{{ r.percent }}%"></i></div></td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  </div></div>
+
+  <div class="ins-title"><h2>Busiest fights</h2><span class="small muted">top 10 by money staked, with the side that was backed most</span></div>
+  <div class="card"><div class="card-body tight">
+    <div class="table-wrap"><table class="table"><thead><tr>
+      <th class="ins-rank">#</th><th>Fight</th><th>Result</th><th class="right">Tickets</th><th class="right">Meron</th><th class="right">Wala</th><th class="right">Draw</th><th class="right">Total</th><th>Backed most</th>
+    </tr></thead><tbody>
+    {% for r in d.fights %}
+      <tr><td class="ins-rank">{{ loop.index }}</td>
+        <td>{% if r.url %}<a href="{{ r.url }}">{{ r.label }}</a>{% else %}{{ r.label }}{% endif %}</td>
+        <td class="small">{{ r.result or '—' }}</td>
+        <td class="right num">{{ r.tickets }}</td><td class="right num">{{ r.meron_cents | money }}</td><td class="right num">{{ r.wala_cents | money }}</td>
+        <td class="right num">{{ r.draw_cents | money if r.draw_cents else '—' }}</td>
+        <td class="right num"><strong>{{ r.staked_cents | money }}</strong></td>
+        <td><span class="ins-side"><span class="ins-dot {{ r.lead }}"></span>{{ r.lead | title }} <span class="small muted">{{ r.lead_percent }}%</span></span></td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  </div></div>
+
+  <div class="ins-title"><h2>By event</h2></div>
+  <div class="card"><div class="card-body tight">
+    <div class="table-wrap"><table class="table"><thead><tr>
+      <th>Date</th><th>Event</th><th class="right">Tickets</th><th class="right">Staked</th><th class="right">Paid out</th><th></th>
+    </tr></thead><tbody>
+    {% for r in d.events %}
+      <tr><td class="small nowrap">{{ r.date }}</td><td><a href="{{ r.url }}">{{ r.label }}</a></td>
+        <td class="right num">{{ r.tickets }}</td><td class="right num">{{ r.staked_cents | money }}</td><td class="right num">{{ r.paid_cents | money if r.paid_cents else '—' }}</td>
+        <td><div class="ins-bar"><i style="width:{{ r.share }}%"></i></div></td></tr>
+    {% endfor %}
+    </tbody></table></div>
+  </div></div>
+{% endif %}
+
+{% if k.tickets %}
+<div class="ins-two" style="margin-top:14px">
+  <div>
+    <div class="ins-title"><h2>By day</h2><span class="small muted">{{ 'draw date' if sec.key == 'bola' else 'event date' }}</span></div>
+    <div class="card"><div class="card-body tight">
+      <div class="table-wrap"><table class="table"><thead><tr><th>Day</th><th class="right">Tickets</th><th class="right">Staked</th><th class="right">Paid out</th><th></th></tr></thead><tbody>
+      {% for r in d.days %}
+        <tr><td class="small nowrap">{{ r.day }}</td><td class="right num">{{ r.tickets }}</td><td class="right num">{{ r.staked_cents | money }}</td>
+          <td class="right num">{{ r.paid_cents | money if r.paid_cents else '—' }}</td><td><div class="ins-bar"><i style="width:{{ r.share }}%"></i></div></td></tr>
+      {% endfor %}
+      </tbody></table></div>
+    </div></div>
+  </div>
+  <div>
+    <div class="ins-title"><h2>Top bettors</h2><span class="small muted">top 10 by staked</span></div>
+    <div class="card"><div class="card-body tight">
+      <div class="table-wrap"><table class="table"><thead><tr><th class="ins-rank">#</th><th>Who</th><th class="right">Tickets</th><th class="right">Staked</th><th class="right">Paid out</th></tr></thead><tbody>
+      {% for r in d.bettors %}
+        <tr><td class="ins-rank">{{ loop.index }}</td><td>{{ r.who }}</td><td class="right num">{{ r.tickets }}</td>
+          <td class="right num">{{ r.staked_cents | money }}</td><td class="right num">{{ r.paid_cents | money if r.paid_cents else '—' }}</td></tr>
+      {% endfor %}
+      </tbody></table></div>
+    </div></div>
+  </div>
+</div>
+{% endif %}
+{% endfor %}

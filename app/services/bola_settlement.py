@@ -36,6 +36,7 @@ from app.db.models import (
     Account,
     BolaCommission,
     BolaDraw,
+    BolaLine,
     BolaRun,
     BolaTicket,
     DrawStatus,
@@ -123,11 +124,20 @@ def build_plan(db: Session, draw: BolaDraw, ball_first: int | None, ball_second:
 
     result = (ball_first, ball_second)
     reverse = (ball_second, ball_first)
+    # One query for every line of the draw instead of one per ticket: a busy draw has thousands of
+    # tickets and this runs while the draw is locked (bets wait), so the per-ticket query was the slow part.
+    lines_by_ticket: dict[int, list[BolaLine]] = {}
+    active_ids = select(BolaTicket.id).where(BolaTicket.draw_id == draw.id,
+                                             BolaTicket.status == TicketStatus.ACTIVE)   # subquery: no bind-parameter cap
+    for line in db.scalars(select(BolaLine).where(
+            BolaLine.draw_id == draw.id, BolaLine.ticket_id.in_(active_ids))
+            .order_by(BolaLine.id)).all():
+        lines_by_ticket.setdefault(line.ticket_id, []).append(line)
     for ticket in tickets:
         payout = 0
         side = None
         pair = None
-        for line in bola.ticket_lines(db, ticket):
+        for line in lines_by_ticket.get(ticket.id, ()):
             if (line.first, line.second) == result:
                 payout += payout_of(line.tumbok_cents, rate)
                 side, pair = "tumbok", (line.first, line.second)

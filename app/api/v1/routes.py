@@ -243,12 +243,12 @@ async def player_by_card(card_number: str, c: ApiCtx = Depends(api_ctx)):
 # integer centavos. The whole group answers 423-style LockedState while
 # bola.enabled is off (the services enforce it, not this layer).
 
-def _bola_draw(d, *, detail: bool = False) -> dict:
+def _bola_draw(d, *, detail: bool = False, settings=None) -> dict:
     out = {"id": d.id, "location_id": d.location_id,
            "area": d.location.name if d.location else None,
            "draw_date": d.draw_date, "slot": d.slot,
            "scheduled_at": d.scheduled_at, "cutoff_at": d.cutoff_at,
-           "status": str(d.status), "bettable": bola.bettable(d),
+           "status": str(d.status), "bettable": bola.bettable(d, settings=settings),
            "ball_first": d.ball_first, "ball_second": d.ball_second,
            "result": d.result_label, "declared_at": d.declared_at}
     if detail:
@@ -294,14 +294,14 @@ async def bola_draws(date: str | None = None, location_id: int | None = None,
         raise ValidationError("date must be YYYY-MM-DD and status a known draw status.") from exc
     rows = bola.list_draws(c.db, date=day, location_id=location_id, status=st,
                            upcoming=upcoming, limit=min(limit, 200), offset=offset)
-    return {"draws": [_bola_draw(d) for d in rows], "odds": _bola_odds(c)}
+    return {"draws": [_bola_draw(d, settings=c.store) for d in rows], "odds": _bola_odds(c)}
 
 
 @router.get("/bola/draws/{draw_id}")
 async def bola_draw_detail(draw_id: int, c: ApiCtx = Depends(api_ctx)):
     c.need(Perm.BOLA_VIEW)
     draw = bola.get_draw(c.db, draw_id)
-    out = {**_bola_draw(draw, detail=True), "odds": _bola_odds(c)}
+    out = {**_bola_draw(draw, detail=True, settings=c.store), "odds": _bola_odds(c)}
     if Perm.BOLA_EXPOSURE in permissions_of(c.user) and not hides_totals(c.user):
         out["exposure"] = bola.exposure_summary(c.db, draw, c.store)
     return out
@@ -390,4 +390,4 @@ async def bola_results(location_id: int | None = None, limit: int = 60, offset: 
                        c: ApiCtx = Depends(api_ctx)):
     c.need(Perm.BOLA_VIEW)
     rows = bola.results(c.db, location_id=location_id, limit=min(limit, 200), offset=offset)
-    return {"results": [_bola_draw(d) for d in rows]}
+    return {"results": [_bola_draw(d, settings=c.store) for d in rows]}

@@ -989,7 +989,7 @@
 
 /* passive embed (Facebook, extra hosts, a YouTube that did not answer): nothing that would do nothing */
 .vp.is-embed .vp-pass,.vp.is-embed .vp-main,.vp.is-embed .vp-track,.vp.is-embed .vp-golive,.vp.is-embed .vp-time,
-.vp.is-embed .vp-vol,.vp.is-embed .vp-sound,.vp.is-embed .vp-big,.vp.is-embed [data-vp-mute]{display:none!important}
+.vp.is-embed .vp-vol,.vp.is-embed .vp-q,.vp.is-embed .vp-sound,.vp.is-embed .vp-big,.vp.is-embed [data-vp-mute]{display:none!important}
 .vp.is-embed .pbs.is-min ~ .vp-big,.vp.is-embed .pbs ~ .vp-big{display:none!important}     /* the minimized payout card used to bring the dead play button back */
 .vp.is-embed-native .vp-badge{display:none}                                                  /* its own player shows LIVE already */
 
@@ -1003,6 +1003,28 @@
 @keyframes vp-sound-in{from{opacity:0;transform:translate(-50%,-6px)}to{opacity:1;transform:translate(-50%,0)}}
 
 /* volume slider: with a mouse only (phones have the volume buttons; iPhone ignores it) */
-.vp-vol{display:none;width:74px;height:4px;margin:0 6px 0 2px;accent-color:var(--gold,#d9b155);cursor:pointer;vertical-align:middle}
+.vp-vol{display:none;width:74px;height:18px;margin:0 6px 0 2px;padding:0;cursor:pointer;vertical-align:middle;background:transparent;-webkit-appearance:none;appearance:none;--v:100%}
+.vp-vol::-webkit-slider-runnable-track{height:4px;border-radius:4px;background:linear-gradient(90deg,var(--gold,#d9b155) var(--v),#3a3442 var(--v))}
+.vp-vol::-moz-range-track{height:4px;border-radius:4px;background:#3a3442}
+.vp-vol::-moz-range-progress{height:4px;border-radius:4px;background:var(--gold,#d9b155)}
+.vp-vol::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:12px;height:12px;margin-top:-4px;border-radius:50%;border:0;background:#f7de93;box-shadow:0 0 0 3px rgba(217,177,85,.25)}
+.vp-vol::-moz-range-thumb{width:12px;height:12px;border-radius:50%;border:0;background:#f7de93;box-shadow:0 0 0 3px rgba(217,177,85,.25)}
 @media (hover:hover) and (pointer:fine){.vp.has-media:not(.is-embed):not(.is-slate):not(.is-standby) .vp-vol{display:inline-block}}
 @media (prefers-reduced-motion:reduce){.vp-sound{animation:none}}
+
+
+/* quality menu */
+.vp-q{position:relative;display:inline-flex;align-items:center}
+.vp-q[hidden]{display:none}
+.vp-qbtn{gap:6px;padding:0 10px;font-size:12px;font-weight:800;min-width:0;width:auto}
+.vp-qbtn svg{width:18px;height:18px}
+.vp-qmenu{position:absolute;right:0;bottom:calc(100% + 10px);z-index:6;margin:0;padding:6px;list-style:none;min-width:116px;border-radius:12px;
+  border:1px solid rgba(247,222,147,.35);background:rgba(14,12,18,.96);backdrop-filter:blur(10px);box-shadow:0 18px 40px -14px #000}
+.vp-qmenu[hidden]{display:none}
+.vp-qmenu button{display:block;width:100%;text-align:left;padding:8px 12px;border:0;border-radius:8px;background:none;color:#e9e4d6;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+.vp-qmenu button:hover{background:rgba(217,177,85,.18)}
+.vp-qmenu button[aria-checked="true"]{color:var(--gold,#d9b155);background:rgba(217,177,85,.12)}
+.vp-qmenu button[aria-checked="true"]::after{content:" \2713";float:right}
+
+/* a live YouTube stream that does not allow rewinding: the rewind controls are shown as unavailable, not as broken */
+.vp.is-noseek .vp-pass,.vp.is-noseek .vp-track{opacity:.4;cursor:not-allowed}

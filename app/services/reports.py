@@ -474,7 +474,7 @@ def bola_dashboard(db: Session, actor, settings) -> dict:
         stake_stmt = stake_stmt.where(BolaTicket.agent_id.in_(scope_ids(db, actor)))
     return {
         "enabled": bool(settings.get("bola.enabled")),
-        "open": sum(1 for d in draws if bola.bettable(d)),
+        "open": sum(1 for d in draws if bola.bettable(d, settings=settings)),
         "awaiting": sum(1 for d in draws if d.status == DrawStatus.LOCKED),
         "settled": sum(1 for d in draws if d.status == DrawStatus.SETTLED),
         "total": len(draws),
@@ -512,7 +512,7 @@ def bola_board(db: Session, settings) -> dict | None:
     if not boards:
         return None
     return {"areas": boards, "multiplier": bola.multiplier(settings) / 100,
-            "bettable": bola.bettable}
+            "bettable": lambda d: bola.bettable(d, settings=settings)}
 
 
 def dashboard(db: Session, actor: User, *, flows: dict | None = None) -> dict:

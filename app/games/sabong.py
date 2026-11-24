@@ -10,6 +10,7 @@ from app.db.models import Event, EventStatus, Fight, FightStatus, Location, Tick
 from app.games.base import (CreateSpec, Filters, GameAdapter, ReportRow, RoundRow, ScheduleRow, TicketRow,
                             can_see_money)
 from app.services import betting, bola, events, locations, reports
+from app.services import insights as insights_svc
 
 
 def day_bounds(day: dt.date) -> tuple[dt.datetime, dt.datetime]:
@@ -202,6 +203,19 @@ class SabongAdapter(GameAdapter):
                                                locs[evs[x.event_id].location_id].city) if p)
                 if x.event_id in evs and evs[x.event_id].location_id in locs else ""))
         return out
+
+    # ---- insights --------------------------------------------------------------------
+    def insights(self, ctx, f: Filters, sort: str = "stake") -> dict | None:
+        if not can_see_money(ctx):
+            return None
+        since, until = range_bounds(f)
+        return insights_svc.sabong_insights(ctx.db, ctx.user, ctx.who, since=since, until=until,
+                                            event_id=f.session_id)
+
+    def insight_choices(self, ctx) -> dict:
+        evs = events.list_events(ctx.db, limit=40)
+        return {"areas": [], "session_label": "Event",
+                "sessions": [(str(e.id), f"{e.event_date:%Y-%m-%d} · {e.title}") for e in evs]}
 
     # ---- reports (built from the same figures as the archive page) --------------------
     @staticmethod

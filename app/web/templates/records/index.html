@@ -9,6 +9,7 @@
 {% block content %}
 {% include "records/_bar.html" %}
 {% if tab == 'reports' %}{% include "records/_reports.html" %}
+{% elif tab == 'insights' %}{% include "records/_insights.html" %}
 {% else %}
   {% include "records/_filters.html" %}
   {% if kpis %}<div class="grid grid-3">

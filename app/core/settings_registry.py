@@ -183,6 +183,10 @@ DEFS: tuple[SettingDef, ...] = (
                "inside the bet transaction, so it does not depend on the scheduler.", 0, 1440),
     SettingDef("bola.open_hours_before", "Open betting this long before the draw", "int", 12, "Bola",
                "Used by bola-tick / Generate draws to flip a scheduled draw to OPEN.", 0, 168),
+    SettingDef("bola.allow_midnight_draw", "Allow a 00:00 (midnight) draw time", "bool", False, "Bola",
+               "Off (default) = a slot saved as 00:00 means \"no draw\", exactly as the old panel did, so existing "
+               "schedules behave the same. Turn on only if an area really draws at midnight; every active 00:00 "
+               "slot then generates a draw."),
     SettingDef("bola.cancel_window_seconds", "Bola ticket cancel window (seconds)", "int", 300, "Bola",
                "Placed bets are final: only the Admin can cancel a number-game ticket (any time before the "
                "cut-off), so this window no longer applies to anyone else.", 0, 86400),

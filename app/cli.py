@@ -181,7 +181,8 @@ def bola_generate(args) -> None:
             return
         start = dt.date.fromisoformat(args.date) if args.date else None
         out = bola.generate_draws(db, None, settings=store, date=start, days=args.days)
-        print(f"Created {len(out['created'])} draw(s), skipped {out['skipped']} that already existed.")
+        past = f", {out['skipped_past']} past slot(s) not created" if out["skipped_past"] else ""
+        print(f"Created {len(out['created'])} draw(s), skipped {out['skipped']} that already existed{past}.")
 
 
 def bola_preflight(_args) -> None:

@@ -168,7 +168,7 @@ async def bola_draw(draw_id: int, request: Request, ctx: Ctx = Depends(require_c
     return render(
         ctx, "bola_draw.html", sold=sold, active="bola", draw=draw, tickets=tickets, pager=pager, exposure=exposure,
         heat=heat, my_balance=my_balance, hide_totals=hide, local=bola.local,
-        bettable=bola.bettable(draw), enabled=bool(ctx.store.get("bola.enabled")),
+        bettable=bola.bettable(draw, settings=ctx.store), enabled=bool(ctx.store.get("bola.enabled")),
         kinds=[(k.value, KIND_LABELS[k]) for k in BolaKind],
         odds={"multiplier": bola.multiplier(ctx.store) / 100, "outcomes": bola.ordered_outcomes(ctx.store),
               "rtp": round(bola.rtp_percent(ctx.store), 1),
@@ -427,7 +427,19 @@ async def bola_generate(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.BOLA_MANAGE)
     data = await form_data(request)
     out = bola.generate_draws(ctx.db, ctx.user, settings=ctx.store, days=_int(data.get("days"), 1))
-    return flash_redirect("/bola", f"Created {len(out['created'])} draw(s); {out['skipped']} already existed.")
+    past = f" {out['skipped_past']} slot(s) whose time had already passed were skipped." if out["skipped_past"] else ""
+    return flash_redirect("/bola", f"Created {len(out['created'])} draw(s); {out['skipped']} already existed.{past}")
+
+
+@router.post("/bola/draws/{draw_id}/reschedule")
+async def bola_reschedule(draw_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.BOLA_MANAGE)
+    data = await form_data(request)
+    draw = bola.reschedule_draw(ctx.db, ctx.user, draw_id, draw_time=data.get("draw_time", ""),
+                                settings=ctx.store, reason=data.get("reason") or None)
+    return flash_redirect(f"/bola/draws/{draw_id}",
+                          f"Draw time moved to {bola.local(draw.scheduled_at):%H:%M}; "
+                          f"betting closes {bola.local(draw.cutoff_at):%H:%M}.")
 
 
 def _need_open_close(ctx: Ctx) -> None:
