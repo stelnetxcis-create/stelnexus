@@ -68,7 +68,7 @@
   }, { passive: true });
 
   /* 3) count-up on the numbers inside event boxes */
-  $$('.lobby-nums b').forEach(function (el, idx) {
+  $$('.lobby-nums .n-done b').forEach(function (el, idx) {
     var n = parseInt(el.textContent, 10);
     if (lite || !isFinite(n) || n <= 0) return;
     var t0 = null, delay = 250 + (idx % 40) * 12;

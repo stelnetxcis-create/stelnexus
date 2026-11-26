@@ -52,4 +52,61 @@
 </div>
 {% endfor %}
 {% else %}{{ ui.empty('No Agents yet. Invite one from Referral Codes.') }}{% endif %}
+
+<h2 id="rooms" style="margin:28px 0 10px">Room cuts</h2>
+<div class="notice" style="margin-bottom:16px">
+  A <strong>room</strong> is a venue of a game. Set a cut here for one room of one game and it replaces the game's default there.
+  Most specific wins: an Agent's own row for the room, then the Agent's account-wide cut above, then the room's default, then the game's default.
+  For SOP %, the Agent's row for the room wins first: <strong>Agents set it themselves</strong> for their own Sub Agents in the
+  <a href="/agent-panel">Agent Panel</a>. Blank = fall through to the next level.
+</div>
+{% for gkey, glabel in games %}
+<div class="card" style="margin-bottom:16px">
+  <div class="card-head"><h2>{{ glabel }} <small class="muted">room defaults</small></h2></div>
+  <div class="card-body tight"><div class="table-wrap"><table class="table">
+    <thead><tr><th>Room</th><th>Now (Volume · SOP)</th><th>Room default</th></tr></thead>
+    <tbody>
+    {% for r in rooms if r.game == gkey %}
+      <tr><td>{{ r.location.name }}</td>
+        <td class="num">{{ pct(r.room_volume_bps if r.room_volume_bps is not none else r.game_volume_bps) }} · {{ pct(r.room_sop_bps if r.room_sop_bps is not none else r.game_sop_bps) }}{% if r.room_volume_bps is none and r.room_sop_bps is none %} <small class="muted">(game default)</small>{% endif %}</td>
+        <td>{% if can_edit %}<form method="post" action="/admin/cuts/rooms" style="display:flex;gap:6px;flex-wrap:wrap">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="game" value="{{ r.game }}"><input type="hidden" name="location_id" value="{{ r.location.id }}">
+          <input name="volume" inputmode="decimal" size="5" placeholder="Volume %" value="{{ (r.room_volume_bps / 100) | round(2) if r.room_volume_bps is not none else '' }}">
+          <input name="sop" inputmode="decimal" size="5" placeholder="SOP %" value="{{ (r.room_sop_bps / 100) | round(2) if r.room_sop_bps is not none else '' }}">
+          <button class="btn btn-sm" type="submit">Save</button></form>{% else %}<span class="muted small">View only</span>{% endif %}</td></tr>
+    {% else %}<tr><td colspan="3"><span class="muted">No active rooms. Add a venue under Locations.</span></td></tr>{% endfor %}
+    </tbody></table></div></div>
+</div>
+{% endfor %}
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-head"><h2>Agent rows per room</h2></div>
+  <div class="card-body">
+    {% if can_edit and rows %}
+    <form method="post" action="/admin/cuts/rooms" class="form-grid">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="field"><span>Agent</span><select name="agent_id" required>{% for row in rows %}<option value="{{ row.agent.id }}">{{ row.agent.full_name }} · {{ row.agent.username }}</option>{% endfor %}</select></label>
+      <label class="field"><span>Game</span><select name="game">{% for gkey, glabel in games %}<option value="{{ gkey }}">{{ glabel }}</option>{% endfor %}</select></label>
+      <label class="field"><span>Room</span><select name="location_id">{% for r in rooms if r.game == games[0][0] %}<option value="{{ r.location.id }}">{{ r.location.name }}</option>{% endfor %}</select></label>
+      <label class="field"><span>Volume %</span><input name="volume" inputmode="decimal" placeholder="blank = inherit"></label>
+      <label class="field"><span>SOP %</span><input name="sop" inputmode="decimal" placeholder="blank = inherit"></label>
+      <label class="field"><span>Reason <small>(optional)</small></span><input name="reason" maxlength="200"></label>
+      <div class="form-actions"><button class="btn btn-primary" type="submit">Save</button></div>
+    </form>
+    {% endif %}
+  </div>
+  {% if room_overrides %}
+  <div class="card-body tight"><div class="table-wrap"><table class="table">
+    <thead><tr><th>Agent</th><th>Game</th><th>Room</th><th>Volume %</th><th>SOP %</th><th></th></tr></thead>
+    <tbody>{% for o in room_overrides %}
+      <tr><td>{{ o.agent.full_name }} <small class="muted">{{ o.agent.username }}</small></td>
+        <td>{{ 'Bola' if o.game == 'bola' else 'Meron / Wala' }}</td><td>{{ o.location.name }}</td>
+        <td class="num">{{ pct(o.volume_bps) if o.volume_bps is not none else '—' }}</td>
+        <td class="num">{{ pct(o.sop_bps) if o.sop_bps is not none else '—' }}</td>
+        <td>{% if can_edit %}<form method="post" action="/admin/cuts/rooms">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="game" value="{{ o.game }}"><input type="hidden" name="location_id" value="{{ o.location_id }}"><input type="hidden" name="agent_id" value="{{ o.agent_id }}">
+          <input type="hidden" name="volume" value=""><input type="hidden" name="sop" value=""><button class="btn btn-sm" type="submit">Clear</button></form>{% endif %}</td></tr>
+    {% endfor %}</tbody></table></div></div>
+  {% else %}<div class="card-body"><p class="muted small">No Agent has a room of their own yet.</p></div>{% endif %}
+</div>
 {% endblock %}

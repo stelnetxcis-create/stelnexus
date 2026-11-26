@@ -10,16 +10,15 @@ from app.core.errors import Forbidden, NotFound, ValidationError
 from app.core.money import to_cents
 from app.core.rbac import Perm, hides_totals, sees_house
 from app.db.models import EventStatus, PayoutModel, Result
-from app.services import accounts, betting, events, locations, proofs, reports, settlement, streams
-from app.services import players as player_service
+from app.services import accounts, betting, events, locations, proofs, reports, settlement, stream_access, streams
 from app.services import store as store_svc
 from urllib.parse import urlencode
 
 from app.web.conditional import wants_fragment
-from app.web.deps import Ctx, event_url, flash_redirect, form_data, render, require_ctx
+from app.web.deps import Ctx, event_url, flash_redirect, form_data, game_gate, render, require_ctx, set_return_to
 from app.web.paging import paginate
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(game_gate("sabong"))])
 _cfg = get_settings()
 
 
@@ -27,6 +26,7 @@ async def _form_with_proof(request: Request) -> tuple[dict[str, str], proofs.Pro
     """A multipart form: its text fields plus the validated result picture (None if none sent)."""
     form = await request.form()
     data = {key: value for key, value in form.items() if isinstance(value, str)}
+    set_return_to(data.get("return_to"))
     upload = form.get("proof")
     raw = None
     if upload is not None and not isinstance(upload, str) and getattr(upload, "filename", ""):
@@ -118,7 +118,7 @@ async def events_create_page(ctx: Ctx = Depends(require_ctx)):
 @router.get("/events/{event_id}")
 async def event_page(event_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
     """The one page of a Sabong event, the way /bola/draws/{id} is for a draw: watch and bet on the fight, declare it,
-    sell tickets, and (by right) open / close / cancel the event, all here. ?fight_id= picks the fight."""
+    and (by right) open / close / cancel the event, all here. ?fight_id= picks the fight."""
     ctx.need(Perm.FIGHTS_VIEW)
     return await _render_event(request, ctx, event_id)
 
@@ -162,7 +162,8 @@ async def change_name(request: Request, ctx: Ctx = Depends(require_ctx)):
     return RedirectResponse("/games/sabong/live?pick=1", status_code=303)
 
 
-async def _render_event(request: Request, ctx: Ctx, event_id: int):
+async def _render_event(request: Request, ctx: Ctx, event_id: int, template: str = "change_name.html",
+                        extra: dict | None = None, active: str = "events"):
     params = request.query_params
     fight_id = _int(params.get("fight_id"))
     number = _int(params.get("gs") or params.get("fight"))
@@ -220,14 +221,9 @@ async def _render_event(request: Request, ctx: Ctx, event_id: int):
         }
     # The event-level half (what the betting sheet was): every fight's pool in ONE grouped query; the heavier parts
     # (player picker, expenses, summary) are skipped when only the fight panel is being refreshed.
-    from app.services import players as player_service
     with_event_body = frag != "fight-panel"
     show_money = ctx.can(Perm.CASHFLOW_VIEW) and not hide
-    my_players = player_service.list_players(ctx.db, ctx.user, limit=300) if (with_event_body and not hide) else []
-    # selling a ticket needs someone to sell it to: a form with an empty player list could never be submitted
-    can_sell = (ctx.can(Perm.BETS_PLACE) and not hide and event.status != EventStatus.CANCELED
-                and bool(my_players) and with_event_body)
-    return render(ctx, "change_name.html", active="events", event=event, fight=fight, bet_panel=bet_panel,
+    return render(ctx, template, active=active, event=event, fight=fight, bet_panel=bet_panel,
                   fights=fights, events=[], snapshot=snapshot, runs=runs, tickets=tickets,
                   tickets_pager=tickets_pager, preview=plan, figures=figures, multipliers=multipliers, hide_totals=hide,
                   can_house=sees_house(ctx.user) and not hide,
@@ -239,12 +235,15 @@ async def _render_event(request: Request, ctx: Ctx, event_id: int):
                   chat_access=store_svc.access(ctx.db, ctx.user, fight) if fight is not None else None,
                   chat_tokens=store_svc.tokens_for_fight(ctx.db, ctx.user, fight) if fight is not None else 0,
                   stream_pass=store_svc.has_stream_perks(ctx.db, ctx.user) if fight is not None else False,
-                  stream_payload=streams.payload(ctx.db, event_id=event.id, fight_id=fight.id) if fight is not None else None,
+                  stream_payload=(stream_access.apply(ctx.db, ctx.user, ctx.store, streams.payload(ctx.db, event_id=event.id, fight_id=fight.id),
+                                         fight_id=fight.id, event_id=event.id)
+                  if fight is not None else None),
                   pending=settlement.pending_runs(ctx.db) if ctx.user.is_top else [],
-                  pools=betting.pool_snapshots(ctx.db, [f.id for f in fights]), my_players=my_players, can_sell=can_sell,
+                  pools=betting.pool_snapshots(ctx.db, [f.id for f in fights]),
                   active_fight_id=fight.id if fight is not None else 0,
                   expenses=events.list_expenses(ctx.db, event.id) if (show_money and with_event_body) else [],
-                  summary=reports.event_summary(ctx.db, event.id) if (show_money and with_event_body) else None)
+                  summary=reports.event_summary(ctx.db, event.id) if (show_money and with_event_body) else None,
+                  **(extra or {}))
 
 
 @router.post("/change_name/rename")
@@ -320,8 +319,9 @@ async def expense_add(event_id: int, request: Request, ctx: Ctx = Depends(requir
 
 
 @router.post("/expenses/{expense_id}/delete")
-async def expense_delete(expense_id: int, ctx: Ctx = Depends(require_ctx)):
+async def expense_delete(expense_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.EVENTS_MANAGE)
+    await form_data(request)                    # only to read return_to
     row = events.delete_expense(ctx.db, ctx.user, expense_id)
     return flash_redirect(f"/events/{row.event_id}", "Expense removed.")
 

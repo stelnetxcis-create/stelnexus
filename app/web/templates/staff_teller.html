@@ -15,6 +15,28 @@
 
 {% if not can_manage %}<div class="notice">Read-only view. Only the Teller who owns a number, or the Admin, can change it.</div>{% endif %}
 
+{% if syspool is not none %}
+<div class="card" id="system-pool" style="border-color:rgba(217,177,85,.45);background:linear-gradient(135deg,rgba(217,177,85,.10),rgba(255,255,255,.02))">
+  <div class="card-head"><h2>System pool</h2><span class="muted small">&#128274; House reserve &middot; locked: it only fills from settlement, nobody can move it from here</span></div>
+  <div class="card-body">
+    <div class="grid grid-3">
+      {{ ui.stat('In the pool', syspool.balance | money, 'house reserve, all games', 'green') }}
+      {{ ui.stat('From Sabong', syspool.sabong | money, 'its share of every Tong') }}
+      {{ ui.stat('From Bola', syspool.bola | money, 'its share of every Bola cut') }}
+    </div>
+    <p class="muted small" style="margin:12px 0 8px">Each settled fight and draw puts a share of the game&rsquo;s cut here before the Master / Agent / Sub Agent split is taken from the rest.</p>
+    {% if syspool.recent %}
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>When</th><th>What</th><th>Game</th><th class="num">Amount</th></tr></thead>
+      <tbody>{% for r in syspool.recent %}
+        <tr><td>{{ r.at.strftime('%b %d, %H:%M') }}</td><td>{{ r.memo }}{% if r.reversal %} <span class="muted">(reversed)</span>{% endif %}</td>
+          <td>{{ r.game | capitalize }}</td><td class="num">{{ r.amount | money }}</td></tr>{% endfor %}
+      </tbody></table></div>
+    {% else %}{{ ui.empty('Nothing has been set aside yet. It fills as fights and draws settle.') }}{% endif %}
+  </div>
+</div>
+{% endif %}
+
 <div class="grid grid-4">
   {{ ui.stat('Numbers live', live_count ~ ' / ' ~ rows | length, 'active in the rotation', 'green' if live_count else 'red') }}
   {{ ui.stat('Used today', pool_day_used | money, 'across ' ~ ('the whole pool' if pool_scope == 'all' else 'your numbers')) }}

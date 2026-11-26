@@ -8,7 +8,7 @@ from app.core.errors import ValidationError
 from app.core.money import to_cents
 from app.core.rbac import Perm
 from app.db.models import PlayerKind, Status
-from app.services import accounts, betting, players, presence
+from app.services import betting, players
 from app.web.paging import paginate
 from app.web.deps import Ctx, form_data, flash_redirect, render, require_ctx
 
@@ -22,22 +22,6 @@ def _date(raw: str | None) -> dt.date | None:
         return dt.date.fromisoformat(raw.strip())
     except ValueError as exc:
         raise ValidationError("Use a valid date (YYYY-MM-DD).") from exc
-
-
-@router.get("/clp")
-async def clp(request: Request, ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.PLAYERS_VIEW)
-    search = request.query_params.get("q", "")[:60]
-    kind = request.query_params.get("kind") or "online"
-    pager, rows = paginate(request, 200, lambda limit, offset: players.list_players(
-        ctx.db, ctx.user, kind=PlayerKind(kind) if kind in ("card", "online") else None,
-        search=search or None, limit=limit, offset=offset))
-    found = accounts.player_wallets(ctx.db, [r.id for r in rows])           # one query for all rows
-    balances = {row.id: (found[row.id] if row.id in found else players.wallet(ctx.db, row).balance_cents)
-                for row in rows}
-    return render(ctx, "clp.html", active="clp", rows=rows, balances=balances, search=search, pager=pager,
-                  kind=kind,
-                  min_age=int(ctx.store.get("player.min_age")))
 
 
 @router.post("/clp/register")
@@ -58,7 +42,7 @@ async def clp_register(request: Request, ctx: Ctx = Depends(require_ctx)):
             address=data.get("address"), gender=data.get("gender"), settings=ctx.store,
             daily_limit_cents=limit,
         )
-    return flash_redirect("/clp", f"Player '{player.full_name}' registered.")
+    return flash_redirect("/staff/people?tab=players", f"Player '{player.full_name}' registered.")
 
 
 @router.get("/clp/{player_id}/history")
@@ -94,13 +78,3 @@ async def player_update(player_id: int, request: Request, ctx: Ctx = Depends(req
         reason=data.get("reason"),
     )
     return flash_redirect(f"/clp/{player_id}/history", "Player updated.")
-
-
-# --- who is online (Admin, or a Pawn with the grant) ------------------------
-
-@router.get("/clp/online")
-async def clp_online(ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.ONLINE_VIEW)
-    rows = presence.online_accounts(ctx.db, ctx.user, ctx.store)
-    return render(ctx, "online.html", active="clp", rows=rows,
-                  window=int(ctx.store.get("presence.window_minutes")))

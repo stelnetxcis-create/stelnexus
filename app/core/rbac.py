@@ -66,6 +66,11 @@ class Perm(str, Enum):
     BOLA_REDECLARE = "bola.redeclare"    # request a correction
     BOLA_APPROVE = "bola.approve"        # approve a correction (never your own)
     BOLA_EXPOSURE = "bola.exposure"      # stakes, exposure heat-map and draw totals
+    BOLA_SKIP = "bola.skip"              # skip the wait: close betting and bring the draw time to now (dev-only by default)
+    # Scatter: the 6x5 scatter-pays slot. Played from the account's own credit; there is nothing to manage per round.
+    SCATTER_VIEW = "scatter.view"        # open the game, see own rounds
+    SCATTER_PLAY = "scatter.play"        # spin with own credit
+    SCATTER_REPORT = "scatter.report"    # stakes, wins and the house result across all players
     COMMISSIONS_VIEW = "commissions.view"
     COMMISSIONS_CLAIM = "commissions.claim"
     CASHFLOW_VIEW = "cashflow.view"
@@ -107,6 +112,13 @@ class Perm(str, Enum):
     STAFF_VIEW = "staff.view"
     STAFF_TELLER = "staff.teller"
     STAFF_DECLARATOR = "staff.declarator"
+    # The system pool: the house reserve (a share of every game's cut) that builds up on the Teller page. Locked: it only
+    # ever fills from settlement. Admin, Bishop and Tellers see it; a Pawn only if the Admin granted it.
+    SYSTEM_POOL_VIEW = "systempool.view"
+    # Agent Panel (below the Staff Panel): the Agent's own desk. Agents hold it; Master, Sub Agents and players never;
+    # the dev team (Admin, Bishop) can open it too. AGENT_ROOM_CUTS = set what the Agent's Sub Agents earn, per room.
+    AGENT_PANEL_VIEW = "agentpanel.view"
+    AGENT_ROOM_CUTS = "agentpanel.cuts"
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +150,7 @@ _AGENT_PERMS = {
     Perm.DASHBOARD,
     Perm.EVENTS_VIEW, Perm.FIGHTS_VIEW, Perm.BETS_VIEW, Perm.BETS_PLACE,   # no BETS_CANCEL: undoing a bet is dev-only
     Perm.BOLA_VIEW, Perm.BOLA_PLACE,        # no BOLA_CANCEL: undoing a number-game bet is dev-only too
+    Perm.SCATTER_VIEW, Perm.SCATTER_PLAY,
     Perm.COMMISSIONS_VIEW, Perm.COMMISSIONS_CLAIM,
     # Hosting: an Agent / Sub Agent may create an event (and register its venue). Running it (lock, odds,
     # cancel, expenses) stays with Master / Admin: EVENTS_MANAGE is not scoped to the event's creator.
@@ -157,7 +170,11 @@ _ADMIN_ONLY = {
     # Undoing / cancelling a placed bet (livestream Undo, ticket page, API) is dev-only: once a bet is in, players,
     # agents and Master cannot take it back. Only the Admin (or a Pawn it was explicitly granted to) can.
     Perm.BETS_CANCEL, Perm.BOLA_CANCEL,
+    # Skipping a draw's wait (the cut-off countdown) is dev-only too; the Admin can allow it on any account.
+    Perm.BOLA_SKIP,
     Perm.STAFF_VIEW, Perm.STAFF_TELLER, Perm.STAFF_DECLARATOR,
+    # The Agent Panel is for Agents (they get it below) and the dev team; Master gets it view-only in ROLE_PERMS.
+    Perm.AGENT_PANEL_VIEW, Perm.AGENT_ROOM_CUTS,
     Perm.LOCATIONS_VIEW, Perm.LOCATIONS_MANAGE, Perm.TEAMS_VIEW, Perm.TEAMS_MANAGE,
     # House money is dev-only: the cashflow page, house totals on the dashboard, event P&L and the
     # report archives. A Pawn can still be granted them one by one ("cashflow:view", "reports:view").
@@ -181,8 +198,9 @@ _DECLARATOR_PERMS = {Perm.EVENTS_VIEW, Perm.FIGHTS_VIEW, Perm.FIGHTS_LOCK, Perm.
                      Perm.BOLA_VIEW, Perm.BOLA_DECLARE, Perm.BOLA_REDECLARE}
 
 # Teller: the wallet desk and nothing else (approve / reject requests, see Users). No balance.
+# The Staff Panel's People page shows a Teller only who is online and their GCash numbers (see routes_people).
 _TELLER_PERMS = {Perm.WALLET_VIEW, Perm.REQUESTS_VIEW, Perm.REQUESTS_REVIEW, Perm.AGENTS_VIEW,
-                 Perm.STAFF_VIEW, Perm.STAFF_TELLER}
+                 Perm.STAFF_VIEW, Perm.STAFF_TELLER, Perm.ONLINE_VIEW, Perm.SYSTEM_POOL_VIEW}
 
 # What only the King may ever hold: nobody below it can be given these, whatever is ticked anywhere.
 KING_ONLY: frozenset[Perm] = frozenset({Perm.BISHOPS_MANAGE, Perm.KING_DESK})
@@ -194,9 +212,12 @@ ROLE_PERMS: dict[Role, set[Perm]] = {
     Role.ADMIN: set(Perm),
     # The Bishop: every right except the King's own. What the King seals on top comes off live (see sealed_perms).
     Role.BISHOP: set(Perm) - KING_ONLY,
-    Role.MASTER: set(_OPERATOR),
-    # Agent and Sub Agent recruit through referral codes; the cut itself is not theirs to change.
-    Role.AGENT: _AGENT_PERMS | {Perm.REFERRALS_MANAGE},
+    # Master opens the Agent Panel, sets what its own Agents and their Sub Agents earn per room, and approves Sub Agent
+    # panel requests there. It does not get the Admin's Cuts page (room defaults stay with the Admin side).
+    Role.MASTER: set(_OPERATOR) | {Perm.AGENT_PANEL_VIEW, Perm.AGENT_ROOM_CUTS},
+    # Agent and Sub Agent recruit through referral codes. Their own Volume % is not theirs to change.
+    # An Agent also gets the Agent Panel and may set what its Sub Agents earn per room; a Sub Agent has no one below it.
+    Role.AGENT: _AGENT_PERMS | {Perm.REFERRALS_MANAGE, Perm.AGENT_PANEL_VIEW, Perm.AGENT_ROOM_CUTS},
     Role.SUB_AGENT: _AGENT_PERMS | {Perm.REFERRALS_MANAGE},
     # Retired tiers (merged into Agent / Sub Agent by the migration): no permissions.
     Role.TELLER: set(_TELLER_PERMS),
@@ -212,6 +233,7 @@ ROLE_PERMS: dict[Role, set[Perm]] = {
 PLAYER_PERMS: frozenset[Perm] = frozenset({
     Perm.EVENTS_VIEW, Perm.FIGHTS_VIEW, Perm.BETS_VIEW, Perm.BETS_PLACE,
     Perm.BOLA_VIEW, Perm.BOLA_PLACE,
+    Perm.SCATTER_VIEW, Perm.SCATTER_PLAY,
     Perm.WALLET_VIEW, Perm.REQUESTS_VIEW, Perm.REQUESTS_CREATE,
 })
 
@@ -476,6 +498,9 @@ def _build_grants() -> tuple[Grant, ...]:
         Grant("staff:teller", "See the Staff Panel \u2192 Teller section",
               "Read-only view of every GCash number, its limits and today's usage. Cannot add or change numbers.",
               "Staff Panel", frozenset({Perm.STAFF_VIEW, Perm.STAFF_TELLER})),
+        Grant("systempool:view", "See the system pool on the Teller page",
+              "Read-only: the house reserve that builds up from every game's cut. Nobody can move it from there.",
+              "Staff Panel", frozenset({Perm.STAFF_VIEW, Perm.STAFF_TELLER, Perm.SYSTEM_POOL_VIEW})),
         Grant("staff:declarator", "See the Staff Panel \u2192 Declarator section", "",
               "Staff Panel", frozenset({Perm.STAFF_VIEW, Perm.STAFF_DECLARATOR})),
         Grant("chat", "Use the livestream chat (experimental)",
@@ -534,7 +559,11 @@ PERM_CATALOG: tuple[tuple[str, tuple[tuple[Perm, str], ...]], ...] = (
         (Perm.BOLA_CANCEL, "Cancel a Bola ticket"), (Perm.BOLA_MANAGE, "Create / open / lock / void draws, schedules"),
         (Perm.BOLA_OPEN, "Open / close betting on a draw"), (Perm.BOLA_DECLARE, "Enter the two balls"),
         (Perm.BOLA_REDECLARE, "Request correction"), (Perm.BOLA_APPROVE, "Approve correction"),
-        (Perm.BOLA_EXPOSURE, "Stakes, exposure, draw totals"))),
+        (Perm.BOLA_EXPOSURE, "Stakes, exposure, draw totals"),
+        (Perm.BOLA_SKIP, "Skip the draw wait (close betting, draw now)"))),
+    ("Scatter (slot)", (
+        (Perm.SCATTER_VIEW, "Open Scatter, see own rounds"), (Perm.SCATTER_PLAY, "Spin Scatter with own credit"),
+        (Perm.SCATTER_REPORT, "Scatter stakes, wins and house result"))),
     ("Money, cuts & reports", (
         (Perm.COMMISSIONS_VIEW, "See commissions"), (Perm.COMMISSIONS_CLAIM, "Claim commissions"),
         (Perm.REFERRALS_MANAGE, "Manage referral codes"), (Perm.CUTS_VIEW, "See Volume % / SOP % cuts"),
@@ -552,7 +581,11 @@ PERM_CATALOG: tuple[tuple[str, tuple[tuple[Perm, str], ...]], ...] = (
         (Perm.CANCEL_LOG, "Cancel Ticket / Bola Cancelled pages"), (Perm.CHAT_USE, "Livestream chat"))),
     ("Staff Panel", (
         (Perm.STAFF_VIEW, "Staff Panel"), (Perm.STAFF_TELLER, "Staff \u2192 Teller section"),
-        (Perm.STAFF_DECLARATOR, "Staff \u2192 Declarator section"))),
+        (Perm.STAFF_DECLARATOR, "Staff \u2192 Declarator section"),
+        (Perm.SYSTEM_POOL_VIEW, "System pool on the Teller page"))),
+    ("Agent Panel", (
+        (Perm.AGENT_PANEL_VIEW, "Agent Panel"),
+        (Perm.AGENT_ROOM_CUTS, "Set what Sub Agents earn, per room"))),
 )
 
 _PERM_ORDER = {p.value: i for i, p in enumerate(Perm)}

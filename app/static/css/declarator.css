@@ -168,7 +168,7 @@
 .dk-sum small{display:block;margin-top:4px;font:400 13px var(--font);color:var(--ink-3)}
 .dk-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
 .dk-fields label{display:grid;gap:5px;font-size:12px;font-weight:650;color:var(--ink-3)}
-.dk-fields input[type="text"]{width:100%;min-height:44px;padding:9px 12px;border-radius:10px;border:1px solid var(--line-2);background:var(--input);color:var(--ink);font:inherit;font-size:14px}
+.dk-fields input[type="text"],.dk-fields input[type="time"]{width:100%;min-height:44px;padding:9px 12px;border-radius:10px;border:1px solid var(--line-2);background:var(--input);color:var(--ink);font:inherit;font-size:14px}
 .dk-proof{display:flex;align-items:center;gap:12px;min-height:44px;padding:6px 10px;border-radius:10px;border:1px dashed var(--line-2);background:var(--input);color:var(--ink-2);cursor:pointer;text-align:left;font-size:13px}
 .dk-proof:hover{border-color:var(--gold)}
 .dk-proof img{width:44px;height:44px;object-fit:cover;border-radius:7px;border:1px solid var(--line-2)}
@@ -251,3 +251,25 @@
 .dk-timer b{font-variant-numeric:tabular-nums}
 .dk-custom{display:inline-flex;gap:6px;align-items:center}
 .dk-custom input{width:104px;min-height:38px;padding:0 10px;border-radius:10px;border:1px solid var(--line-2);background:rgba(255,255,255,.04);color:var(--ink);font:inherit;font-size:16px}
+
+/* ---------- mini live-draw screen (Bola stage, and the pop-up that plays the result) ---------- */
+.dk-tv{display:flex;align-items:center;justify-content:center;gap:18px;flex-wrap:wrap;padding:14px 16px 20px;border-radius:14px;overflow:hidden;
+  border:1px solid rgba(217,177,85,.32);background:radial-gradient(280px 130px at 14% 0%,rgba(217,177,85,.18),transparent 70%),#0b0906}
+.dk-tv .bl-globe{width:132px;margin:0 0 14px;flex:none}
+.dk-tv .bl-b{width:24px;height:24px;margin:-12px 0 0 -12px;font-size:9px}
+.dk-tv[data-mode="drawing"] .bl-b,.dk-tv.is-shuffle .bl-b{animation-duration:.32s,.4s}
+.dk-tv.is-shuffle .bl-globe{animation:bl-shake .12s linear infinite}
+.dk-tv-side{flex:1 1 200px;min-width:0;display:grid;gap:5px;justify-items:center;text-align:center}
+.dk-tv-title{display:flex;align-items:center;gap:8px;font:800 10px var(--font);letter-spacing:.22em;text-transform:uppercase;color:var(--gold-hi)}
+.dk-tv-title i{width:8px;height:8px;border-radius:50%;background:#ff3b5c;animation:bs-beat 1.3s ease-out infinite}
+.dk-tv-count{min-height:1em;font:700 clamp(34px,5vw,54px)/1 var(--serif);font-variant-numeric:tabular-nums;color:var(--gold-hi)}
+.dk-tv-say{min-height:1.3em;font-size:12.5px;font-weight:700;color:var(--ink-2)}
+.dk-tv[data-mode="drawing"] .dk-tv-say{animation:bl-pulse 1.4s ease-in-out infinite}
+.dk-tv.is-final .dk-tv-say{font:700 22px var(--serif);color:var(--gold-hi);animation:none}
+.dk-tv .bl-slots{gap:16px;margin-top:2px}
+.dk-tv .bl-ball{width:54px;height:54px;font-size:22px}
+.dk-tv-pop{position:fixed;right:18px;bottom:18px;z-index:80;width:min(460px,calc(100vw - 36px));border-radius:16px;box-shadow:0 30px 60px -20px #000;animation:bt-fade .35s both}
+.dk-tv-pop .dk-tv{padding-top:20px}
+.dk-tv-x{position:absolute;top:8px;right:8px;z-index:2;width:30px;height:30px;border-radius:50%;cursor:pointer;color:var(--ink);border:1px solid var(--line-2);background:rgba(255,255,255,.06)}
+.dk-pill-dev{margin-left:8px;padding:2px 8px;border-radius:999px;font:800 10px var(--font);letter-spacing:.1em;color:#ff7a8d;border:1px solid rgba(229,56,79,.5)}
+@media (prefers-reduced-motion: reduce){.dk-tv .bl-b,.dk-tv .bl-globe,.dk-tv-say,.dk-tv-pop{animation:none!important}}

@@ -162,6 +162,36 @@
 @keyframes art-float{50%{translate:0 -5px}}
 @media (max-width:640px){.games .game-tile.is-soon::before{right:-34px}.games .game-tile::before{width:190px;height:95px;margin-top:-47px;opacity:.45}.games .game-tile .game-name{font-size:21px}}
 
+/* ---------- unified game cards (.gcard): the artwork ----------
+   The one-look cards from the unified Games/Dashboard design lost the pictures the old tiles had (they were drawn by
+   `.games .game-tile::before`, a selector the new markup no longer matches). Same art, same float and hover, now on .gcard.
+   base.css uses .gcard::before for a corner glow; that glow moves into the card's own background so ::before is free. */
+.gcard{background:radial-gradient(120% 90% at 100% 0%,var(--gc-glow,rgba(217,177,85,.16)),transparent 60%),linear-gradient(165deg,#17141a 0%,#0f0d11 70%)}
+.gcard::before{inset:auto;right:2px;top:-2px;bottom:auto;left:auto;width:clamp(120px,calc(100% - 250px),260px);height:124px;z-index:-1;pointer-events:none;
+  background:var(--gc-art,none) right center/contain no-repeat;opacity:.68;
+  -webkit-mask:linear-gradient(to left,#000 62%,transparent),linear-gradient(to bottom,#000 70%,transparent);-webkit-mask-composite:source-in;
+  mask:linear-gradient(to left,#000 62%,transparent),linear-gradient(to bottom,#000 70%,transparent);mask-composite:intersect;
+  transition:transform .7s var(--ease),opacity .3s;animation:art-float 6s ease-in-out infinite}
+.gcard-state{background-color:rgba(12,10,14,.62)}
+.gcard.is-live:hover::before{transform:translateX(-14px) scale(1.12) rotate(-2deg);opacity:1}
+.gcard[data-game="sabong"]{--gc-art:url(/static/img/games/duel.svg)}
+.gcard[data-game="bola"],.gcard[data-game="number"]{--gc-art:url(/static/img/games/numbers.svg)}
+.gcard[data-game="scatter"]{--gc-art:url(/static/img/games/scatter.svg)}
+.gcard-scatter{--gc-glow:rgba(150,90,255,.28)}
+.gcard[data-game="esports"]{--gc-art:url(/static/img/games/esports.svg)}
+.gcard[data-game="nba"]{--gc-art:url(/static/img/games/nba.svg)}
+/* Announced-but-not-playable cards keep their quiet dashed look, with the art dimmed behind the text (as the old Soon tiles did). */
+.gcard-soon::before{display:block;top:50%;margin-top:-50px;right:46px;width:clamp(110px,calc(100% - 300px),190px);height:100px;opacity:.5;filter:saturate(.8);
+  -webkit-mask:linear-gradient(to left,#000 55%,transparent);mask:linear-gradient(to left,#000 55%,transparent)}
+.gcard-soon[data-game="esports"]{background:radial-gradient(380px 150px at 92% 50%,rgba(139,92,246,.16),transparent 70%),linear-gradient(165deg,#131115,#0e0d10)}
+.gcard-soon[data-game="nba"]{background:radial-gradient(380px 150px at 92% 50%,rgba(249,115,22,.16),transparent 70%),linear-gradient(165deg,#131115,#0e0d10)}
+.gcard-soon[data-game="esports"] .gcard-ico{color:#b79cff}
+.gcard-soon[data-game="nba"] .gcard-ico{color:#fb923c}
+.gcard-soon[data-game="nba"]::before{opacity:.55;filter:saturate(.85)}
+@media (max-width:640px){.gcard::before{right:-4px;width:44%;height:86px;opacity:.45}.gcard-soon::before{margin-top:-34px;right:10px;height:68px;opacity:.4}}
+@media (prefers-reduced-motion:reduce){.gcard::before{animation:none;transition:none}}
+.fx-lite .gcard::before{animation:none}
+
 /* ---------- Bola area cards ---------- */
 .area-card .area-head{position:relative;overflow:hidden;isolation:isolate;min-height:84px;background:none}
 .area-head::before{content:"";position:absolute;inset:-6%;z-index:-2;background:var(--card-img) center/cover;transition:transform 1.1s var(--ease)}
@@ -784,3 +814,63 @@ body.gm-open .hero,body.gm-open .kpis,body.gm-open .dash-grid,body.gm-open #bola
 .fx-min .games .game-tile:hover,.fx-min .games .game-tile.is-live:hover,.fx-min .kpi:hover,.fx-min .live-list li:hover,.fx-min .nav-link:hover,
 .fx-min .game-wrap.is-open .gm-item:hover{transform:none}
 .fx-min .games.has-open .game-wrap:not(.is-open){opacity:.5}
+
+/* =====================================================================================================================
+   MOTION PASS (what the page was still missing): a transition between pages, menus that open item by item, badges and
+   empty states that ease instead of snapping, a spinner on a submitting button.
+   Scroll reveal, the loading bar, ripples, tilt and count-up already live in arena.js; nothing here repeats them.
+   Everything sits inside prefers-reduced-motion: no-preference. Minimal mode (html.fx-min, the phone default) keeps
+   the plain behaviour; lite mode (the computer default) keeps all of this because it only fades and slides.
+   ===================================================================================================================== */
+
+/* ---- 1. page-to-page transition (cross-document View Transitions): the shell stays put, the page fades up ---- */
+@media (prefers-reduced-motion:no-preference){
+  @view-transition{navigation:auto}
+  .sidebar{view-transition-name:vt-sidebar}
+  .topbar{view-transition-name:vt-topbar}
+  .tabbar{view-transition-name:vt-tabbar}
+  ::view-transition-group(vt-sidebar),::view-transition-group(vt-topbar),::view-transition-group(vt-tabbar){animation-duration:0s}
+  ::view-transition-old(vt-sidebar),::view-transition-old(vt-topbar),::view-transition-old(vt-tabbar){display:none}
+  ::view-transition-new(vt-sidebar),::view-transition-new(vt-topbar),::view-transition-new(vt-tabbar){animation:none}
+  ::view-transition-old(root){animation:vt-out .12s ease-in both}
+  ::view-transition-new(root){animation:vt-in .3s var(--ease) both}
+  html.fx-min::view-transition-old(root){display:none}                      /* phones: switch instantly */
+  html.fx-min::view-transition-new(root){animation:none}
+}
+@keyframes vt-out{to{opacity:0}}
+@keyframes vt-in{from{opacity:0;transform:translateY(10px)}}
+
+/* ---- 2. dropdown menus: items arrive one after another, rows answer the pointer ---- */
+.account-item{transition:background-color .18s,color .18s,padding-left .2s var(--ease)}
+.account-item .ico{transition:transform .22s var(--ease),color .18s}
+@media (hover:hover){
+  .account-item:hover{padding-left:12px}
+  .account-item:hover .ico{transform:scale(1.14) rotate(-4deg);color:var(--gold-hi)}
+}
+@media (prefers-reduced-motion:no-preference){
+  html:not(.fx-min) .menu[open] .menu-panel>*{animation:menu-item-in .3s var(--ease) both}
+  html:not(.fx-min) .menu[open] .menu-panel>*:nth-child(2){animation-delay:30ms}
+  html:not(.fx-min) .menu[open] .menu-panel>*:nth-child(3){animation-delay:60ms}
+  html:not(.fx-min) .menu[open] .menu-panel>*:nth-child(4){animation-delay:90ms}
+  html:not(.fx-min) .menu[open] .menu-panel>*:nth-child(5){animation-delay:120ms}
+  html:not(.fx-min) .menu[open] .menu-panel>*:nth-child(6){animation-delay:150ms}
+  html:not(.fx-min) .menu[open] .menu-panel>*:nth-child(n+7){animation-delay:180ms}
+}
+@keyframes menu-item-in{from{opacity:0;transform:translateY(-6px)}}
+
+/* ---- 3. badges ease between states (live refresh swaps them); clickable ones lift ---- */
+.badge{transition:background-color .3s var(--ease),color .3s var(--ease),border-color .3s var(--ease),box-shadow .3s var(--ease),transform .2s var(--ease)}
+a.badge:hover,button.badge:hover{transform:translateY(-1px)}
+
+/* ---- 4. empty states fade up instead of just appearing ---- */
+@media (prefers-reduced-motion:no-preference){
+  html:not(.fx-min) .empty,html:not(.fx-min) .empty-art{animation:empty-in .6s var(--ease) both}
+}
+@keyframes empty-in{from{opacity:0;transform:translateY(12px)}}
+
+/* ---- 5. a button shows a spinner while its form is being sent (own keyframes: the page's "spin" animates an angle variable) ---- */
+.btn.is-working{position:relative;pointer-events:none;opacity:.88}
+.btn.is-working::before{content:"";display:inline-block;width:12px;height:12px;margin-right:8px;vertical-align:-2px;border:2px solid currentColor;
+  border-right-color:transparent;border-radius:50%;animation:btn-spin .7s linear infinite}
+@keyframes btn-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.btn.is-working::before{animation-duration:1.8s}}

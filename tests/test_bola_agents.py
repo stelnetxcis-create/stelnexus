@@ -62,7 +62,7 @@ def test_agent_statement_counts_sales_cancels_and_commission(bw):  # noqa: F811
     assert (kub["winners"], kub["paid"]) == (0, 0)
     assert kub["commission"] == 0                                  # a bettor earns nothing on its own bet
     assert w.cavo.username in by_name and by_name[w.cavo.username]["commission"] > 0
-    assert w.master.username not in by_name                        # D4 default: no Master line
+    assert w.master.username in by_name and by_name[w.master.username]["commission"] > 0   # the Master is paid on Bola too
     assert stmt["totals"]["staked"] == sum(r["staked"] for r in stmt["rows"])
 
 

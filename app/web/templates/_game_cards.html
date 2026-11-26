@@ -9,14 +9,15 @@
   <div class="gcard-top">
     <span class="gcard-ico"><svg class="ico"><use href="#{{ g.icon }}"/></svg></span>
     <div class="gcard-title">
-      <span class="gcard-kicker">{% if g.key == 'sabong' %}Meron or Wala{% elif g.key == 'bola' %}Tumbok-Sahod{% else %}{{ g.vocabulary.session }}{% endif %}</span>
+      <span class="gcard-kicker">{% if g.key == 'sabong' %}Meron or Wala{% elif g.key == 'bola' %}Tumbok-Sahod{% elif g.key == 'scatter' %}Pays anywhere{% else %}{{ g.vocabulary.session }}{% endif %}</span>
       <h3>{{ g.label }}</h3>
     </div>
     <span class="gcard-state state-{{ s.state }}"><i aria-hidden="true"></i>{{ tone }}</span>
   </div>
   <dl class="gcard-stats">
-    <div><dd>{{ s.rounds }}</dd><dt>{{ g.vocabulary.round | lower }}{{ '' if s.rounds == 1 else 's' }} open</dt></div>
-    {% if s.tickets is not none %}<div><dd>{{ s.tickets }}</dd><dt>ticket{{ '' if s.tickets == 1 else 's' }} today</dt></div>{% endif %}
+    {% if g.key == 'scatter' %}<div><dd>24/7</dd><dt>always open</dt></div>
+    {% else %}<div><dd>{{ s.rounds }}</dd><dt>{{ g.vocabulary.round | lower }}{{ '' if s.rounds == 1 else 's' }} open</dt></div>{% endif %}
+    {% if s.tickets is not none %}<div><dd>{{ s.tickets }}</dd><dt>{{ 'round' if g.key == 'scatter' else 'ticket' }}{{ '' if s.tickets == 1 else 's' }} today</dt></div>{% endif %}
     {% if s.staked is not none %}<div><dd>{{ s.staked | money }}</dd><dt>staked today</dt></div>{% endif %}
   </dl>
   {% if s.next %}<p class="gcard-next"><span>Next up</span><b>{{ s.next }}</b></p>{% endif %}

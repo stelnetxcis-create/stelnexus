@@ -114,7 +114,7 @@ def test_required_picture_for_pawn_is_enforced_by_the_helper():
     with session_scope() as db:
         admin = db.scalar(select(User).where(User.username == "admin"))
         store = SettingsStore(db)
-        pawn = agents.create_agent(db, admin, username="uipawn", password=PASSWORD, role=Role.PAWN,
+        pawn = agents.create_agent(db, admin, username="uipawn01", password=PASSWORD, role=Role.PAWN,
                                    full_name="P", settings=store)
         assert proofs.required_for(pawn, store) is bool(store.get("fight.pawn_proof_required"))
         assert proofs.required_for(admin, store) is False

@@ -99,7 +99,11 @@ def _add_missing_columns(engine: Engine) -> list[str]:
                             f'ALTER TABLE "{table.name}" ADD FOREIGN KEY ("{column.name}") '
                             f'REFERENCES "{fk.column.table.name}" ("{fk.column.name}") '
                             f"ON DELETE SET NULL")
-                if column.index:
+                if column.unique:               # e.g. users.email_key: one Gmail per account, enforced by the database too
+                    conn.exec_driver_sql(
+                        f'CREATE UNIQUE INDEX IF NOT EXISTS "ux_{table.name}_{column.name}" '
+                        f'ON "{table.name}" ("{column.name}")')
+                elif column.index:
                     conn.exec_driver_sql(
                         f'CREATE INDEX IF NOT EXISTS "ix_{table.name}_{column.name}" '
                         f'ON "{table.name}" ("{column.name}")')

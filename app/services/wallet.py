@@ -33,6 +33,8 @@ KIND_LABELS: dict[str, str] = {
     "fight.settle": "Winnings / refund",
     # Number game (Bola). A cancelled ticket shows as "Reversal · Bola bet placed" (see label_for).
     "bola.stake": "Bola bet placed",
+    "scatter.stake": "Scatter spin",
+    "scatter.win": "Scatter win",
     "bola.settle": "Bola winnings",
     "bola.refund": "Bola refund",
     "store.pass": "Battle Pass (chat)",

@@ -3,6 +3,7 @@ uvicorn[standard]>=0.29
 starlette>=0.37
 sqlalchemy>=2.0
 psycopg[binary]>=3.1
+redis>=5.0              # shared rate limits / chat wake-ups when running several workers (REDIS_URL)
 pydantic>=2.6
 pydantic-settings>=2.2
 jinja2>=3.1

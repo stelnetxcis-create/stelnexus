@@ -1,0 +1,94 @@
+{# Team: the selling network. Click a person to open everything you may do with that account. #}
+<div class="grid grid-3">
+  {{ ui.stat('Accounts shown', rows | length, 'in your network' if downline else 'matching') }}
+  {% if downline %}{{ ui.stat('Downline size', downline | length, 'all levels below you') }}{% endif %}
+  {% if online_ids %}{{ ui.stat('Online now', online_ids | length, 'signed in') }}{% endif %}
+  {% if my_balance is not none %}{{ ui.stat('My credit', my_balance | money, 'send, load and history are in the Wallet', 'dark') }}{% endif %}
+</div>
+
+<div class="pp-tools">
+  <form class="search" method="get" action="/staff/people">
+    <input type="hidden" name="tab" value="team">
+    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input type="search" name="q" value="{{ search }}" placeholder="Name, username or ref code" aria-label="Search the team">
+  </form>
+</div>
+
+{% set cols = '2.2fr 1.1fr 1fr 1.2fr .9fr 20px' if not hide_balances else '2.2fr 1.1fr 1.2fr .9fr 20px' %}
+{% if rows %}
+<div class="pp-list" style="--cols: {{ cols }}">
+  <div class="pp-head"><span>Person</span><span>Type</span>{% if not hide_balances %}<span>Credit</span>{% endif %}<span>Last seen</span><span>Status</span><span></span></div>
+  {% for row in rows %}
+  {% set closed = row.status.value == 'closed' %}
+  {% set locked_role = row.role.value in ('admin', 'bishop', 'teller') or (row.role.value == 'pawn' and not user.is_admin_tier) %}
+  {% set acct_ok = (not closed) and (not locked_role) %}
+  {% set d = describe(row.role) %}
+  <details class="pp-person">
+    <summary>
+      <div class="pp-name"><strong>{{ row.full_name }}</strong>{{ badge_strip(badge_map.get(row.id, []), 16) }}<small class="mono">{{ row.username }}</small></div>
+      <div class="pp-hide-sm">{{ ui.badge(d.label, d.tone) }} <small class="muted">{{ d.branch_label }}</small></div>
+      {% if not hide_balances %}<div class="pp-hide-sm num">{{ (wallets[row.id] | money) if wallets[row.id] is not none else '—' }}</div>{% endif %}
+      <div class="pp-hide-sm small">{% if row.id in online_ids %}<span class="pp-dot"></span>Online now{% else %}{{ row.last_login_at | datetime }}{% endif %}</div>
+      <div>{{ ui.status_badge(row.status) }}</div>
+      <span class="pp-chev" aria-hidden="true">›</span>
+    </summary>
+    <div class="pp-body">
+      <div class="pp-facts">
+        <div><span>Branch and tier</span>{{ d.branch_label }} · tier {{ d.tier }} of {{ d.of }}</div>
+        <div><span>Contact</span>{{ row.contact or '—' }}</div>
+        <div><span>Ref code</span><b class="mono">{{ row.ref_code or '—' }}</b></div>
+        {% if not hide_balances %}<div><span>Commission</span>{{ (commissions[row.id] | money) if commissions[row.id] is not none else '—' }}</div>{% endif %}
+        {% if gcash.get(row.id) %}<div><span>GCash number</span><b class="mono">{{ gcash[row.id] }}</b></div>{% endif %}
+        <div><span>Last sign-in</span>{{ row.last_login_at | datetime }}</div>
+      </div>
+      {% if not closed and (can_profile or (can_account_edit and acct_ok) or (can_account_remove and acct_ok and row.id != me)) %}
+      <div class="pp-forms">
+        {% if can_account_edit and acct_ok %}
+        <form class="pp-form" method="post" action="/admin/accounts/user/{{ row.id }}/edit">{{ ui.csrf(csrf_token) }}
+          <h4>Edit details</h4>
+          {{ ui.field('Full name', 'full_name', value=row.full_name, required=true, attrs='maxlength=120') }}
+          {{ ui.field('Username', 'username', value=row.username, required=true, attrs='maxlength=32 autocapitalize=none') }}
+          {{ ui.field('Contact number', 'contact', value=row.contact or '', help='Philippine mobile number (09XXXXXXXXX).', attrs='maxlength=32 inputmode=tel') }}
+          {{ ui.field('Gmail (information only)', 'email', 'email', help=('Current: ' ~ gmail_mask(row.email_enc) ~ '. Leave empty to keep it.') if row.email_enc else 'Not set. A Gmail can belong to one account.', attrs='maxlength=254 inputmode=email autocapitalize=none') }}
+          {{ ui.field('Reason (optional)', 'reason', attrs='maxlength=200') }}
+          <button class="btn btn-primary btn-sm" type="submit">Save details</button>
+        </form>
+        {% elif can_profile %}
+        <form class="pp-form" method="post" action="/agents/{{ row.id }}/update">{{ ui.csrf(csrf_token) }}
+          <h4>Edit details</h4>
+          {{ ui.field('Full name', 'full_name', value=row.full_name, required=true, attrs='maxlength=120') }}
+          {{ ui.field('Contact number', 'contact', value=row.contact or '', attrs='maxlength=32') }}
+          <button class="btn btn-primary btn-sm" type="submit">Save details</button>
+        </form>
+        {% endif %}
+        {% if can_profile %}
+        <form class="pp-form" method="post" action="/agents/{{ row.id }}/update">{{ ui.csrf(csrf_token) }}
+          <h4>Access</h4>
+          <label class="field"><span>Status</span>
+            <select name="status"><option value="">Leave as it is</option><option value="active">Active</option><option value="suspended">Suspended</option></select>
+          </label>
+          {{ ui.field('Reason (needed when suspending)', 'reason', attrs='maxlength=200') }}
+          <button class="btn btn-sm" type="submit">Apply</button>
+        </form>
+        <form class="pp-form" method="post" action="/agents/{{ row.id }}/password" data-confirm="Reset this password? Their active sessions will be signed out.">{{ ui.csrf(csrf_token) }}
+          <h4>Reset password</h4>
+          {{ ui.field('New temporary password', 'password', 'password', required=true, attrs='autocomplete=new-password') }}
+          <button class="btn btn-sm btn-danger" type="submit">Reset password</button>
+        </form>
+        {% endif %}
+        {% if can_account_remove and acct_ok and row.id != me %}
+        <form class="pp-form is-danger" method="post" action="/admin/accounts/user/{{ row.id }}/remove" data-confirm="Remove {{ row.username }}? They are signed out and cannot sign in again.">{{ ui.csrf(csrf_token) }}
+          <h4>Remove account</h4>
+          <p class="small muted">Closes it and signs it out. History is kept. Refused while it still holds credit, has open bets or has people under it.</p>
+          <input name="reason" placeholder="Reason for removal" required minlength="5" maxlength="200">
+          <button class="btn btn-sm btn-danger" type="submit">Remove account</button>
+        </form>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </details>
+  {% endfor %}
+</div>
+{{ ui.pager(pager) }}
+{% else %}{{ ui.empty('No accounts here yet. Create your first downline account.' if not search else 'No account matches that search.') }}{% endif %}

@@ -42,6 +42,14 @@ def test_missing_or_suspended_links_roll_up():
 
 
 # ------------------------------------------------------------------ the chain
+
+_gm_n = __import__("itertools").count(1)
+
+
+def _gm(w):
+    """A fresh, valid Gmail for a sign-up in these tests."""
+    return f"signup.{next(_gm_n)}.{w.tag}@gmail.com"
+
 @pytest.fixture()
 def chain(world):
     db, admin, store = world.db, world.admin, world.store
@@ -77,9 +85,9 @@ def test_end_to_end_commission_split_and_audit(chain):
     by = {}
     for r in rows:
         by[r.tier] = by.get(r.tier, 0) + r.amount_cents
-    pool = run.totals["house_take"]                       # 5% tong of 20,000 = 1,000
-    assert pool == 1000 and sum(by.values()) == pool
-    assert by["master"] == 700 and by["agent"] == 210 and by["sub_agent"] == 90
+    cut = run.totals["house_take"]                        # 5% tong of 20,000 = the cut, 1,000
+    assert cut == 1000 and sum(by.values()) == cut - 300  # 30% (300) is the house reserve: not a commission line
+    assert by["master"] == 490 and by["agent"] == 148 and by["sub_agent"] == 62   # per ticket, floored
     assert all(r.calc and r.calc["volume_bps"] == 3000 for r in rows)
     assert {r.agent_id for r in rows} == {w.master.id, w.cavo.id, w.kub.id}
     assert reports.integrity(w.db)["ok"]
@@ -92,10 +100,12 @@ def _pawn(w, grants):
     return p
 
 
-def test_master_cannot_change_cut_pawn_with_grant_is_limited_admin_is_not(chain):
+def test_master_sets_its_agents_cut_within_the_limit_pawn_with_grant_too_admin_is_not_limited(chain):
     w = chain
-    with pytest.raises(Forbidden):
-        commissions.set_cut(w.db, w.master, w.cavo, volume="40", settings=w.store)   # Master: no cuts any more
+    commissions.set_cut(w.db, w.master, w.cavo, volume="40", settings=w.store)       # Master: its own Agent's cut
+    assert w.cavo.cut_bps == 4000
+    with pytest.raises(ValidationError):
+        commissions.set_cut(w.db, w.master, w.cavo, volume="80", settings=w.store)   # ...held to the guard rail
     pawn = _pawn(w, ["cuts:edit"])
     commissions.set_cut(w.db, pawn, w.cavo, volume="40", sop="25", settings=w.store)
     assert (w.cavo.cut_bps, w.cavo.sop_bps) == (4000, 2500)
@@ -105,8 +115,10 @@ def test_master_cannot_change_cut_pawn_with_grant_is_limited_admin_is_not(chain)
     assert w.cavo.cut_bps == 8000
     commissions.set_cut(w.db, w.admin, w.cavo, volume="", sop="", settings=w.store)  # reset to default
     assert w.cavo.cut_bps is None and w.cavo.sop_bps is None
+    commissions.set_cut(w.db, w.cavo, w.kub, sop="10", settings=w.store)              # Agent: its own Sub Agent's SOP %
+    assert w.kub.cut_bps == 1000
     with pytest.raises(Forbidden):
-        commissions.set_cut(w.db, w.cavo, w.kub, sop="10", settings=w.store)          # Agent cannot
+        commissions.set_cut(w.db, w.cavo, w.cavo, volume="10", settings=w.store)      # ...but never its own Volume %
     no_grant = _pawn_without(w)
     with pytest.raises(Forbidden):
         commissions.set_cut(w.db, no_grant, w.cavo, volume="10", settings=w.store)
@@ -142,17 +154,17 @@ def test_agent_code_creates_sub_agent_and_sub_agent_code_creates_player(chain):
     w = chain
     code = referrals.create_code(w.db, w.cavo, ttl_minutes=60)
     new = referrals.redeem(w.db, code.code, username=f"nk{w.tag}", password=PASSWORD, full_name="NK",
-                           contact="09171234567", settings=w.store)
+                           contact="09171234567", settings=w.store, email=_gm(w))
     assert new.role == Role.SUB_AGENT and new.parent_id == w.cavo.id
     code = referrals.create_code(w.db, w.kub, ttl_minutes=60)
     p = referrals.redeem(w.db, code.code, username=f"pl{w.tag}", password=PASSWORD, full_name="Pl",
                          contact="09171234567", settings=w.store, birth_date=dt.date(1995, 5, 5),
-                         gcash_number="09171234567")
+                         gcash_number="09171234567", email=_gm(w))
     assert p.agent_id == w.kub.id
     with pytest.raises(ValidationError):                      # single use
         referrals.redeem(w.db, code.code, username="x" + w.tag, password=PASSWORD, full_name="X",
                          contact="09171234567", settings=w.store, birth_date=dt.date(1995, 5, 5),
-                         gcash_number="09171234567")
+                         gcash_number="09171234567", email=_gm(w))
 
 
 def test_role_creation_rules(chain):
@@ -195,9 +207,10 @@ def test_permissions_master_is_admin_minus_admin_panel(monkeypatch):
                   # the King and Bishops' own rights: appoint Bishops, the King desk, answering requests for rights
                   Perm.BISHOPS_MANAGE, Perm.KING_DESK, Perm.APPROVALS_DECIDE,
                   # undoing / cancelling a placed bet is dev-only
-                  Perm.BETS_CANCEL, Perm.BOLA_CANCEL,
+                  Perm.BETS_CANCEL, Perm.BOLA_CANCEL, Perm.BOLA_SKIP,
                   # Staff Panel: each section opens for its own role, the Admin and granted Pawns
                   Perm.STAFF_VIEW, Perm.STAFF_TELLER, Perm.STAFF_DECLARATOR,
+                  # (Master now holds AGENT_PANEL_VIEW and AGENT_ROOM_CUTS: it sets what its own Agents earn)
                   # Master never enters or changes a result
                   Perm.FIGHTS_DECLARE, Perm.FIGHTS_REDECLARE,
                   Perm.BOLA_DECLARE, Perm.BOLA_REDECLARE,
@@ -359,8 +372,8 @@ def test_referral_signup_requires_a_ph_mobile_number_for_every_account_type(chai
     for bad in (None, "", "12345", "08171234567", "0917123456"):
         with pytest.raises(ValidationError):
             referrals.redeem(w.db, code.code, username=f"ph{w.tag}", password=PASSWORD, full_name="PH",
-                             contact=bad, settings=w.store)
+                             contact=bad, settings=w.store, email=_gm(w))
     # a refused sign-up must not burn the code
     ok = referrals.redeem(w.db, code.code, username=f"ph{w.tag}", password=PASSWORD, full_name="PH",
-                          contact="+63 917 123 4567", settings=w.store)
+                          contact="+63 917 123 4567", settings=w.store, email=_gm(w))
     assert ok.contact == "09171234567"

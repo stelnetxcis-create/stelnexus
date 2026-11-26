@@ -35,7 +35,13 @@ async def dashboard(ctx: Ctx = Depends(require_ctx)):
     # Master keeps the operational side of the dashboard without any house totals.
     show_money = ctx.can(Perm.CASHFLOW_VIEW)
     mine = None
-    if not ctx.user.is_top:       # agent / sub agent: only their own numbers, never house-wide money
+    preview_pid = ctx.user.preview_player_id
+    if preview_pid is not None:   # a player: its own credit only. No downline and no players of its own to count.
+        from app.services import accounts as accounts_svc
+        player = ctx.db.get(Player, preview_pid)
+        mine = {"credit": accounts_svc.wallet_for_player(ctx.db, player).balance_cents if player else 0,
+                "downline": None, "players": None}
+    elif not ctx.user.is_top:     # agent / sub agent: only their own numbers, never house-wide money
         def _network() -> dict:
             ids = scope_ids(ctx.db, ctx.user)
             return {"downline": len(downline_ids(ctx.db, ctx.user)),
@@ -53,9 +59,11 @@ async def dashboard(ctx: Ctx = Depends(require_ctx)):
         if ctx.can(Perm.FIGHTS_APPROVE):
             attention.append({"label": "Corrections awaiting approval", "count": len(pending),
                               "href": "/dashboard#corrections", "tone": "amber"})
-        attention.append({"label": "Locked fights waiting for a result", "count": stats["locked_fights"],
-                          "href": "/games/sabong/live", "tone": "red"})
-    bola_card = reports.bola_dashboard(ctx.db, ctx.user, ctx.store) if ctx.can(Perm.BOLA_VIEW) else None
+        if ctx.store.get("games.show_sabong"):
+            attention.append({"label": "Locked fights waiting for a result", "count": stats["locked_fights"],
+                              "href": "/games/sabong/live", "tone": "red"})
+    bola_card = (reports.bola_dashboard(ctx.db, ctx.user, ctx.store)
+                 if ctx.can(Perm.BOLA_VIEW) and ctx.store.get("games.show_bola") else None)
     if bola_card and ctx.user.is_top and ctx.can(Perm.BOLA_APPROVE) and bola_card["pending_corrections"]:
         attention.append({"label": "Bola corrections awaiting approval",
                           "count": bola_card["pending_corrections"], "href": "/bola", "tone": "amber"})

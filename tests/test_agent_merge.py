@@ -1,7 +1,8 @@
 """Cavo + Kubrador merged into Agent + Sub Agent; one statement/commission view for both games.
 
 Pinned here:
-* default split Master 70 / Agent 30 / Sub Agent 30% of the Agent's 30, in BOTH games;
+* the cut is split 30% house reserve (system pool) / 70% network pool; of the network pool the Master keeps 70 and the
+  Agent side 30, and the Sub Agent gets 30% of the Agent's 30, in BOTH games;
 * each game has its own default cuts, and a cut on one account beats them for every game;
 * a player directly under an Agent leaves the whole Agent cut with the Agent;
 * the merged statement + commission list shows an account and everything below it, never the rest;
@@ -15,7 +16,7 @@ from sqlalchemy import create_engine, select, text
 from app.core.errors import ValidationError
 from app.db.models import BolaCommission, BolaKind, Commission, DrawStatus, Result, Role, Side
 from app.services import (
-    agents, betting, bola, bola_settlement, commissions, ledger, locations, players, reports, settlement,
+    accounts, agents, betting, bola, bola_settlement, commissions, ledger, locations, players, reports, settlement,
 )
 from tests.conftest import PASSWORD, fund_user, load_credit
 
@@ -48,6 +49,12 @@ def tree(world):
     return world
 
 
+def _pool(db):
+    """What the system pool (house reserve) holds right now."""
+    account = accounts.get_by_code(db, "sys:pool")
+    return int(account.balance_cents) if account else 0
+
+
 def _tiers(rows):
     out = {}
     for r in rows:
@@ -64,10 +71,15 @@ def _sabong(w, seller, player, result=Result.MERON):
 
 
 # ---------------------------------------------------------------- the split
-def test_sabong_default_is_70_21_9(tree):
+def test_sabong_default_splits_the_cut_30_reserve_then_master_agent_sub(tree):
     w = tree
-    rows = _sabong(w, w.sub, w.p_sub)                   # tong 5% of 20,000 = pool 1,000
-    assert _tiers(rows) == {"master": 700, "agent": 210, "sub_agent": 90}
+    before = _pool(w.db)
+    rows = _sabong(w, w.sub, w.p_sub)                   # tong 5% of 20,000 = the cut, 1,000
+    # 30% (300) is the house reserve; the network pool is 700: Master 70% = 490, Agent side 30% = 210, of which the
+    # Sub Agent gets 30% and the Agent keeps the rest. Worked per ticket (two of 500) and floored: 31 + 31 / 74 + 74.
+    assert _tiers(rows) == {"master": 490, "agent": 148, "sub_agent": 62}
+    assert sum(_tiers(rows).values()) == 700
+    assert _pool(w.db) - before == 300                  # the reserve is in the system pool, paid to no one
     assert {r.agent_id for r in rows} == {w.master.id, w.agent.id, w.sub.id}
     assert ledger.verify_integrity(w.db)["ok"]
 
@@ -75,7 +87,7 @@ def test_sabong_default_is_70_21_9(tree):
 def test_player_straight_under_an_agent_leaves_the_whole_agent_cut_with_the_agent(tree):
     w = tree
     rows = _sabong(w, w.agent, w.p_agent)
-    assert _tiers(rows) == {"master": 700, "agent": 300}          # no Sub Agent line
+    assert _tiers(rows) == {"master": 490, "agent": 210}          # no Sub Agent line: the Agent keeps its whole 30%
 
 
 def test_each_game_has_its_own_defaults_and_an_account_cut_beats_both(tree):
@@ -115,7 +127,7 @@ def bola_tree(tree):
     w.draw = bola.create_draw(w.db, w.admin, location_id=loc.id, draw_date=dt.date.today(), slot=1,
                               settings=w.store, scheduled_at=soon, status=DrawStatus.OPEN)
     yield w
-    w.store.set("bola.commission.pay_master", "false", w.admin.id)
+    w.store.set("bola.commission.pay_master", "true", w.admin.id)     # the default: the Master is paid on Bola too
     loc.is_active = False
     w.db.flush()
 
@@ -130,13 +142,18 @@ def _bola_settle(w, bettor):
 
 def test_bola_uses_the_same_waterfall(bola_tree):
     w = bola_tree
+    before = _pool(w.db)
     rows = _bola_settle(w, w.sub)
-    pool = 10_000 * int(w.store.get("bola.commission.pool_bps")) // 10_000     # PHP 100 stake
+    cut = 10_000 * int(w.store.get("bola.commission.pool_bps")) // 10_000      # PHP 100 stake, the 10% Bola cut = 1,000
+    reserve = cut * int(w.store.get("bola.commission.reserve_bps")) // 10_000  # 30% of it stays in the system pool
+    pool = cut - reserve                                                      # the 70% network pool
     by = _tiers(rows)
+    assert (cut, reserve, pool) == (1000, 300, 700)
     assert sum(by.values()) == pool
-    assert by["master"] == pool - pool * 3000 // 10_000                       # 70% to the Master
+    assert by["master"] == pool - pool * 3000 // 10_000                       # 70% of the network pool to the Master
     assert "sub_agent" not in by                                              # the bettor earns nothing on its own bet
     assert by["agent"] == pool * 3000 // 10_000                               # so the Agent keeps its whole 30%
+    assert _pool(w.db) - before == reserve
     assert ledger.verify_integrity(w.db)["ok"]
 
 
@@ -171,7 +188,7 @@ def test_sabong_and_bola_land_in_one_statement(bola_tree):
     day = dt.date.today()
     stmt = reports.agent_statement(w.db, w.master, start=day, end=day)
     row = next(r for r in stmt["rows"] if r["name"] == w.sub.username)
-    assert row["commission_sabong"] == 90 and row["commission_bola"] == 0
+    assert row["commission_sabong"] == 62 and row["commission_bola"] == 0
     assert row["staked_sabong"] == 20_000 and row["staked_bola"] == 10_000
     games = reports.agent_games(w.db, w.master, w.sub.id, start=day, end=day)
     assert {g["game"] for g in games} == {"sabong", "bola"}

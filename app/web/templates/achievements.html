@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Achievements · {{ brand }}{% endblock %}
+{% block heading %}Achievements{% endblock %}
+{% block head %}
+<style>
+  .ach-sum{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
+  .ach-sum .chip-t{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);font-size:.8rem}
+  .ach-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;padding:14px}
+  .ach-card{display:flex;gap:12px;padding:12px;border:1px solid var(--line);border-radius:var(--radius,10px);background:var(--panel-2,transparent);position:relative}
+  .ach-card.is-locked .ach-body strong{color:var(--ink-3)}
+  .ach-card.is-shown{border-color:var(--gold,#d9a441)}
+  .ach-body{min-width:0;flex:1}
+  .ach-body strong{display:block;line-height:1.2}
+  .ach-body p{margin:2px 0 6px;font-size:.78rem;color:var(--ink-3)}
+  .ach-tier{font-size:.66rem;letter-spacing:.06em;text-transform:uppercase;font-weight:700}
+  .ach-bar{height:5px;border-radius:3px;background:var(--line);overflow:hidden}
+  .ach-bar i{display:block;height:100%;background:var(--gold,#d9a441)}
+  .ach-meta{font-size:.72rem;color:var(--ink-3);margin-top:4px}
+  .ach-pick{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:.78rem}
+</style>
+{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="card-head"><h2>Your badges</h2><span class="muted small">{{ board.earned }} of {{ board.total }} earned</span></div>
+  <div class="card-body">
+    <div class="ach-sum">
+      {% for t in tier_order %}<span class="chip-t"><b style="color:{{ tiers[t][1] }}">{{ tiers[t][2] }}</b> {{ board.by_tier[t] }}</span>{% endfor %}
+    </div>
+    <p class="small muted">Badges are earned by what you do in the games and are hard to get. Tick up to {{ max_shown }} earned badges to show them next to your name.</p>
+    {% if board.showcase %}
+    <p>Next to your name now: {{ badge_strip(my_badges, 26) }}</p>
+    {% endif %}
+  </div>
+</div>
+
+<form method="post" action="/profile/badges">
+  {{ ui.csrf(csrf_token) }}
+  <input type="hidden" name="next" value="achievements">
+  {% for game in game_order %}
+    {% set rows = board.rows | selectattr('badge.game', 'equalto', game) | list %}
+    {% if rows %}
+    <div class="card">
+      <div class="card-head"><h2>{{ game_labels[game] }}</h2><span class="muted small">{{ rows | selectattr('earned') | list | length }} / {{ rows | length }}</span></div>
+      <div class="ach-grid">
+        {% for r in rows %}
+        {% set b = r.badge %}
+        <div class="ach-card {{ 'is-locked' if not r.earned else 'is-earned' }} {{ 'is-shown' if r.slot is not none }}">
+          {{ badge_icon(b.key, 54, not r.earned) }}
+          <div class="ach-body">
+            <span class="ach-tier" style="color:{{ tiers[b.tier][1] }}">{{ tiers[b.tier][2] }}</span>
+            <strong>{{ b.name }}</strong>
+            <p>{{ b.desc }}</p>
+            {% if r.earned %}
+              <div class="ach-meta">Earned {{ r.at | date }}</div>
+              <label class="ach-pick"><input type="checkbox" name="badge" value="{{ b.key }}" {{ 'checked' if r.slot is not none }}> Show next to my name</label>
+            {% else %}
+              <div class="ach-bar" role="progressbar" aria-valuenow="{{ r.pct }}" aria-valuemin="0" aria-valuemax="100"><i style="width:{{ r.pct }}%"></i></div>
+              <div class="ach-meta">{{ r.now_label }} / {{ r.target_label }}</div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  {% endfor %}
+  {% if board.earned %}
+  <div class="card"><div class="card-body"><button class="btn btn-primary" type="submit">Save badges next to my name</button>
+    <span class="small muted">Pick at most {{ max_shown }}.</span></div></div>
+  {% endif %}
+</form>
+{% endblock %}

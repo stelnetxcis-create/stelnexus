@@ -1,0 +1,70 @@
+{# Players: GCash and card players. Click one to see its details and, if you may, edit or remove the account. #}
+<div class="pp-tools">
+  <div class="pp-chips">
+    {% for key, label in (('online', 'GCash'), ('card', 'Card'), ('all', 'All')) %}
+    <a class="chip {{ 'is-active' if kind == key }}" href="/staff/people?tab=players&amp;kind={{ key }}{{ '&q=' ~ search if search }}"{{ ' aria-current=page' if kind == key }}>{{ label }}</a>
+    {% endfor %}
+  </div>
+  <form class="search" method="get" action="/staff/people">
+    <input type="hidden" name="tab" value="players"><input type="hidden" name="kind" value="{{ kind }}">
+    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input type="search" name="q" value="{{ search }}" placeholder="Name, card or username" aria-label="Search players">
+  </form>
+</div>
+
+{% set cols = '2.2fr 1.1fr 1fr 1fr .9fr 20px' if balances else '2.2fr 1.1fr 1fr .9fr 20px' %}
+{% if rows %}
+<div class="pp-list" style="--cols: {{ cols }}">
+  <div class="pp-head"><span>Player</span><span>Username / card</span><span>Type</span>{% if balances %}<span>Credit</span>{% endif %}<span>Status</span><span></span></div>
+  {% for row in rows %}
+  {% set closed = row.status.value == 'closed' %}
+  <details class="pp-person">
+    <summary>
+      <div class="pp-name"><strong>{{ row.full_name }}</strong><small>{{ who(row.agent) }}</small></div>
+      <div class="pp-hide-sm mono small">{{ row.username or row.card_number or '—' }}</div>
+      <div class="pp-hide-sm">{{ ui.badge('Player', 'green') }} <small class="muted">{{ 'GCash' if row.kind.value == 'online' else 'Card' }}</small></div>
+      {% if balances %}<div class="pp-hide-sm num">{{ balances[row.id] | money }}</div>{% endif %}
+      <div>{{ ui.status_badge(row.status) }}{% if row.self_excluded_until %} {{ ui.badge('self-excluded', 'purple') }}{% endif %}</div>
+      <span class="pp-chev" aria-hidden="true">›</span>
+    </summary>
+    <div class="pp-body">
+      <div class="pp-facts">
+        <div><span>Branch and tier</span>Users · tier 1 of 4 · no commission</div>
+        <div><span>Agent</span>{{ who(row.agent) }}</div>
+        <div><span>GCash number</span>{% if gcash.get(row.id) %}<b class="mono">{{ gcash[row.id] }}</b>{% else %}—{% endif %}</div>
+        <div><span>Daily bet limit</span>{{ (row.daily_bet_limit_cents | money) if row.daily_bet_limit_cents else 'default' }}</div>
+        <div><span>ID check</span>{{ 'verified' if row.kyc_verified else 'not verified' }}</div>
+        <div><span>Registered</span>{{ row.created_at | date }}</div>
+      </div>
+      {% if can_history %}<div class="pp-links"><a class="btn btn-sm" href="/clp/{{ row.id }}/history">Bets, credit history and limits</a></div>{% endif %}
+      {% if not closed and (can_account_edit or can_account_remove) %}
+      <div class="pp-forms">
+        {% if can_account_edit %}
+        <form class="pp-form" method="post" action="/admin/accounts/player/{{ row.id }}/edit">{{ ui.csrf(csrf_token) }}
+          <h4>Edit details</h4>
+          {{ ui.field('Full name', 'full_name', value=row.full_name, required=true, attrs='maxlength=120') }}
+          {% if row.username %}{{ ui.field('Username', 'username', value=row.username, required=true, attrs='maxlength=32 autocapitalize=none') }}{% endif %}
+          {{ ui.field('New GCash number', 'gcash', help='Leave empty to keep the current one.', attrs='maxlength=11 inputmode=numeric') }}
+          {{ ui.field('Gmail (information only)', 'email', 'email', help=('Current: ' ~ gmail_mask(row.email_enc) ~ '. Leave empty to keep it.') if row.email_enc else 'Not set. A Gmail can belong to one account.', attrs='maxlength=254 inputmode=email autocapitalize=none') }}
+          {{ ui.field('New address', 'address', help='Leave empty to keep the current one.', attrs='maxlength=255') }}
+          {{ ui.field('Notes', 'notes', value=row.notes or '', attrs='maxlength=500') }}
+          {{ ui.field('Reason (optional)', 'reason', attrs='maxlength=200') }}
+          <button class="btn btn-primary btn-sm" type="submit">Save details</button>
+        </form>
+        {% endif %}
+        {% if can_account_remove %}
+        <form class="pp-form is-danger" method="post" action="/admin/accounts/player/{{ row.id }}/remove" data-confirm="Remove this player?">{{ ui.csrf(csrf_token) }}
+          <h4>Remove player</h4>
+          <p class="small muted">Closes the account. Refused while the wallet holds credit or a bet is still open.</p>
+          <input name="reason" placeholder="Reason for removal" required minlength="5" maxlength="200">
+          <button class="btn btn-sm btn-danger" type="submit">Remove player</button>
+        </form>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </details>
+  {% endfor %}
+</div>
+{{ ui.pager(pager) }}
+{% else %}{{ ui.empty('No players found.') }}{% endif %}

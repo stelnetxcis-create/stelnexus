@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Panel Requests · {{ brand }}{% endblock %}
+{% block heading %}Panel Requests{% endblock %}
+{% block content %}
+{% set words = {'asked': 'Waiting for your answer', 'allowed': 'Waiting for the Master', 'approved': 'Open', 'declined': 'Declined', 'rejected': 'Not approved', 'revoked': 'Withdrawn'} %}
+<style>
+.ap-h{display:flex;align-items:baseline;gap:10px;margin:0 0 10px}.ap-h h2{margin:0;font-size:22px}
+.pc-card{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:14px 16px;margin-bottom:10px;border-radius:14px;border:1px solid rgba(217,177,85,.3);
+  background:linear-gradient(135deg,rgba(217,177,85,.09),rgba(255,255,255,.02))}
+.pc-card .who{flex:1 1 240px;min-width:0}.pc-card b{display:block}.pc-card small{color:var(--ink-3,#8a8478)}
+.pc-act{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}.pc-act form{margin:0}
+.pc-pill{display:inline-block;padding:3px 10px;border-radius:999px;font:700 10.5px var(--font,sans-serif);letter-spacing:.06em;text-transform:uppercase;border:1px solid rgba(217,177,85,.45);color:var(--gold-hi,#f3d98b)}
+</style>
+{% macro act(row, action, label, primary=false) %}
+<form method="post" action="/agent-panel/consents/{{ row.id }}/{{ action }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <button class="btn btn-sm {{ 'btn-primary' if primary }}" type="submit">{{ label }}</button></form>
+{% endmacro %}
+
+{% if is_sub %}
+<div class="ap-h" style="margin-top:0"><h2 style="font-family:var(--serif,serif)">Who asked to see your panel</h2></div>
+<p class="small muted" style="margin-top:0">Your players and earnings stay private unless you allow it. If you allow, the Master must approve before your Agent sees anything.</p>
+{% for m in inbox.mine %}{% set row = m.row %}
+<div class="pc-card"><div class="who"><b>{{ m.agent.full_name }} <small>@{{ m.agent.username }}</small></b><small>{{ row.created_at.strftime('%b %d, %Y') }}</small></div>
+  <span class="pc-pill">{{ words[row.status] }}</span>
+  <div class="pc-act">
+    {% if row.status == 'asked' %}{{ act(row, 'allow', 'Allow', true) }}{{ act(row, 'decline', 'Decline') }}
+    {% elif row.status in ('allowed', 'approved') %}{{ act(row, 'revoke', 'Withdraw') }}{% endif %}
+  </div></div>
+{% else %}{{ ui.empty('Nobody has asked to see your panel.') }}{% endfor %}
+{% else %}
+<div class="ap-h" style="margin-top:0"><h2 style="font-family:var(--serif,serif)">Waiting for your approval</h2></div>
+<p class="small muted" style="margin-top:0">A Sub Agent allowed their Agent to view their panel. Nothing shows to the Agent until you approve.</p>
+{% for m in inbox.approve %}{% set row = m.row %}
+<div class="pc-card"><div class="who"><b>{{ m.agent.full_name }} &rarr; {{ m.sub.full_name }}</b><small>wants to view {{ m.sub.full_name }}&rsquo;s panel &middot; @{{ m.sub.username }}</small></div>
+  <span class="pc-pill">{{ words[row.status] }}</span>
+  <div class="pc-act">
+    {% if row.status == 'allowed' %}{{ act(row, 'approve', 'Approve', true) }}{{ act(row, 'reject', 'Do not approve') }}
+    {% else %}{{ act(row, 'revoke', 'Withdraw') }}{% endif %}
+  </div></div>
+{% else %}{{ ui.empty('Nothing is waiting for you.') }}{% endfor %}
+{% endif %}
+{% endblock %}

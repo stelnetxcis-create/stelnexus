@@ -1,15 +1,22 @@
 # /etc/systemd/system/stelnexus.service  (adjust User, paths)
-# Keep --workers 1 unless you add a shared rate-limit store: the limiter is in-process memory.
+# Several workers need Redis (REDIS_URL in .env): the rate limiter, chat wake-ups and cache clears are shared through
+# it. Set --workers to the number of CPU cores (4 on a 4-core VPS). With --workers 1 Redis is optional.
+# Read docs/SCALING.md first: database connections = (DB_POOL_SIZE + DB_MAX_OVERFLOW) x workers.
 [Unit]
 Description=StelNexus console
-After=network.target postgresql.service
+After=network.target postgresql.service redis-server.service
+Wants=redis-server.service
 
 [Service]
 User=stelnexus
 WorkingDirectory=/opt/stelnexus
 EnvironmentFile=/opt/stelnexus/.env
-ExecStart=/opt/stelnexus/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1
+# The app reads this to warn at startup when several workers run without Redis. Keep it equal to --workers.
+Environment=WEB_CONCURRENCY=4
+ExecStart=/opt/stelnexus/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 4 --proxy-headers --forwarded-allow-ips 127.0.0.1
 Restart=on-failure
+# Each worker may hold up to 800 live chat streams plus database connections: the default 1024 open files is too low.
+LimitNOFILE=65536
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true

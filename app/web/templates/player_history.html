@@ -2,7 +2,7 @@
 {% import "_macros.html" as ui %}
 {% block title %}{{ player.full_name }} · {{ brand }}{% endblock %}
 {% block heading %}{{ player.full_name }}{% endblock %}
-{% block actions %}<a class="btn" href="/clp">Back to players</a>{% endblock %}
+{% block actions %}<a class="btn" href="/staff/people?tab=players">Back to players</a>{% endblock %}
 {% block content %}
 <div class="grid grid-3">
   {{ ui.stat('Balance', balance | money, 'credit / card load') }}

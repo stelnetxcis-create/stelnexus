@@ -93,7 +93,7 @@ def local_instant(day: dt.date, wall_time: dt.time) -> dt.datetime:
 # ---------------------------------------------------------------------------
 
 def assert_enabled(settings: SettingsStore) -> None:
-    if not settings.get("bola.enabled"):
+    if not settings.get("bola.enabled") or not settings.get("games.show_bola"):
         raise LockedState("The number game is switched off.")
 
 
@@ -542,6 +542,34 @@ def open_draw(db: Session, actor: User, draw_id: int) -> BolaDraw:
 
 def lock_draw(db: Session, actor: User, draw_id: int) -> BolaDraw:
     return set_status(db, actor, draw_id, DrawStatus.LOCKED)
+
+
+def skip_wait(db: Session, actor: User, draw_id: int, *, reason: str | None = None) -> BolaDraw:
+    """Skip the wait: close betting now and bring the draw time to now, so the result can be entered at once.
+
+    Dev-only by default (``Perm.BOLA_SKIP``); the Admin can allow it on any account from the Access manager.
+    The check lives here as well as in the route, so a future route cannot forget it. Tickets already sold stay
+    valid; only the clock moves. Settled and void draws are history and never move.
+    """
+    if Perm.BOLA_SKIP not in permissions_of(actor):
+        raise Forbidden("Skipping the draw wait is not allowed for your account.")
+    draw = _lock_draw(db, draw_id)
+    if draw.status in (DrawStatus.SETTLED, DrawStatus.VOID):
+        raise LockedState(f"This draw is {draw.status}; there is nothing to skip.")
+    now = utcnow()
+    if draw.status == DrawStatus.LOCKED and draw.scheduled_at <= now:
+        raise ValidationError("Betting is already closed and the draw time has come; there is nothing to skip.")
+    before = {"scheduled_at": draw.scheduled_at, "cutoff_at": draw.cutoff_at, "status": str(draw.status)}
+    draw.cutoff_at = min(draw.cutoff_at, now)
+    draw.scheduled_at = min(draw.scheduled_at, now)
+    draw.status = DrawStatus.LOCKED
+    draw.locked_at = draw.locked_at or now
+    db.flush()
+    audit.record(db, actor, "bola.draw.skip", entity_type="bola_draw", entity_id=draw.id,
+                 before=before, after={"scheduled_at": draw.scheduled_at, "cutoff_at": draw.cutoff_at,
+                                       "status": str(draw.status)},
+                 reason=(reason or "").strip()[:255] or None)
+    return draw
 
 
 def tick(db: Session, settings: SettingsStore, *, now: dt.datetime | None = None,

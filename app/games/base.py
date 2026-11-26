@@ -13,6 +13,9 @@ from app.core.rbac import hides_totals
 
 # The six rights every game defines (plan 4.7). The adapter maps each to its own permission.
 RIGHTS = ("view", "place", "cancel", "report", "manage", "declare")
+# A seventh right used only by Records: may this account list the game's tickets? Each adapter maps it in ``perms``;
+# a game that does not map it simply has no tickets tab (``can`` answers False). Not part of the six every game must define.
+RECORD_RIGHTS = ("tickets",)
 # Workspace tabs (plan 4.3) and Records tabs (plan 4.4): same names for every game.
 WORKSPACE_TABS = ("live", "schedule", "tickets", "declare")
 RECORD_TABS = ("tickets", "cancelled", "commissions", "history", "insights", "reports")
@@ -122,7 +125,7 @@ class GameAdapter:
 
     # ---- rights --------------------------------------------------------------------------
     def can(self, ctx, right: str) -> bool:
-        if right not in RIGHTS:
+        if right not in RIGHTS and right not in RECORD_RIGHTS:
             raise ValueError(f"unknown right {right!r}")
         needed = self.perms.get(right)
         if needed is None:
@@ -130,9 +133,13 @@ class GameAdapter:
         options = needed if isinstance(needed, tuple) else (needed,)
         return any(ctx.can(p) for p in options)
 
+    def shown(self, ctx) -> bool:
+        """The Admin's visibility switch (Variables > Games). Off = the game does not exist for anyone."""
+        return bool(ctx.store.get(f"games.show_{self.key}"))
+
     def visible(self, ctx) -> bool:
         """Hidden entirely when the view right is missing (also covers the Bola dev-only gate)."""
-        return self.can(ctx, "view")
+        return self.shown(ctx) and self.can(ctx, "view")
 
     # ---- workspace -----------------------------------------------------------------------
     def workspace_urls(self, ctx) -> dict[str, str | None]:

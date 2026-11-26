@@ -17,11 +17,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
-from app.core.errors import ValidationError
+from app.core.errors import Forbidden, ValidationError
 from app.core.money import to_cents
 from app.core.rbac import Perm
 from app.db.models import EventStatus, Role, Status, User
-from app.services import bola, bola_settlement, cashdesk, declarator, events, gcash, proofs, settlement, streams
+from app.services import bola, bola_settlement, cashdesk, declarator, events, gcash, proofs, settlement, streams, system_pool
 from app.web.deps import Ctx, flash_redirect, form_data, render, require_ctx
 from app.web.routes_fights import _form_with_proof
 from app.web.routes_live import _reply
@@ -38,10 +38,19 @@ SECTIONS = (
 )
 
 
-def staff(ctx: Ctx, section: str, template: str, **extra):
+def staff_tabs(ctx: Ctx) -> list[tuple[str, str, str]]:
+    """The Staff Panel's tab bar for this account. People sits right after Overview and opens for anyone who
+    may see at least one of its tabs (see routes_people for what each role gets inside it)."""
+    from app.web.routes_people import PEOPLE_URL, people_visible
     tabs = [(key, url, label) for key, url, label, perm in SECTIONS
             if key == "overview" or ctx.can(perm)]
-    return render(ctx, template, active="staff", staff_tabs=tabs, staff_active=section, **extra)
+    if people_visible(ctx):
+        tabs.insert(1, ("people", PEOPLE_URL, "People"))
+    return tabs
+
+
+def staff(ctx: Ctx, section: str, template: str, **extra):
+    return render(ctx, template, active="staff", staff_tabs=staff_tabs(ctx), staff_active=section, **extra)
 
 
 def _limit(raw: str | None) -> int | None:
@@ -69,7 +78,13 @@ async def staff_home(ctx: Ctx = Depends(require_ctx)):
     if stream_open:
         live = next((r for r in streams.list_sources(ctx.db) if r.is_active), None)
         stream_value, stream_hint = ("On air", live.name) if live else ("Sample feed", "Nothing is taken live")
+    from app.web.routes_people import PEOPLE_URL, people_visible, tabs_for
+    people_open = people_visible(ctx)
+    people_hint = ("Who is online and their GCash numbers" if tabs_for(ctx) == ["online"]
+                   else "Team, players and who is online")
     sections = [
+        dict(label="People", url=PEOPLE_URL, open=people_open, value="Open" if people_open else "Locked",
+             hint=people_hint, tone="", locked_hint="Admin and Teller"),
         dict(label="Teller", url="/staff/teller", open=teller_open, value=teller_value,
              hint=teller_hint, tone="green", locked_hint="Tellers only"),
         dict(label="Declarator", url="/staff/declarator", open=decl_open, value=decl_value,
@@ -86,7 +101,7 @@ async def staff_home(ctx: Ctx = Depends(require_ctx)):
 
 def _bola_visible(ctx: Ctx) -> bool:
     """Bola draws belong on the board only while the number game is on and this account may see it."""
-    return ctx.can(Perm.BOLA_VIEW) and bool(ctx.store.get("bola.enabled"))
+    return ctx.can(Perm.BOLA_VIEW) and bool(ctx.store.get("bola.enabled")) and bool(ctx.store.get("games.show_bola"))
 
 
 def _desk(ctx: Ctx) -> dict:
@@ -95,6 +110,9 @@ def _desk(ctx: Ctx) -> dict:
         "open_event": ctx.can(Perm.EVENTS_OPEN) or ctx.can(Perm.EVENTS_MANAGE),     # open or close an event
         "bola": ctx.can(Perm.BOLA_DECLARE),
         "bola_open": ctx.can(Perm.BOLA_OPEN) or ctx.can(Perm.BOLA_MANAGE),
+        "bola_skip": ctx.can(Perm.BOLA_SKIP),
+        "bola_manage": ctx.can(Perm.BOLA_MANAGE),                  # change draw time, void
+        "dev": ctx.user.role == Role.ADMIN and ctx.user.preview_player_id is None,   # delete a draw: the Admin account only
     }
     return declarator.board(ctx.db, ctx.user, ctx.store, can=can, sabong=ctx.can(Perm.FIGHTS_VIEW),
                             with_bola=_bola_visible(ctx))
@@ -108,6 +126,19 @@ def _ok(message: str, level: str = "success") -> JSONResponse:
 async def staff_declarator(ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.STAFF_DECLARATOR)
     return staff(ctx, "declarator", "staff_declarator.html", boot=_desk(ctx))
+
+
+@router.get("/staff/declarator/events/{event_id}/tools")
+async def event_tools(event_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
+    """Everything an operator does to a Sabong event and its fights, apart from what is on the desk itself (declare, go
+    on air, close betting). It lives in the Declarator part of the Staff Panel, so the Sabong page is only for watching
+    and betting. Declarators and the Admin side open it; a Master (who has no desk) opens it for the event rights it has.
+    Each card inside is still gated by its own right, and every form posts to the same checked route as before."""
+    if not ctx.can(Perm.STAFF_DECLARATOR):
+        ctx.need(Perm.EVENTS_MANAGE)
+    from app.web.routes_fights import _render_event
+    return await _render_event(request, ctx, event_id, template="staff_event_tools.html", active="staff",
+                               extra={"staff_tabs": staff_tabs(ctx), "staff_active": "declarator"})
 
 
 @router.get("/_live/declarator")
@@ -231,6 +262,46 @@ async def desk_bola_lock(draw_id: int, ctx: Ctx = Depends(require_ctx)):
     return _ok(f"{draw.title}: betting is closed.", "warning")
 
 
+@router.post("/staff/declarator/bola/{draw_id}/skip")
+async def desk_bola_skip(draw_id: int, ctx: Ctx = Depends(require_ctx)):
+    """Skip the wait: close betting and bring the draw time to now. Dev-only unless the Admin allowed it."""
+    ctx.need(Perm.STAFF_DECLARATOR)
+    ctx.need(Perm.BOLA_SKIP)
+    draw = bola.skip_wait(ctx.db, ctx.user, draw_id)
+    return _ok(f"{draw.title}: wait skipped. Betting is closed and the draw is due now.", "warning")
+
+
+@router.post("/staff/declarator/bola/{draw_id}/reschedule")
+async def desk_bola_reschedule(draw_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.STAFF_DECLARATOR)
+    ctx.need(Perm.BOLA_MANAGE)
+    data = await form_data(request)
+    draw = bola.reschedule_draw(ctx.db, ctx.user, draw_id, draw_time=data.get("draw_time", ""),
+                                settings=ctx.store, reason=data.get("reason") or None)
+    return _ok(f"{draw.title}: draw time moved to {bola.local(draw.scheduled_at):%H:%M}; "
+               f"betting closes {bola.local(draw.cutoff_at):%H:%M}.")
+
+
+@router.post("/staff/declarator/bola/{draw_id}/void")
+async def desk_bola_void(draw_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
+    ctx.need(Perm.STAFF_DECLARATOR)
+    ctx.need(Perm.BOLA_MANAGE)
+    data = await form_data(request)
+    bola_settlement.void_draw(ctx.db, ctx.user, draw_id=draw_id, reason=data.get("reason", ""), settings=ctx.store)
+    return _ok("Draw voided. Every stake was refunded.", "warning")
+
+
+@router.post("/staff/declarator/bola/{draw_id}/purge")
+async def desk_bola_purge(draw_id: int, ctx: Ctx = Depends(require_ctx)):
+    """Hard-delete a test draw. The Admin account only (the service checks too); ledger history is kept."""
+    ctx.need(Perm.STAFF_DECLARATOR)
+    if ctx.user is None or ctx.user.role != Role.ADMIN:
+        raise Forbidden("DEV tools are for the Admin account only.")
+    from app.services import purge
+    label = purge.purge_draw(ctx.db, ctx.user, draw_id)
+    return _ok(f"Draw {label} deleted.")
+
+
 @router.post("/staff/declarator/bola/{draw_id}/declare")
 async def desk_bola_declare(draw_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.STAFF_DECLARATOR)
@@ -281,6 +352,7 @@ async def staff_teller(ctx: Ctx = Depends(require_ctx)):
         can_manage=can_manage, can_reorder=user.is_admin_tier and len(rows) > 1, tellers=tellers,
         recent=gcash.recent_for(db, [a.id for a in accounts]),
         wallet_pending=cashdesk.pending_count(db, user) if ctx.can(Perm.REQUESTS_REVIEW) else 0,
+        syspool=system_pool.summary(db) if ctx.can(Perm.SYSTEM_POOL_VIEW) else None,
         default_day=int(store.get("gcash.daily_limit_cents")),
         default_month=int(store.get("gcash.monthly_limit_cents")),
         rotate_pct=int(store.get("gcash.rotate_at_pct")), strategy=store.get("gcash.strategy"),

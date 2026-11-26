@@ -10,10 +10,11 @@ How it fits together
 * **A stream is a wait loop, not a polling loop.** It sleeps on an ``asyncio.Event`` and only touches the
   database when a topic fires or the heartbeat elapses. Each pass opens its own short-lived session
   (``session_scope``), so an open stream never pins a pooled DB connection.
-* **The heartbeat is the safety net.** The app runs one process, so the hub sees every write. Anything
-  that writes from *another* process (the CLI, the systemd timers) cannot wake the hub, and shows up at
-  the next heartbeat instead (``HEARTBEAT`` seconds). If you ever run several workers, that same
-  heartbeat keeps chat working, just slower than instant.
+* **Several workers: Redis wakes them all.** With ``REDIS_URL`` set, every publish is also broadcast over Redis and
+  each worker's subscriber (core/redisbus.py) wakes its own streams, so a message written through worker A reaches
+  browsers connected to worker B at once. That includes writes from the CLI and the systemd timers.
+* **The heartbeat is the safety net.** Without Redis (one process) or while Redis is down, anything written by
+  *another* process is seen at the next heartbeat instead (``HEARTBEAT`` seconds): slower, never lost.
 * **Auth is re-checked every pass.** The stream builds its context the same way a request does, so a
   signed-out, expired or demoted account is told ``auth`` and the stream ends.
 
@@ -123,6 +124,9 @@ class Hub:
 
     # -- publishing (any thread)
     def publish(self, *topics: str) -> None:
+        if topics:
+            from app.core import redisbus
+            redisbus.publish_topics(topics)          # the other workers (and the CLI / timers) hear it too
         loop = self._loop
         if loop is None or not topics:
             return                                   # nobody has ever subscribed in this process

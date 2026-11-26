@@ -300,6 +300,14 @@ def bola_import_legacy(args) -> None:
           "Passwords, credits, users and tickets are never imported.")
 
 
+def award_badges(_args) -> None:
+    """Hand out every Achievements badge an account has reached (systemd timer). Safe to run any time."""
+    from app.services import badges
+    with session_scope() as db:
+        handed = badges.sweep(db, SettingsStore(db))
+    print(f"{handed} badge(s) awarded.")
+
+
 def refresh_reports(args) -> None:
     """Recompute the heavy report figures (systemd timer). Safe to run any time, any number of times."""
     from app.services import snapshots
@@ -358,6 +366,7 @@ def main() -> None:
     ub = sub.add_parser("unban-ip")
     ub.add_argument("address")
     ub.set_defaults(fn=unban_ip)
+    sub.add_parser("award-badges").set_defaults(fn=award_badges)
     rr = sub.add_parser("refresh-reports")
     rr.add_argument("--only", help="comma list of: flows, top, integrity (default: all)")
     rr.set_defaults(fn=refresh_reports)

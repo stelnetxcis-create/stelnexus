@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Scatter · {{ brand }}{% endblock %}
+{% block heading %}Scatter{% endblock %}
+{% block head %}{{ css('scatter') }}{% endblock %}
+{% block actions %}<button class="btn btn-sm" type="button" data-sx-info>Rules &amp; paytable</button>{% endblock %}
+{% block content %}
+<section class="sx" id="sx" data-bets="{{ cfg.bets | join(',') }}" data-start-balance="{{ balance }}"
+         data-can-play="{{ 1 if can_play else 0 }}" data-max-win="{{ cfg.max_win_x }}" data-rtp="{{ cfg.rtp }}"
+         data-min-gap="{{ cfg.min_gap }}" data-url="/scatter/spin">
+  <div class="sx-stage" data-stage>
+    <div class="sx-sky" aria-hidden="true"><i></i><i></i><i></i></div>
+
+    <header class="sx-top">
+      <div class="sx-title"><span>Scatter</span><small>Pays anywhere · tumbling wins</small></div>
+      <div class="sx-pills">
+        <div class="sx-pill sx-pill-free" data-free hidden><span>Free spins</span><b><em data-free-left>0</em> / <em data-free-total>10</em></b></div>
+        <div class="sx-pill sx-pill-mult" data-multbox hidden><span>Multiplier</span><b data-mult>x1</b></div>
+      </div>
+    </header>
+
+    <div class="sx-board-wrap">
+      <div class="sx-board" data-board role="img" aria-label="Scatter game board, 6 columns by 5 rows">
+        <canvas class="sx-fx" data-fx aria-hidden="true"></canvas>
+        <div class="sx-pops" data-pops aria-hidden="true"></div>
+      </div>
+      <div class="sx-banner" data-banner hidden aria-live="polite"></div>
+      <div class="sx-big" data-big hidden>
+        <div class="sx-big-rays" aria-hidden="true"></div>
+        <div class="sx-big-card">
+          <div class="sx-big-tier" data-big-tier>BIG WIN</div>
+          <div class="sx-big-amount" data-big-amount>₱0</div>
+          <div class="sx-big-x" data-big-x>0x</div>
+          <div class="sx-big-hint">tap to skip</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sx-winline" aria-live="polite"><span data-win-label>Place your bet</span><b data-win>&nbsp;</b></div>
+
+    <footer class="sx-deck">
+      <div class="sx-stat"><span>Balance</span><b data-balance>—</b></div>
+      <div class="sx-bet">
+        <button type="button" class="sx-step" data-bet-dn aria-label="Lower bet">−</button>
+        <div><span>Bet</span><b data-bet>—</b></div>
+        <button type="button" class="sx-step" data-bet-up aria-label="Raise bet">+</button>
+      </div>
+      <button type="button" class="sx-spin" data-spin {% if not can_play %}disabled{% endif %}><span data-spin-label>Spin</span></button>
+      <div class="sx-stat sx-stat-session"><span>Session</span><b data-session>₱0.00</b></div>
+      <div class="sx-toggles">
+        <button type="button" class="sx-tog" data-turbo aria-pressed="false" title="Turbo: faster spins"><svg class="ico"><use href="#i-flame"/></svg><span>Turbo</span></button>
+        <div class="sx-autowrap">
+          <button type="button" class="sx-tog" data-auto aria-pressed="false" aria-haspopup="true" title="Autoplay"><svg class="ico"><use href="#i-refresh"/></svg><span data-auto-label>Auto</span></button>
+          <div class="sx-automenu" data-automenu hidden>
+            <button type="button" data-auto-n="10">10 spins</button><button type="button" data-auto-n="25">25 spins</button>
+            <button type="button" data-auto-n="50">50 spins</button><button type="button" data-auto-n="100">100 spins</button>
+          </div>
+        </div>
+        <button type="button" class="sx-tog" data-sound aria-pressed="true" title="Sound"><svg class="ico"><use href="#i-sound"/></svg><span>Sound</span></button>
+      </div>
+    </footer>
+    {% if not can_play %}<p class="sx-note">This account has no balance, so it can look around but not spin.</p>{% endif %}
+    <noscript><p class="sx-note">Scatter needs JavaScript.</p></noscript>
+  </div>
+
+  <aside class="sx-side">
+    <div class="sx-card">
+      <h3>Your last rounds</h3>
+      <ol class="sx-recent" data-recent>
+        {% for r in recent %}
+        <li class="{{ 'is-win' if r.win >= r.bet else ('is-part' if r.win else '') }}">
+          <span>{{ '%.2f' % (r.bet / 100) }}</span>
+          <b>{% if r.win %}+{{ '%.2f' % (r.win / 100) }}{% else %}—{% endif %}</b>
+          {% if r.free %}<i>{{ r.free }} free</i>{% endif %}
+        </li>
+        {% else %}<li class="sx-empty">No rounds yet.</li>{% endfor %}
+      </ol>
+    </div>
+    <div class="sx-card sx-fine">
+      <h3>Play it your way</h3>
+      <p>Every round is decided on our server and cannot be changed by your browser. Return to player is about <b>{{ cfg.rtp }}%</b> over the long run; any single session can end well above or below that.</p>
+      <p>Only play with credit you can afford to lose. Your account's daily limit, if one is set, applies to Scatter too.</p>
+    </div>
+  </aside>
+
+  <div class="sx-modal" data-info hidden role="dialog" aria-modal="true" aria-label="Rules and paytable">
+    <div class="sx-modal-card">
+      <button type="button" class="sx-x" data-info-close aria-label="Close">×</button>
+      <h2>How Scatter pays</h2>
+      <p class="sx-lead">Land <b>8 or more</b> of the same symbol <b>anywhere</b> on the 6×5 board. Winners burst, the rest tumble down, new symbols fall in, and it goes again until nothing pays.</p>
+      <table class="sx-pt">
+        <thead><tr><th></th><th>8–9</th><th>10–11</th><th>12+</th></tr></thead>
+        <tbody>
+        {% for i in [7, 6, 5, 4, 3, 2, 1, 0] %}
+          <tr><th><svg class="sx-pt-sym" viewBox="0 0 100 100"><use href="#sx-{{ names[i] }}"/></svg><span>{{ names[i] | capitalize }}</span></th>
+            {% for v in paytable[i] %}<td>{{ '%g' % (v / 100) }}x</td>{% endfor %}</tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <p class="sx-fine-print">Amounts are multiples of your total bet.</p>
+      <div class="sx-rules">
+        <div><svg class="sx-pt-sym" viewBox="0 0 100 100"><use href="#sx-scatter"/></svg>
+          <p><b>Scatter</b> pays anywhere and is never removed by a tumble. <b>4+</b> at the end of a spin pay
+          {% for n, v in scatter_pay.items() %}{{ n }}{{ '+' if loop.last else '' }} = {{ '%g' % (v / 100) }}x{{ ', ' if not loop.last else '' }}{% endfor %}
+          and start <b>10 free spins</b>. During free spins, <b>3+</b> add 5 more.</p></div>
+        <div><svg class="sx-pt-sym" viewBox="0 0 100 100"><use href="#sx-orb-mid"/></svg>
+          <p><b>Multiplier orbs</b> (x2 up to x100) fall like any symbol. When a spin ends with a win, the orbs on the board are added up and multiply that spin's win. In free spins they are <b>kept</b>: the multiplier grows for the rest of the bonus and multiplies every win.</p></div>
+      </div>
+      <p class="sx-fine-print">One round, including any free spins, pays at most <b>{{ cfg.max_win_x }}x</b> your bet. Return to player: about <b>{{ cfg.rtp }}%</b>, measured by simulation. Rounds are final once dealt. Wins smaller than your bet are shown quietly on purpose: they are not a profit.</p>
+    </div>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}{{ js('scatter') }}{% endblock %}

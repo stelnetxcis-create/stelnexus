@@ -17,6 +17,10 @@
   const player = stage.querySelector('[data-player]');
   let activeId = Number(strip.dataset.active) || 0;
   let fights = [], hide = false, keys = new Map(), first = true;
+  // When the fight you are watching finishes and the next one becomes current, you are moved to it after this long
+  // (long enough to see the result). Any tap on a chip, or "Stay here" on the notice, cancels the move.
+  const AUTO_ADVANCE_MS = 8000;
+  let advanceTimer = 0;
 
   const bpEl = document.querySelector('[data-bp]');
   const bp = bpEl && snx.betPanel ? snx.betPanel(bpEl, { onPick: (id) => go(id, true) }) : null;
@@ -285,12 +289,40 @@
       paintChip(a, f); have.add(String(f.id));
     });
     Array.from(list.querySelectorAll('[data-fight]')).forEach((a) => { if (!have.has(a.dataset.fight)) a.remove(); });
+    if (listEl) listEl.classList.toggle('fv-room', list.querySelectorAll('[data-fight]').length > 8);
     if (typeof edges === 'function') edges();
   }
 
-  function centerActive() {
+  // Where the strip rests. The CURRENT fight goes to the very first slot, so finished fights sit out of view on the left
+  // (swipe back, or press the left arrow, to look at them). A fight you opened on purpose (an old one, a later one) is
+  // only kept in view, so tapping chips never makes the strip jump. `force` always puts the active chip first.
+  function placeActive(instant, force) {
     const on = strip.querySelector('.is-active');
-    if (on && on.scrollIntoView) { try { on.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' }); } catch (e) { on.scrollIntoView(); } }
+    if (!on || !listEl) return;
+    const done = /\bres-|\bst-(settled|void)\b/.test(on.className);
+    const current = curId ? activeId === curId : !done;            // before the first poll: an unfinished chip is the current one
+    const box = listEl.getBoundingClientRect(), r = on.getBoundingClientRect();
+    const pad = parseFloat(getComputedStyle(listEl).paddingLeft) || 0;
+    let left = listEl.scrollLeft;
+    if (current || force) left += r.left - box.left - pad;                                          // the very first slot
+    else if (instant) left += r.left - box.left - (listEl.clientWidth - r.width) / 2;               // opened on purpose: centre it once
+    else if (r.left < box.left) left += r.left - box.left - pad;                                    // otherwise only bring it into view
+    else if (r.right > box.right) left += r.right - box.right + pad;
+    else return;
+    try { listEl.scrollTo({ left: Math.max(0, left), behavior: instant ? 'auto' : 'smooth' }); } catch (e) { listEl.scrollLeft = Math.max(0, left); }
+  }
+
+  // The fight you were watching just finished and the next one is current: follow the show.
+  function scheduleAdvance(fromId, toId) {
+    clearTimeout(advanceTimer);
+    const secs = Math.round(AUTO_ADVANCE_MS / 1000);
+    if (snx.toast) snx.toast('Fight ' + numOf(toId) + ' is open for bets. Moving there in ' + secs + ' seconds.',
+      { level: 'info', ttl: AUTO_ADVANCE_MS, action: { label: 'Stay here', run: () => { clearTimeout(advanceTimer); advanceTimer = 0; } } });
+    if (snx.Sound) snx.Sound.play('open');
+    advanceTimer = setTimeout(() => {
+      advanceTimer = 0;
+      if (curId && activeId === fromId && curId !== activeId) go(curId, true);                      // still on the old one: move
+    }, AUTO_ADVANCE_MS);
   }
 
   // ---- strip controls for events with hundreds of games: arrows, wheel, drag, "go to current", "go to #" ----
@@ -328,8 +360,12 @@
     listEl.addEventListener('pointerup', endDrag); listEl.addEventListener('pointercancel', endDrag);
     listEl.addEventListener('click', (ev) => { if (dragged) { ev.preventDefault(); ev.stopPropagation(); dragged = false; } }, true);
   }
+  if (listEl) {                                      // first paint: put the fight on screen first, with no sliding
+    listEl.classList.toggle('fv-room', listEl.querySelectorAll('[data-fight]').length > 8);
+    requestAnimationFrame(() => placeActive(true));
+  }
   if (nowB) nowB.addEventListener('click', () => {
-    if (curId && curId !== activeId) go(curId, true); else centerActive();
+    if (curId && curId !== activeId) go(curId, true); else placeActive(false, true);
   });
   if (jumpI) {
     jumpI.addEventListener('keydown', (ev) => {
@@ -340,7 +376,7 @@
       const f = fights.find((x) => x.n === n);
       if (!f) { if (snx.toast) snx.toast('There is no fight #' + (jumpI.value || '?') + ' in this event.', { level: 'warning', ttl: 3000 }); return; }
       jumpI.value = ''; jumpI.blur();
-      if (f.id === activeId) centerActive(); else go(f.id, true);
+      if (f.id === activeId) placeActive(false, true); else go(f.id, true);
     });
   }
 
@@ -355,10 +391,11 @@
   function go(id, push) {
     const f = fights.find((x) => x.id === id);
     if (!f || id === activeId) return;
+    clearTimeout(advanceTimer); advanceTimer = 0;
     activeId = id;
     if (push !== false) { try { history.pushState({ fv: id }, '', url(id)); } catch (e) { /* ignore */ } }
     fights.forEach((g) => { const a = chipOf(g.id); if (a) paintChip(a, g); });
-    centerActive();
+    placeActive(false);
     if (player) player.dispatchEvent(new CustomEvent('snx:game', { detail: { id: f.id, n: f.n, left: f.nm, right: f.nw, ended: ended(f) } }));
     if (snx.fightChat) snx.fightChat.switchFight(f);
     if (bp) bp.select(id);
@@ -420,7 +457,10 @@
     renderStrip();
     { const a = activeFight(); if (a) { setPhase(phaseOf(a), a); paintScene(a); } }
     // the next game just opened (the one before it was declared): say so, with a way to jump to it
-    if (!first && prevCur && curId && curId !== prevCur && curId !== activeId && snx.toast) {
+    if (!first && prevCur && curId && curId !== prevCur && activeId === prevCur) {
+      scheduleAdvance(prevCur, curId);                  // you were on the fight that just finished: move to the next one
+    } else if (!first && prevCur && curId && curId !== prevCur && curId !== activeId && snx.toast) {
+      // you are looking at some other fight on purpose: do not move you, just say so
       snx.toast('Fight ' + numOf(curId) + ' is open for bets.', { level: 'info', ttl: 15000, action: { label: 'Go', run: () => go(curId, true) } });
       if (snx.Sound) snx.Sound.play('open');
     }
@@ -441,7 +481,7 @@
       if (player) player.dispatchEvent(new CustomEvent('snx:game', { detail: { id: changed.id, n: changed.n, left: changed.nm, right: changed.nw, ended: ended(changed) } }));
       setTimeout(() => refreshPanel(false), 1200);
     } else if (first && active) { /* first paint is server-rendered */ }
-    if (first) { centerActive(); first = false; }
+    if (first) { placeActive(true); first = false; }
   }
 
   // 2 s while the game on screen still takes bets (the server shares one build per change, so this is cheap), 3 s otherwise

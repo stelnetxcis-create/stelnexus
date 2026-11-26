@@ -166,12 +166,12 @@ async def place_bet(request: Request, c: ApiCtx = Depends(api_ctx)):
         fight_id = int(data.get("fight_id"))
     except (ValueError, TypeError) as exc:
         raise ValidationError("fight_id and side (meron|wala|draw) are required.") from exc
-    player_id = data.get("player_id")
+    if data.get("player_id"):
+        raise ValidationError("A bet is placed by the account itself, from its own credit. Selling for a player is not available.")
     ticket = betting.place_bet(
         c.db, c.user, fight_id=fight_id, side=side,
         stake_cents=to_cents(str(data.get("amount", "0"))), settings=c.store,
-        player_id=int(player_id) if player_id else None,
-        is_diy=bool(data.get("is_diy", False)),
+        player_id=None, is_diy=False,
         idempotency_key=data.get("idempotency_key") or request.headers.get("idempotency-key"),
         ip=c.ip)
     return {"ticket": _ticket(ticket)}

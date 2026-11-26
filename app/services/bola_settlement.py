@@ -264,7 +264,7 @@ def _apply(db: Session, run: BolaRun, actor: User, settings: SettingsStore) -> B
         basis = str(settings.get("bola.commission.basis"))
         lines = commissions.compute_bola_lines(
             db, [line.ticket for line in plan.lines], basis=basis, house_gross=plan.house_take,
-            total_staked=plan.total, settings=settings,
+            total_staked=plan.total, settings=settings, location_id=draw.location_id,
         )
         commission_txn = commissions.persist_bola(db, actor, run, draw, lines, basis=basis)
 

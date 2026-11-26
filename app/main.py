@@ -4,7 +4,9 @@ Run:  uvicorn app.main:app --host 0.0.0.0 --port 8000
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -30,8 +32,25 @@ log = logging.getLogger("stelnexus")
 _cfg = get_settings()
 
 
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """Start the Redis subscriber (only when REDIS_URL is set) so this worker hears the other workers."""
+    from app.core import redisbus
+    for line in redisbus.deployment_warnings():
+        log.warning(line)
+    task = redisbus.start_listener()
+    try:
+        yield
+    finally:
+        if task is not None:
+            task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await task
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
+        lifespan=_lifespan,
         title="StelNexus",
         version="1.0.0",
         description="Betting operations console — HTML console + JSON API for mobile.",
@@ -50,35 +69,39 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestContextMiddleware)
     # Outermost: reject unknown Host headers before anything else runs (prod requires explicit hosts).
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=_cfg.TRUSTED_HOSTS or ["*"])
-    try:
-        from app.db.migrate import upgrade
-        upgrade(engine)
-    except Exception:  # an older database must still boot; the helper logs loudly
-        log.exception("schema upgrade failed")
-    try:                                           # the NBA team catalog (registry only); inserts missing teams, never edits
-        from app.db.session import session_scope
-        from app.services import teams as _teams
-        with session_scope() as _db:
-            _teams.ensure_teams(_db)
-    except Exception:
-        log.exception("team catalog not seeded")
-    try:
-        from app.db.hardening import install_audit_guards
-        install_audit_guards(engine)
-    except Exception:  # never block startup; the helper logs loudly
-        log.exception("audit-log guards not installed")
+    from app.db.startlock import startup_lock
+    with startup_lock(engine):                     # several workers boot together: one at a time does the one-time work
+        try:
+            from app.db.migrate import upgrade
+            upgrade(engine)
+        except Exception:  # an older database must still boot; the helper logs loudly
+            log.exception("schema upgrade failed")
+        try:                                       # the NBA team catalog (registry only); inserts missing teams, never edits
+            from app.db.session import session_scope
+            from app.services import teams as _teams
+            with session_scope() as _db:
+                _teams.ensure_teams(_db)
+        except Exception:
+            log.exception("team catalog not seeded")
+        try:
+            from app.db.hardening import install_audit_guards
+            install_audit_guards(engine)
+        except Exception:  # never block startup; the helper logs loudly
+            log.exception("audit-log guards not installed")
 
     from app.web import (
         routes_admin, routes_agents, routes_auth, routes_bets, routes_dashboard,
         routes_cuts, routes_extra, routes_fights, routes_money, routes_players, routes_referrals,
         routes_wallet, routes_dev, routes_bola, routes_live, routes_store, routes_staff, routes_access, routes_streams,
-        routes_games, routes_records, routes_license,
+        routes_games, routes_records, routes_license, routes_people, routes_agent_panel, routes_scatter,
+        routes_badges,
     )
     for module in (routes_auth, routes_dashboard, routes_agents, routes_players,
                    routes_fights, routes_bets, routes_money, routes_admin, routes_referrals,
                    routes_cuts, routes_extra, routes_wallet, routes_dev, routes_bola,
                    routes_live, routes_store, routes_staff, routes_access, routes_streams,
-                   routes_games, routes_records, routes_license):
+                   routes_games, routes_records, routes_license, routes_people, routes_agent_panel, routes_scatter,
+                   routes_badges):
         app.include_router(module.router)
 
     from app.api.v1 import routes as api_routes

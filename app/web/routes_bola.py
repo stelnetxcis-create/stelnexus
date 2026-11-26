@@ -19,9 +19,9 @@ from app.core.rbac import Perm, hides_totals
 from app.db.models import BolaKind, TicketStatus
 from app.services import accounts, bola, bola_settlement, locations, proofs, reports
 from app.web.paging import paginate
-from app.web.deps import Ctx, flash_redirect, form_data, render, require_ctx
+from app.web.deps import Ctx, flash_redirect, form_data, game_gate, render, require_ctx
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(game_gate("bola"))])
 _cfg = get_settings()
 
 
@@ -177,7 +177,7 @@ async def bola_draw(draw_id: int, request: Request, ctx: Ctx = Depends(require_c
         runs=bola_settlement.runs_for(ctx.db, draw.id), expenses=expenses,
         can_manage=can_manage, can_open=can_manage or ctx.can(Perm.BOLA_OPEN), can_declare=ctx.can(Perm.BOLA_DECLARE),
         can_redeclare=ctx.can(Perm.BOLA_REDECLARE), can_approve=ctx.can(Perm.BOLA_APPROVE),
-        can_place=ctx.can(Perm.BOLA_PLACE), can_cancel=ctx.can(Perm.BOLA_CANCEL),
+        can_place=ctx.can(Perm.BOLA_PLACE), can_cancel=ctx.can(Perm.BOLA_CANCEL), can_skip=ctx.can(Perm.BOLA_SKIP),
         can_report=ctx.can(Perm.BOLA_EXPOSURE) and not hide,
     )
 
@@ -446,6 +446,15 @@ def _need_open_close(ctx: Ctx) -> None:
     """Opening / closing betting on a draw: the full manager, or a Declarator's narrower open-close right."""
     if not ctx.can(Perm.BOLA_MANAGE):
         ctx.need(Perm.BOLA_OPEN)
+
+
+@router.post("/bola/draws/{draw_id}/skip")
+async def bola_skip(draw_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
+    """Skip the cut-off countdown: close betting and bring the draw time to now. Dev-only unless granted."""
+    ctx.need(Perm.BOLA_SKIP)
+    data = await form_data(request)
+    bola.skip_wait(ctx.db, ctx.user, draw_id, reason=data.get("reason") or None)
+    return flash_redirect(f"/bola/draws/{draw_id}", "Wait skipped. Betting is closed and the draw is due now.")
 
 
 @router.post("/bola/draws/{draw_id}/open")

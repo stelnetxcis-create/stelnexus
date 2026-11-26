@@ -1,29 +1,31 @@
 {
-  "build": "5963e4b9",
-  "inputs": "bb4469d0417d2145823ffae59a9c236b750c206799e564e3d549d0b0ac97f147",
+  "build": "309bccda",
+  "inputs": "c55998f54ab61d9ad1f74eef43c55af1ed48ddb9eac296a9780e4cc0b7e2834f",
   "css": {
-    "auth": "/static/dist/auth.b13c8280.css",
-    "site": "/static/dist/site.65c9e6e9.css",
-    "store": "/static/dist/store.7967e539.css",
-    "bola-ui": "/static/dist/bola-ui.c8fefe2d.css",
-    "livestream": "/static/dist/livestream.f6922ca2.css",
-    "declarator": "/static/dist/declarator.06cc963e.css"
+    "auth": "/static/dist/auth.c9d8916c.css",
+    "site": "/static/dist/site.95b9a7ff.css",
+    "store": "/static/dist/store.c5c8f0c7.css",
+    "bola-ui": "/static/dist/bola-ui.102c3380.css",
+    "scatter": "/static/dist/scatter.fb59085e.css",
+    "livestream": "/static/dist/livestream.43e74e18.css",
+    "declarator": "/static/dist/declarator.dc005a7f.css"
   },
   "js": {
     "nav-init": "/static/dist/nav-init.f71a574e.js",
-    "auth": "/static/dist/auth.4a767180.js",
-    "site": "/static/dist/site.1fcbcff8.js",
+    "auth": "/static/dist/auth.bc78d9a3.js",
+    "site": "/static/dist/site.c59672ff.js",
     "bola": "/static/dist/bola.ef0ee78a.js",
-    "bola-live": "/static/dist/bola-live.0f128a91.js",
+    "bola-live": "/static/dist/bola-live.e5d2b84a.js",
+    "scatter": "/static/dist/scatter.5fd8ab98.js",
     "chat": "/static/dist/chat.a5798df9.js",
     "dash": "/static/dist/dash.274e77b5.js",
-    "declarator": "/static/dist/declarator.4d8ca24e.js",
-    "dock": "/static/dist/dock.e7c50c6e.js",
+    "declarator": "/static/dist/declarator.656f8371.js",
+    "dock": "/static/dist/dock.75cd7076.js",
     "fightchat": "/static/dist/fightchat.06a8e427.js",
-    "fightview": "/static/dist/fightview.0eadac65.js",
+    "fightview": "/static/dist/fightview.98e06e1d.js",
     "referrals": "/static/dist/referrals.0ec603de.js",
     "hls": "/static/dist/hls.63709b99.js",
-    "stream": "/static/dist/stream.e0126fd8.js",
+    "stream": "/static/dist/stream.d257ab38.js",
     "streams-admin": "/static/dist/streams-admin.e3b53d22.js"
   },
   "preload": [
@@ -31,8 +33,8 @@
     "/static/dist/fonts/cormorant-garamond-latin-600-normal.ae062b6d.woff2"
   ],
   "shell": [
-    "/static/dist/site.65c9e6e9.css",
-    "/static/dist/site.1fcbcff8.js",
+    "/static/dist/site.95b9a7ff.css",
+    "/static/dist/site.c59672ff.js",
     "/static/dist/nav-init.f71a574e.js"
   ]
 }

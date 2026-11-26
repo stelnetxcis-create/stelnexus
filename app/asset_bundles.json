@@ -4,6 +4,7 @@
     "site": ["css/base.css", "css/theme.css", "css/lite.css", "css/inapp.css", "css/mobilenav.css"],
     "store": ["css/store.css"],
     "bola-ui": ["css/bola-ui.css"],
+    "scatter": ["css/scatter.css"],
     "livestream": ["css/livestream.css"],
     "declarator": ["css/declarator.css"]
   },
@@ -13,6 +14,7 @@
     "site": ["js/app.js", "js/luxe.js", "js/pages.js", "js/arena.js", "js/royale.js", "js/wallet-live.js", "js/menus.js", "js/anim-pause.js", "js/inapp.js", "js/mobilenav.js"],
     "bola": ["js/bola.js"],
     "bola-live": ["js/bola-live.js"],
+    "scatter": ["js/scatter-art.js", "js/scatter.js"],
     "chat": ["js/chat.js"],
     "dash": ["js/dash.js"],
     "declarator": ["js/declarator.js"],

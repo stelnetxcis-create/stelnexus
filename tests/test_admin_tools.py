@@ -150,8 +150,8 @@ def test_edit_user_details_audited_and_username_unique():
         admin, store = _admin(db), SettingsStore(db)
         a = _mk(db, admin, store, Role.MASTER, f"ea{tag}")
         b = _mk(db, admin, store, Role.MASTER, f"eb{tag}")
-        account_admin.edit_user(db, admin, a.id, username=f"ea{tag}x", full_name="New Name", contact="0917")
-        assert (a.username, a.full_name, a.contact) == (f"ea{tag}x", "New Name", "0917")
+        account_admin.edit_user(db, admin, a.id, username=f"ea{tag}x", full_name="New Name", contact="0917 123 4567")
+        assert (a.username, a.full_name, a.contact) == (f"ea{tag}x", "New Name", "09171234567")
         with pytest.raises(Conflict):
             account_admin.edit_user(db, admin, a.id, username=b.username)
         with pytest.raises(ValidationError):

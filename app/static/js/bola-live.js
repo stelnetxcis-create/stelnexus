@@ -99,7 +99,8 @@
   /* ================================================================ 3. live draw screen */
   const root = document.querySelector('[data-bola-live]');
   if (!root) return;
-  const id = root.dataset.drawId, url = root.dataset.liveUrl, at = parseInt(root.dataset.scheduledMs, 10);
+  const id = root.dataset.drawId, url = root.dataset.liveUrl;
+  let at = parseInt(root.dataset.scheduledMs, 10);     // follows the server: a skip or a reschedule moves it
   const clock = root.querySelector('[data-bl-clock]');
   const offKey = 'bola-live-off:' + id;
   let skew = 0, last = null, screen = null, mode = '', revealed = false, polling = null, timerId = null;
@@ -123,9 +124,18 @@
     [['Tumbok', 's1'], ['Sahod', 's2']].forEach((s) => { const w = el('div', 'bl-slot ' + s[1]); w.appendChild(el('small', '', s[0])); w.appendChild(el('b', 'bl-ball', '?')); slots.appendChild(w); });
     const sr = el('div', 'bl-sr'); sr.setAttribute('aria-live', 'polite');
     const done = el('button', 'btn btn-brand bl-done', 'Close'); done.type = 'button'; done.hidden = true;
-    [x, head, globe, count, say, slots, done, sr].forEach((n) => scr.appendChild(n));
+    /* Skip the wait: only for accounts the server allowed (data-skip-url is absent otherwise; the server checks again). */
+    const skip = el('button', 'btn bl-skip', 'Skip wait'); skip.type = 'button'; skip.hidden = !root.dataset.skipUrl;
+    [x, head, globe, count, say, slots, skip, done, sr].forEach((n) => scr.appendChild(n));
     x.addEventListener('click', closeScreen); done.addEventListener('click', closeScreen);
-    scr._ = { count, say, slots, sr, done };
+    skip.addEventListener('click', () => {
+      if (!root.dataset.skipUrl || !window.confirm('Skip the wait? Betting closes now and the draw becomes due at once.')) return;
+      skip.disabled = true;
+      const f = el('form'); f.method = 'post'; f.action = root.dataset.skipUrl;
+      const t = el('input'); t.type = 'hidden'; t.name = 'csrf_token'; t.value = root.dataset.csrf || '';
+      f.appendChild(t); document.body.appendChild(f); f.submit();
+    });
+    scr._ = { count, say, slots, sr, done, skip };
     return scr;
   }
   function open() {
@@ -142,7 +152,7 @@
     s.classList.add('is-leaving'); setTimeout(() => { s.remove(); document.body.classList.remove('bl-lock'); if (reload) location.reload(); }, reduce ? 0 : 300);
   }
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && screen && !document.querySelector('.bw-screen')) closeScreen(); });
-  function setMode(m) { mode = m; if (screen) screen.dataset.mode = m; }
+  function setMode(m) { mode = m; if (screen) { screen.dataset.mode = m; if (screen._.skip && root.dataset.skipUrl) screen._.skip.hidden = m !== 'count'; } }
 
   /* the draw: shuffle, then each ball rolls out and its number spins before it lands */
   function reveal(d) {
@@ -194,6 +204,7 @@
   function poll() {
     fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } }).then((r) => r.json()).then((d) => {
       skew = d.now_ms - Date.now(); last = d;
+      if (d.scheduled_ms) at = d.scheduled_ms;
       if (d.status === 'settled' && d.ball_first != null) {
         if (screen) reveal(d);
         else if (d.won_cents > 0) celebrate({ cents: d.won_cents, codes: d.won_codes, key: 'draw:' + id + ':' + d.version + ':' + d.won_cents });

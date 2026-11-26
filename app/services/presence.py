@@ -1,4 +1,7 @@
-"""Who is signed in right now. Admin-only by default (a Pawn needs the 'online:view' grant)."""
+"""Who is signed in right now. The Admin, a Teller and a Pawn with the 'online:view' grant may ask.
+
+What each of them sees is decided by the People page (routes_people): the Admin gets the device and IP,
+a Teller only the name, type, last activity and GCash number."""
 from __future__ import annotations
 
 import datetime as dt
@@ -25,7 +28,7 @@ def _device(user_agent: str | None) -> str:
 
 def online_accounts(db: Session, viewer: User, settings: SettingsStore) -> list[dict]:
     if not has_perm(viewer, Perm.ONLINE_VIEW):
-        raise Forbidden("Only the Admin can see who is online.")
+        raise Forbidden("You cannot see who is online.")
     now = dt.datetime.now(dt.timezone.utc)
     window = dt.timedelta(minutes=int(settings.get("presence.window_minutes")))
     stmt = (select(SessionRow, User).join(User, User.id == SessionRow.user_id)

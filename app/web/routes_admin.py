@@ -7,6 +7,8 @@
     /admin/access       Access: the Dev / Staff / Users trees, role defaults, account types (Admin only; see routes_access)
     /admin/audit        audit trail and ledger integrity
 
+Accounts (rename / remove) moved into Staff Panel -> People; /admin/accounts still opens it.
+
 The Admin sees all of it. A Pawn sees only the sections the Admin switched on for that account
 (``User.grants``), and inside Variables only the groups granted. Master has no access here.
 """
@@ -35,7 +37,6 @@ SECTIONS = (
     ("teams", "/admin/teams", "Teams", Perm.TEAMS_VIEW),
     ("bola", "/admin/bola/schedules", "Bola draw times", Perm.BOLA_MANAGE),
     ("cuts", "/admin/cuts", "Cuts", Perm.CUTS_VIEW),
-    ("accounts", "/admin/accounts", "Accounts", Perm.ACCOUNTS_VIEW),
     ("ipbans", "/admin/ipbans", "IP bans", Perm.IPBANS_MANAGE),
     ("access", "/admin/access", "Access", Perm.PAWNS_MANAGE),
     ("audit", "/admin/audit", "Audit trail", Perm.AUDIT_VIEW),
@@ -66,7 +67,7 @@ async def admin_home(ctx: Ctx = Depends(require_ctx)):
     cards = []
     if ctx.can(Perm.ONLINE_VIEW):
         online = presence.online_accounts(db, ctx.user, ctx.store)
-        cards.append(("Online now", len(online), "accounts signed in", "/clp/online"))
+        cards.append(("Online now", len(online), "accounts signed in", "/staff/people?tab=online"))
     if ctx.can(Perm.LOCATIONS_VIEW):
         n = int(db.scalar(select(func.count(Location.id)).where(Location.is_active.is_(True))) or 0)
         cards.append(("Locations", n, "active venues", "/admin/locations"))
@@ -120,8 +121,12 @@ async def variables_save(request: Request, ctx: Ctx = Depends(require_ctx)):
             changed.append(key)
             audit.record(ctx.db, ctx.user, "settings.update", entity_type="setting", entity_id=key,
                          before={"value": old}, after={"value": new})
+    note = ""
+    if "bola.cutoff_minutes" in changed:      # a draw's cut-off is fixed when it is made: carry the new value to upcoming draws
+        moved = bola.resync_cutoffs(ctx.db, ctx.user, ctx.store)
+        note = f" Cut-off re-applied to {moved} upcoming draw(s)."
     return flash_redirect("/admin/variables",
-                          f"{len(changed)} variable(s) updated." if changed else "No changes.")
+                          f"{len(changed)} variable(s) updated.{note}" if changed else "No changes.")
 
 
 # --------------------------------------------------------------------------- locations
@@ -306,39 +311,14 @@ async def pawns_password(pawn_id: int, request: Request, ctx: Ctx = Depends(requ
 
 # --------------------------------------------------------------------------- accounts
 
-@router.get("/admin/accounts")
-async def accounts_page(request: Request, ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.ACCOUNTS_VIEW)
-    q = request.query_params
-    kind = q.get("kind") if q.get("kind") in ("all", "users", "players") else "all"
-    from app.web.paging import make_pager, page_number
-    per = 100
-    upage, ppage = page_number(request, "upage"), page_number(request, "ppage")
-    found = account_admin.list_accounts(ctx.db, search=q.get("q", "")[:60] or None, kind=kind,
-                                        include_removed=q.get("removed") == "1", limit=per + 1,
-                                        user_offset=upage * per, player_offset=ppage * per)
-    viewer_is_admin = ctx.user.is_admin_tier
-    # Pawns are the Admin's to manage; a Pawn never even sees the controls for another Pawn.
-    users_pager = make_pager(request, per, upage, min(len(found["users"]), per),
-                             len(found["users"]) > per, "upage")
-    players_pager = make_pager(request, per, ppage, min(len(found["players"]), per),
-                               len(found["players"]) > per, "ppage")
-    users = [u for u in found["users"][:per] if viewer_is_admin or u.role != Role.PAWN]
-    return panel(ctx, "accounts", "admin_accounts.html", users=users, players=found["players"][:per],
-                 users_pager=users_pager, players_pager=players_pager,
-                 search=q.get("q", "")[:60], kind=kind, removed=q.get("removed") == "1",
-                 can_edit=ctx.can(Perm.ACCOUNTS_EDIT), can_remove=ctx.can(Perm.ACCOUNTS_REMOVE),
-                 me=ctx.user.id)
-
-
 @router.post("/admin/accounts/user/{user_id}/edit")
 async def accounts_user_edit(user_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.ACCOUNTS_EDIT)
     data = await form_data(request)
     user = account_admin.edit_user(ctx.db, ctx.user, user_id, username=data.get("username"),
                                    full_name=data.get("full_name"), contact=data.get("contact", ""),
-                                   reason=data.get("reason"))
-    return flash_redirect("/admin/accounts", f"Saved {user.username}.")
+                                   reason=data.get("reason"), email=data.get("email") or None)
+    return flash_redirect("/staff/people?tab=team", f"Saved {user.username}.")
 
 
 @router.post("/admin/accounts/user/{user_id}/remove")
@@ -346,7 +326,7 @@ async def accounts_user_remove(user_id: int, request: Request, ctx: Ctx = Depend
     ctx.need(Perm.ACCOUNTS_REMOVE)
     data = await form_data(request)
     user = account_admin.remove_user(ctx.db, ctx.user, user_id, reason=data.get("reason", ""))
-    return flash_redirect("/admin/accounts", f"{user.username} was removed and signed out.")
+    return flash_redirect("/staff/people?tab=team", f"{user.username} was removed and signed out.")
 
 
 @router.post("/admin/accounts/player/{player_id}/edit")
@@ -356,8 +336,8 @@ async def accounts_player_edit(player_id: int, request: Request, ctx: Ctx = Depe
     player = account_admin.edit_player(
         ctx.db, ctx.user, player_id, username=data.get("username"), full_name=data.get("full_name"),
         gcash_number=data.get("gcash") or None, address=data.get("address") or None,
-        notes=data.get("notes", ""), reason=data.get("reason"))
-    return flash_redirect("/admin/accounts?kind=players", f"Saved {player.full_name}.")
+        notes=data.get("notes", ""), reason=data.get("reason"), email=data.get("email") or None)
+    return flash_redirect("/staff/people?tab=players", f"Saved {player.full_name}.")
 
 
 @router.post("/admin/accounts/player/{player_id}/remove")
@@ -365,7 +345,7 @@ async def accounts_player_remove(player_id: int, request: Request, ctx: Ctx = De
     ctx.need(Perm.ACCOUNTS_REMOVE)
     data = await form_data(request)
     player = account_admin.remove_player(ctx.db, ctx.user, player_id, reason=data.get("reason", ""))
-    return flash_redirect("/admin/accounts?kind=players", f"{player.full_name} was removed.")
+    return flash_redirect("/staff/people?tab=players", f"{player.full_name} was removed.")
 
 
 # --------------------------------------------------------------------------- IP bans

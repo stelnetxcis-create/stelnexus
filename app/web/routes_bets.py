@@ -12,9 +12,9 @@ from app.db.models import Side, TicketStatus
 from app.services import accounts, betting, events
 from app.web.paging import paginate
 from app.web.routes_live import live_row
-from app.web.deps import Ctx, form_data, flash_redirect, render, require_ctx
+from app.web.deps import Ctx, flash_redirect, form_data, game_gate, render, require_ctx
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(game_gate("sabong"))])
 
 
 def _int(raw: str | None, default: int = 0) -> int:
@@ -37,31 +37,6 @@ async def cancel_t(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.CANCEL_LOG)        # dev-only
     from app.web.routes_records import legacy_redirect
     return legacy_redirect(request, "cancelled", "sabong")
-
-
-@router.post("/bets/place")
-async def place_bet(request: Request, ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.BETS_PLACE)
-    data = await form_data(request)
-    fight_id = _int(data.get("fight_id"))
-    fight = events.get_fight(ctx.db, fight_id)
-    try:
-        side = Side(data.get("side", ""))
-    except ValueError as exc:
-        raise ValidationError("Choose Meron, Wala or Draw.") from exc
-
-    ticket = betting.place_bet(
-        ctx.db, ctx.user, fight_id=fight_id, side=side,
-        stake_cents=to_cents(data.get("amount", "0")), settings=ctx.store,
-        player_id=_int(data.get("player_id")) or None,
-        is_diy=data.get("is_diy") == "1",
-        idempotency_key=data.get("idempotency_key") or None,
-        numbers=data.get("numbers"), kubrador=data.get("kubrador"), cavo=data.get("cavo"),
-        ip=ctx.ip,
-    )
-    if data.get("print") == "1":
-        return flash_redirect(f"/tickets/{ticket.id}", f"Ticket {ticket.code} sold.")
-    return flash_redirect(f"/events/{fight.event_id}", f"Ticket {ticket.code} sold.")
 
 
 @router.post("/bets/{ticket_id}/cancel")
@@ -108,7 +83,7 @@ def _qr_svg(payload: str) -> str:
 # ---- early bets from the livestream page (JSON, used by the floating Bet panel) ----------------------------------
 @router.post("/bets/live/place")
 async def early_place(request: Request, ctx: Ctx = Depends(require_ctx)):
-    """The livestream Bet panel: the logged-in account bets for itself. Same rules as /bets/place (all of
+    """The livestream Bet panel: the logged-in account bets for itself. Same rules as every bet (all of
     betting.place_bet), plus: refused once the game is on air."""
     ctx.need(Perm.BETS_PLACE)
     if hides_totals(ctx.user):

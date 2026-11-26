@@ -1,0 +1,18 @@
+# /etc/systemd/system/stelnexus-badges.service  (adjust User, paths)
+# Awards Achievements badges to every account that has reached one, so a badge shows up next to a name even if
+# its owner has not opened the Achievements page. Safe to run repeatedly; badges are never taken back.
+[Unit]
+Description=StelNexus: award Achievements badges
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=stelnexus
+WorkingDirectory=/opt/stelnexus
+EnvironmentFile=/opt/stelnexus/.env
+ExecStart=/opt/stelnexus/.venv/bin/python -m app.cli award-badges
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/stelnexus/var

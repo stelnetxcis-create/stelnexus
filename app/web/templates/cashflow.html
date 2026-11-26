@@ -37,8 +37,9 @@
       <dl class="kv">
         {% if user.is_top %}
         <dt>Tong + rounding</dt><dd>{{ figures.house_revenue | money }}</dd>
-        <dt>Commission expense</dt><dd>{{ figures.commission_expense | money }}</dd>
-        <dt>Net house</dt><dd>{{ (figures.house_revenue - figures.commission_expense) | money }}</dd>
+        <dt>Commission to the network</dt><dd>{{ (figures.commission_expense - figures.system_pool) | money }}</dd>
+        <dt>Net house</dt><dd>{{ (figures.house_revenue - figures.commission_expense + figures.system_pool) | money }}</dd>
+        <dt>of which in the system pool</dt><dd>{{ figures.system_pool | money }}</dd>
         {% endif %}
         <dt>Online payments clearing float</dt><dd>{{ figures.gcash_float | money }}</dd>
       </dl>

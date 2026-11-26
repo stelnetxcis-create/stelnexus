@@ -7,12 +7,15 @@ from app.games import RECORD_TABS, RIGHTS, WORKSPACE_TABS
 from app.games.base import GameAdapter
 from tests.test_web import login
 
+# Tabs a game does not have: its workspace_urls() says None and the shared route answers 404.
+ABSENT_TABS = {"scatter": {"schedule", "declare"}}
+
 ADAPTER_METHODS = ("workspace_urls", "summary_today", "tickets", "cancelled", "history",
                    "report_daily", "report_monthly", "report_session", "schedule", "create_spec")
 
 
 def test_registry_is_not_empty_and_keys_match():
-    assert {"sabong", "bola"} <= set(games.GAMES)
+    assert {"sabong", "bola", "scatter"} <= set(games.GAMES)
     for key, adapter in games.GAMES.items():
         assert adapter.key == key and adapter.label and adapter.icon
 
@@ -43,7 +46,9 @@ def test_every_game_exposes_all_workspace_urls_to_the_admin(key):
     from app.web.deps import Ctx  # noqa: F401  (the route builds the Ctx; here we check through the web layer)
     for tab in WORKSPACE_TABS:
         r = c.get(f"/games/{key}/{tab}")
-        if tab == "schedule" and key == "sabong":   # Sabong's events list IS its game page: Manage and Play are one place
+        if tab in ABSENT_TABS.get(key, ()):
+            assert r.status_code == 404, (key, tab)
+        elif tab == "schedule" and key == "sabong":   # Sabong's events list IS its game page: Manage and Play are one place
             assert r.status_code == 303 and r.headers["location"] == "/games/sabong/live?pick=1", (key, tab)
         elif tab == "schedule":                     # the shared Schedule page renders in place
             assert r.status_code == 200, (key, tab)

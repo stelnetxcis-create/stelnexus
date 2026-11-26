@@ -60,6 +60,18 @@ class SettingDef:
 
 
 DEFS: tuple[SettingDef, ...] = (
+    # ---- games: which games exist for everyone -----------------------------
+    # Off hides the game from the menu, the Games hub, the Dashboard, Records, the live ticker and every page and
+    # button of that game, for EVERY account (the Admin included), and refuses new bets. Nothing is deleted: when it
+    # is switched back on, the game and all its records come back exactly as they were.
+    SettingDef("games.show_sabong", "Show Sabong (Meron / Wala)", "bool", True, "Games",
+               "Off hides Sabong from everyone: menu, Games hub, Dashboard, Records and its pages. Its records are "
+               "hidden with it and return when you switch it back on."),
+    SettingDef("games.show_bola", "Show Number game (Bola)", "bool", True, "Games",
+               "Off hides the Number game from everyone, records included. Separate from the Bola master switch, which "
+               "only stops betting."),
+    SettingDef("games.show_scatter", "Show Scatter (slot)", "bool", True, "Games",
+               "Off hides Scatter from everyone, round records included."),
     # ---- payout -----------------------------------------------------------
     SettingDef("payout.model", "Default payout model", "choice", "pool", "Payout",
                "Pool = winners split the net pool pro-rata (pari-mutuel). Fixed = admin-set multiplier.",
@@ -145,9 +157,31 @@ DEFS: tuple[SettingDef, ...] = (
     SettingDef("commission.max_kubrador_cut_bps", "Highest Sub Agent cut a Master may set", "bps", 5000,
                "Commissions",
                "Guard rail, as a share of the Agent's cut. Admin is not limited.", 0, 10000),
+    SettingDef("commission.reserve_bps", "Meron / Wala: house reserve (system pool)", "bps", 3000, "Commissions",
+               "Share of the cut that is kept in the system pool on the Teller page. 3000 = 30%. The rest (70%) is the "
+               "network pool that the Master / Agent / Sub Agent split is taken from. Nobody is paid from the reserve.", 0, 10000),
     SettingDef("commission.cap_of_house_cut_bps", "Cap: share of house win", "bps", 10000, "Commissions",
                "Total commission per game can never exceed this share of the house win. 10000 = 100%.", 0, 10000),
     SettingDef("commission.pay_on_refund", "Pay commission on refunded bets", "bool", False, "Commissions"),
+    # ---- scatter: the 6x5 scatter-pays slot ---------------------------------
+    # A casino-style game: confirm you are licensed to offer it before real money. Nothing here implies any
+    # government affiliation. The return to player is fixed by the maths in app/games/scatter_engine.py.
+    SettingDef("scatter.enabled", "Scatter (slot) enabled", "bool", True, "Scatter",
+               "Master switch. Off hides the game and refuses every spin. Confirm you are licensed/authorised to "
+               "offer slot games before real money."),
+    SettingDef("scatter.bet_ladder", "Bet sizes (pesos)", "str", "10,20,50,100,200,500,1000", "Scatter",
+               "The bets a player can pick, in whole pesos, comma separated. Only these are accepted by the server, "
+               "and only the ones between the minimum and maximum below are shown.", None, 120),
+    SettingDef("scatter.min_bet_cents", "Scatter: minimum bet", "money", 1000, "Scatter",
+               "In centavos (1000 = PHP 10).", 100, 10**9),
+    SettingDef("scatter.max_bet_cents", "Scatter: maximum bet", "money", 100000, "Scatter",
+               "In centavos (100000 = PHP 1,000).", 100, 10**9),
+    SettingDef("scatter.max_win_x", "Scatter: largest win (x the bet)", "int", 5000, "Scatter",
+               "One round (the spin plus any free spins) never pays more than this many times the bet; the bonus "
+               "stops there. It is what bounds the house's loss on one round. 5000 = 5,000x.", 100, 100000),
+    SettingDef("scatter.min_seconds_between_spins", "Scatter: seconds between spins", "int", 0, "Scatter",
+               "A spin that comes sooner than this after the account's last one is refused (a speed limit for "
+               "scripts and a slower pace for the player). 0 = no limit.", 0, 60),
     # ---- bola: the two-number draw game (Tumbok-Sahod) ---------------------
     # Now on by default (open to all roles). Only take real money once the operator has confirmed it is authorised
     # to run a numbers game (PCSO / PAGCOR / a licensed operator). Nothing here implies any
@@ -179,8 +213,9 @@ DEFS: tuple[SettingDef, ...] = (
                "Same cap applied to the worst outcome of the whole draw. 0 = off. Default for every "
                "area; an area can override it under Admin > Locations.", 0, 10**13),
     SettingDef("bola.cutoff_minutes", "Betting cut-off (minutes before draw)", "int", 10, "Bola",
-               "Bets are refused from this many minutes before the draw time. Enforced by timestamp "
-               "inside the bet transaction, so it does not depend on the scheduler.", 0, 1440),
+               "Bets are refused from this many minutes before the draw time (default 10). Enforced by timestamp "
+               "inside the bet transaction, so it does not depend on the scheduler. Saving a new value "
+               "re-applies it to every upcoming draw.", 0, 1440),
     SettingDef("bola.open_hours_before", "Open betting this long before the draw", "int", 12, "Bola",
                "Used by bola-tick / Generate draws to flip a scheduled draw to OPEN.", 0, 168),
     SettingDef("bola.allow_midnight_draw", "Allow a 00:00 (midnight) draw time", "bool", False, "Bola",
@@ -194,9 +229,12 @@ DEFS: tuple[SettingDef, ...] = (
                "turnover = a share of every settled stake (recommended for a fixed-multiplier game). "
                "netwin = a share of the house's net take on the draw, apportioned by stake.",
                choices=("turnover", "netwin")),
-    SettingDef("bola.commission.pool_bps", "Bola pool: share of the basis", "bps", 3000, "Bola",
-               "How much of each stake is set aside for the network. 3000 = 30%. The Agent's Volume % "
-               "and the Sub Agent's SOP % are then taken out of this pool (Cuts page).", 0, 10000),
+    SettingDef("bola.commission.pool_bps", "Bola cut: share of every stake", "bps", 1000, "Bola",
+               "The Bola cut, taken from each stake. 1000 = 10%. A share of it (house reserve, below) stays in the system "
+               "pool; the rest is split Master / Agent / Sub Agent (Volume % and SOP %, Cuts page).", 0, 10000),
+    SettingDef("bola.commission.reserve_bps", "Bola: house reserve (system pool)", "bps", 3000, "Bola",
+               "Share of the Bola cut kept in the system pool on the Teller page. 3000 = 30%; the other 70% is the "
+               "network pool.", 0, 10000),
     SettingDef("bola.commission.agent_cut_bps", "Bola: default Agent cut (Volume %)", "bps", 3000, "Bola",
                "Bola's own default for the share of the Bola pool kept by the Agent's side. 3000 = 30%, "
                "so the Master's remainder is 70%. A cut set on one account's Cuts row beats this.",
@@ -204,10 +242,9 @@ DEFS: tuple[SettingDef, ...] = (
     SettingDef("bola.commission.sub_agent_cut_bps", "Bola: default Sub Agent cut (SOP %)", "bps", 3000, "Bola",
                "Bola's own default for the share of the Agent's cut that goes to the Sub Agent who brought "
                "the bet. 3000 = 30% of the Agent's 30%.", 0, 10000),
-    SettingDef("bola.commission.pay_master", "Pay the Master a Bola commission line", "bool", False, "Bola",
-               "Plan decision D4. Off (default): the Master's remainder of the pool stays with the "
-               "house. On: it is paid to the Master as a commission line, as in sabong, so the "
-               "whole pool is paid out."),
+    SettingDef("bola.commission.pay_master", "Pay the Master a Bola commission line", "bool", True, "Bola",
+               "On (default): the Master's remainder of the network pool is paid to the Master as a commission "
+               "line, as in sabong. Off: it stays with the house instead."),
     SettingDef("bola.show_odds_to_players", "Show the multiplier and odds on the bet slip", "bool", True, "Bola",
                "Responsible-play disclosure: the payout multiplier and the chance per ordered pair."),
     # ---- chat store ----------------------------------------------------------
@@ -312,6 +349,10 @@ DEFS: tuple[SettingDef, ...] = (
                "A short plain-language paragraph shown on the License page.", maximum=500),
     SettingDef("license.notice", "Responsible play notice", "str", "Only for players of legal age. Please play responsibly.",
                "License", "Shown in the footer and on the License page. Leave empty to hide.", maximum=200),
+    SettingDef("account.username_min_length", "Minimum username length (new accounts)", "int", 7, "Security",
+               "Applies to new accounts and username changes. Existing usernames are not touched.", 3, 32),
+    SettingDef("signup.require_gmail", "Sign-up needs a Gmail address", "bool", True, "Security",
+               "Shown on the sign-up page as account information; it is never used to sign in. One Gmail per account."),
     SettingDef("stream.enabled", "Use the Streams page for the fight video", "bool", True, "Streaming",
                "Off = viewers always see the sample feed, whatever is taken live on the Streams page."),
     SettingDef("stream.dvr_window_seconds", "Rewind window (seconds)", "int", 120, "Streaming",
@@ -322,6 +363,17 @@ DEFS: tuple[SettingDef, ...] = (
                "The stream is offline. Please check back soon.", "Streaming",
                "Shown instead of a black screen when nothing in a setting's chain can play (a setting can have its own message).",
                maximum=200),
+    SettingDef("stream.require_credit", "Need credit to watch the stream", "bool", False, "Streaming",
+               "On: players, sub agents, agents and masters need credit to watch. Staff and Dev accounts are never "
+               "affected. Off (default) = everyone watches as before. Turn it on for one event first."),
+    SettingDef("stream.min_credit_cents", "Credit needed to watch", "money", 0, "Streaming",
+               "In centavos. 0 = use the minimum bet (Payout settings, 2000 = ₱20).", 0, 10**9),
+    SettingDef("stream.grace_until_fight_end", "Let a viewer finish the fight they bet on", "bool", True, "Streaming",
+               "On: someone whose credit drops too low because they just bet keeps watching until that fight is "
+               "declared or void, then sees the top-up screen. Off: the screen appears at once."),
+    SettingDef("stream.result_pause_seconds", "Seconds to show the result before the top-up screen", "int", 8,
+               "Streaming", "How long the video stays after the fight ends so the viewer sees what happened to "
+               "their bet before the top-up screen covers it.", 0, 60),
     SettingDef("stream.allowed_hosts", "Extra embed hosts", "str", "", "Streaming",
                "Comma-separated hostnames allowed for a generic iframe link (YouTube, Facebook, .m3u8 and .mp4 never need this).",
                maximum=500),

@@ -1,0 +1,67 @@
+{# Dialogs that are not tied to one person: create a user, register a player. #}
+{% if tab == 'team' and 'agents.create' in perms %}
+{% call ui.modal('create-modal', 'Create user') %}
+<form method="post" action="/agents/create">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="form-grid">
+    {{ ui.field('Full name', 'full_name', required=true, attrs='maxlength=120') }}
+    {{ ui.field('Username', 'username', required=true, attrs='maxlength=32 autocapitalize=none spellcheck=false') }}
+    <label class="field"><span>User type <em>*</em></span>
+      <select name="role" id="new-role" required>
+        {% for role in creatable %}<option value="{{ role.value }}">{{ role.label }}</option>{% endfor %}
+      </select>
+      <small>Master Agent, Agent and Sub Agent accounts are created directly here, no referral code needed. Declarators have no balance and only help with results. Pawns are created in the Admin Panel.</small>
+    </label>
+    {% if uplines %}
+    <label class="field" id="upline-field"><span>Reports to <em>*</em></span>
+      <select name="parent_id" id="new-upline">
+        {% set fits = {'master': 'agent', 'agent': 'sub_agent'} %}
+        {% for u in uplines %}<option value="{{ u.id }}" data-for="{{ fits.get(u.role.value, '') }}">{{ u.role_label }} · {{ u.full_name }} ({{ u.username }})</option>{% endfor %}
+      </select>
+      <small>An Agent sits under a Master Agent and a Sub Agent under an Agent.</small>
+    </label>
+    {% endif %}
+    {{ ui.field('Contact number', 'contact', attrs='maxlength=32 inputmode=tel') }}
+    {% if 'teller' in creatable | map(attribute='value') | list %}
+    <label class="field" id="gcash-field"><span>GCash number <em>(Teller only)</em></span>
+      <input name="gcash" maxlength="11" inputmode="numeric" pattern="09[0-9]{9}" placeholder="09XXXXXXXXX">
+      <small>Required for a Teller: it becomes their first number in the GCash pool. Tellers add more numbers themselves in Staff Panel → Teller; requests rotate between them by limit. Tellers sit directly under the Admin and see only who is online and their GCash numbers.</small>
+    </label>
+    {% endif %}
+  </div>
+  {{ ui.field('Temporary password', 'password', 'password', required=true, help='Minimum ' ~ settings['security.password_min_length'] ~ ' characters, 3 character classes. The agent must change it at first sign-in.', attrs='autocomplete=new-password') }}
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Create user</button></div>
+</form>
+{% endcall %}
+{% endif %}
+
+{% if tab == 'players' and 'players.create' in perms %}
+{% call ui.modal('register-modal', 'Register player') %}
+<form method="post" action="/clp/register">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label class="field"><span>Player type</span>
+    <select name="kind" id="player-kind">
+      <option value="online">Online (GCash) player</option>
+      <option value="card">Card player (legacy)</option>
+    </select>
+  </label>
+  {{ ui.field('Card number', 'card_number', attrs='maxlength=64 placeholder="Tap your card here…" autocomplete=off') }}
+  <div class="form-grid">
+    {{ ui.field('Username (online only)', 'username', attrs='maxlength=32 autocapitalize=none') }}
+    {{ ui.field('Password (online only)', 'password', 'password', attrs='autocomplete=new-password') }}
+  </div>
+  <div class="form-grid">
+    {{ ui.field('Full name', 'full_name', required=true, attrs='maxlength=120') }}
+    {{ ui.field('Date of birth', 'birth_date', 'date', required=true, help='Players must be ' ~ min_age ~ '+.') }}
+    {{ ui.field('GCash number (online only)', 'gcash', attrs='maxlength=11 inputmode=numeric placeholder=09XXXXXXXXX') }}
+    <label class="field"><span>Gender</span>
+      <select name="gender"><option value="">Prefer not to say</option><option value="male">Male</option><option value="female">Female</option></select>
+    </label>
+  </div>
+  {{ ui.field('Address', 'address', attrs='maxlength=255') }}
+  {{ ui.field('Daily bet limit (PHP, optional)', 'daily_limit', attrs='inputmode=decimal placeholder="0 = use system default"') }}
+  <p class="notice">Address and GCash number are encrypted at rest. ID/selfie uploads are disabled until a private document store is configured.</p>
+  <div class="form-actions"><button class="btn btn-primary" type="submit">Register</button></div>
+</form>
+{% endcall %}
+{% endif %}

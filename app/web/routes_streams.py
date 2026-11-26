@@ -14,7 +14,7 @@ from app.core.settings_registry import SettingsStore
 from sqlalchemy import select
 
 from app.db.models import Event, Fight
-from app.services import streams
+from app.services import stream_access, streams
 from app.web.deps import Ctx, flash_redirect, form_data, require_ctx
 from app.web.routes_staff import staff
 from app.web.routes_live import _reply
@@ -144,7 +144,9 @@ async def live_stream(request: Request, ctx: Ctx = Depends(require_ctx)):
     """What the player should play now. ETag / 304 like every other live endpoint: an idle poll costs a header."""
     bad = _bad_ids(request)
     data = ttlcache.cached(("live", "stream", tuple(sorted(bad))), 5, lambda: streams.payload(ctx.db, exclude=bad))
-    return _reply(request, dict(data))
+    # The shared payload is the same for everyone; the credit rule is applied per viewer AFTER the cache, so a
+    # locked viewer never receives an address (see services/stream_access.py).
+    return _reply(request, dict(stream_access.apply(ctx.db, ctx.user, ctx.store, data)))
 
 
 def _assign_args(ctx: Ctx, data) -> dict:
@@ -235,4 +237,5 @@ async def live_stream_scoped(scope: str, request: Request, ctx: Ctx = Depends(re
     bad = _bad_ids(request)
     data = ttlcache.cached(("live", "stream", event_id, fight_id, tuple(sorted(bad))), 5,
                            lambda: streams.payload(ctx.db, event_id=event_id, fight_id=fight_id, exclude=bad))
-    return _reply(request, dict(data))
+    return _reply(request, dict(stream_access.apply(ctx.db, ctx.user, ctx.store, data,
+                                                    fight_id=fight_id, event_id=event_id)))

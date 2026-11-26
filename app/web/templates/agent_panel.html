@@ -1,0 +1,353 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}Agent Panel · {{ brand }}{% endblock %}
+{% block heading %}Agent Panel{% endblock %}
+{% block content %}
+{% macro pct(bps) %}{{ ('%.2f' | format(bps / 100)).rstrip('0').rstrip('.') }}%{% endmacro %}
+{% set sources = {'sub_room': 'set for them', 'agent_room': 'your room setting', 'personal': 'their own cut', 'agent': 'your account-wide SOP', 'room': 'room default', 'game': 'game default'} %}
+<style>
+.ap-hero{display:flex;gap:20px;align-items:center;flex-wrap:wrap;padding:20px 22px;margin-bottom:18px;border-radius:18px;border:1px solid rgba(217,177,85,.32);
+  background:radial-gradient(460px 170px at 8% 0%,rgba(217,177,85,.17),transparent 70%),rgba(255,255,255,.02)}
+.ap-av{flex:none;width:76px;height:76px;border-radius:50%;display:grid;place-items:center;font:700 32px var(--serif,serif);color:#1a1405;
+  background:linear-gradient(145deg,#f3d98b,#b8892f);box-shadow:0 0 0 3px rgba(217,177,85,.28),0 12px 30px -12px rgba(217,177,85,.7)}
+.ap-av.sm{width:46px;height:46px;font-size:20px;box-shadow:0 0 0 2px rgba(217,177,85,.25)}
+.ap-id{flex:1 1 260px;min-width:0}
+.ap-id h2{margin:0 0 2px;font-family:var(--serif,serif);font-size:28px;color:var(--gold-hi,#f3d98b)}
+.ap-id .muted{font-size:13px}
+.ap-ladder{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap}
+.ap-step{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font:700 11px var(--font,sans-serif);letter-spacing:.06em;text-transform:uppercase;
+  color:var(--ink-3,#8a8478);border:1px solid rgba(255,255,255,.08)}
+.ap-step.on{color:#1a1405;background:linear-gradient(145deg,#f3d98b,#c99a3a);border-color:transparent;animation:ap-glow 2.2s ease-in-out infinite}
+.ap-step.past{color:var(--ink-2,#c9c3b5);border-color:rgba(217,177,85,.3)}
+.ap-branch{display:inline-flex;align-items:center;gap:7px;font:800 10px var(--font,sans-serif);letter-spacing:.2em;text-transform:uppercase;color:var(--green,#3ddc97)}
+.ap-branch i{width:8px;height:8px;border-radius:50%;background:currentColor;animation:ap-blink 1.4s ease-in-out infinite}
+@keyframes ap-glow{0%,100%{box-shadow:0 0 0 0 rgba(243,217,139,.0)}50%{box-shadow:0 0 18px 2px rgba(243,217,139,.55)}}
+@keyframes ap-blink{0%,100%{opacity:1}50%{opacity:.25}}
+.ap-stats{display:flex;gap:10px;flex-wrap:wrap}
+.ap-h{display:flex;align-items:baseline;gap:10px;margin:26px 0 10px}
+.ap-h h2{margin:0;font-family:var(--serif,serif);font-size:22px}
+.ap-sub-head{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.ap-chip{display:inline-block;margin:2px 4px 2px 0;padding:2px 8px;border-radius:999px;font-size:11px;border:1px solid rgba(255,255,255,.1);color:var(--ink-2,#c9c3b5)}
+.ap-src{font-size:11px;color:var(--ink-3,#8a8478)}
+.ap-set{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.ap-set input{width:82px}
+details.ap-defaults>summary{cursor:pointer;padding:14px 18px;font:700 16px var(--serif,serif);list-style:none}
+
+/* ---- the golden tree ---- */
+.gt{--g1:#f3d98b;--g2:#d9b155;--g3:#b8892f;position:relative;margin:6px 0 4px;padding:18px 18px 8px;border-radius:20px;border:1px solid rgba(217,177,85,.28);
+  background:radial-gradient(520px 220px at 0% 0%,rgba(217,177,85,.14),transparent 70%),radial-gradient(420px 260px at 100% 100%,rgba(217,177,85,.07),transparent 70%),rgba(255,255,255,.018)}
+.gt ul{list-style:none;margin:0;padding:0}
+.gt-root{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.gt-crown{flex:none;width:46px;height:46px;border-radius:50%;display:grid;place-items:center;font-size:22px;color:#1a1405;
+  background:linear-gradient(145deg,var(--g1),var(--g3));box-shadow:0 0 0 3px rgba(217,177,85,.25),0 10px 26px -10px rgba(217,177,85,.8)}
+.gt-root b{display:block;font:700 18px var(--serif,serif);color:var(--gold-hi,#f3d98b)}
+.gt-root small{color:var(--ink-3,#8a8478);font-size:12px}
+.gt-branches{margin-left:22px}
+.gt-branches>li{position:relative;padding-left:34px;margin:0 0 14px}
+.gt-branches>li::before{content:"";position:absolute;left:0;top:-14px;bottom:0;width:2px;border-radius:2px;
+  background:linear-gradient(180deg,var(--g1),var(--g3));box-shadow:0 0 12px rgba(217,177,85,.45)}
+.gt-branches>li:last-child::before{bottom:auto;height:46px}
+.gt-branches>li::after{content:"";position:absolute;left:0;top:31px;width:30px;height:2px;border-radius:2px;background:linear-gradient(90deg,var(--g3),var(--g2))}
+.gt-knot{position:absolute;left:-5px;top:26px;width:12px;height:12px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff3c4,var(--g2));
+  box-shadow:0 0 0 2px rgba(26,20,5,.9),0 0 14px 2px rgba(243,217,139,.65)}
+.gt-node{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px 14px;border-radius:14px;border:1px solid rgba(217,177,85,.3);
+  background:linear-gradient(135deg,rgba(217,177,85,.09),rgba(255,255,255,.02));transition:border-color .2s,transform .2s,box-shadow .2s}
+.gt-node:hover{border-color:rgba(217,177,85,.7);transform:translateX(2px);box-shadow:0 10px 28px -16px rgba(217,177,85,.8)}
+.gt-node.on{border-color:rgba(243,217,139,.9);box-shadow:0 0 0 1px rgba(243,217,139,.35) inset,0 0 26px -8px rgba(243,217,139,.6)}
+.gt-open{display:flex;gap:12px;align-items:center;flex:1 1 220px;min-width:0;color:inherit;text-decoration:none}
+.gt-open b{display:block;font-size:15px}
+.gt-open small{display:block;color:var(--ink-3,#8a8478);font-size:12px;margin-top:2px}
+.gt-state{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-left:auto}
+.gt-pill{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font:700 10.5px var(--font,sans-serif);letter-spacing:.06em;text-transform:uppercase;
+  border:1px solid rgba(255,255,255,.12);color:var(--ink-2,#c9c3b5)}
+.gt-pill.open{color:#1a1405;background:linear-gradient(145deg,var(--g1),#c99a3a);border-color:transparent}
+.gt-pill.wait{color:var(--g1);border-color:rgba(217,177,85,.45);background:rgba(217,177,85,.08)}
+.gt-pill.shut{color:var(--ink-3,#8a8478)}
+.gt-leaves{margin:8px 0 0 12px}
+.gt-leaves>li{position:relative;padding:3px 0 3px 22px}
+.gt-leaves>li::before{content:"";position:absolute;left:0;top:-4px;bottom:-4px;width:1px;background:linear-gradient(180deg,rgba(217,177,85,.55),rgba(217,177,85,.2))}
+.gt-leaves>li:last-child::before{bottom:auto;height:17px}
+.gt-leaves>li::after{content:"";position:absolute;left:0;top:13px;width:16px;height:1px;background:rgba(217,177,85,.5)}
+.gt-leaf{display:inline-flex;align-items:center;gap:8px;padding:4px 11px 4px 8px;border-radius:999px;font-size:12.5px;border:1px solid rgba(217,177,85,.22);background:rgba(217,177,85,.05)}
+.gt-leaf i{width:8px;height:8px;border-radius:50% 0 50% 0;background:linear-gradient(145deg,var(--g1),var(--g3));transform:rotate(-20deg)}
+.gt-leaf small{color:var(--ink-3,#8a8478)}
+.gt-lock{margin:8px 0 0 12px;font-size:12px;color:var(--ink-3,#8a8478)}
+.gt-more{font-size:12px;color:var(--ink-3,#8a8478);padding-left:22px}
+.gt form{margin:0}
+.gt-branches .gt-nested{margin:12px 0 0 6px}
+@media (max-width:560px){.gt{padding:14px 10px 4px}.gt-branches>li{padding-left:26px}.gt-branches>li::after{width:22px}.gt-state{margin-left:0}}
+@media (prefers-reduced-motion: reduce){.gt-node{transition:none}}
+@media (prefers-reduced-motion: reduce){.ap-step.on,.ap-branch i{animation:none}}
+</style>
+
+{% macro access_state(c) %}
+  {% set st = c.access %}
+  {% if st == 'approved' %}<span class="gt-pill open">Panel open</span>
+  {% elif st == 'asked' %}<span class="gt-pill wait">Waiting for {{ c.user.full_name.split(' ')[0] }} to allow</span>
+  {% elif st == 'allowed' %}<span class="gt-pill wait">Waiting for the Master&rsquo;s approval</span>
+  {% else %}
+    {% if st in ('declined', 'rejected', 'revoked') %}<span class="gt-pill shut">{{ {'declined': 'Declined', 'rejected': 'Not approved', 'revoked': 'Withdrawn'}[st] }}</span>{% endif %}
+    {% if can_ask %}<form method="post" action="/agent-panel/access/ask"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="sub_id" value="{{ c.user.id }}">
+      <button class="btn btn-sm" type="submit">{{ 'Ask again' if st else 'Ask to view panel' }}</button></form>{% endif %}
+  {% endif %}
+{% endmacro %}
+{% macro leaf(p) %}<span class="gt-leaf"><i></i>{{ p.full_name }}{% if p.username %} <small>@{{ p.username }}</small>{% endif %}</span>{% endmacro %}
+{% macro agent_li(n) %}
+    <li><i class="gt-knot"></i>
+      <div class="gt-node">
+        <a class="gt-open" href="/agent-panel?agent={{ n.user.id }}">
+          <span class="ap-av sm">{{ n.user.full_name[:1] | upper }}</span>
+          <span><b>{{ n.user.full_name }}</b>
+            <small>@{{ n.user.username }} &middot; {{ n.d.label }} &middot; tier {{ n.d.tier }} of {{ n.d.of }}</small>
+            <small>{{ n.subs | length }} Sub Agent{{ '' if n.subs | length == 1 else 's' }} &middot; {{ n.branch_players }} player{{ '' if n.branch_players == 1 else 's' }}</small></span>
+        </a>
+        <div class="gt-state"><span class="gt-pill open">Open panel &rarr;</span></div>
+      </div>
+      {% if n.subs or n.leaves %}
+      <ul class="gt-branches gt-nested">
+        {% for c in n.subs %}
+        <li><i class="gt-knot"></i>
+          <div class="gt-node">
+            <a class="gt-open" href="/agent-panel?agent={{ n.user.id }}&amp;sub={{ c.user.id }}#sub">
+              <span class="ap-av sm">{{ c.user.full_name[:1] | upper }}</span>
+              <span><b>{{ c.user.full_name }}</b>
+                <small>@{{ c.user.username }} &middot; {{ c.d.label }} &middot; tier {{ c.d.tier }} of {{ c.d.of }}</small>
+                <small>{{ c.players }} player{{ '' if c.players == 1 else 's' }} &middot; SOP {{ pct(c.sop['sabong']) }} Meron / Wala &middot; {{ pct(c.sop['bola']) }} Bola</small></span>
+            </a>
+            <div class="gt-state">{{ access_state(c) }}</div>
+          </div>
+          {% if c.leaves is not none %}
+            {% if c.leaves %}<ul class="gt-leaves">{% for p in c.leaves[:leaf_cap] %}<li>{{ leaf(p) }}</li>{% endfor %}</ul>
+            {% else %}<div class="gt-lock">No players under this Sub Agent yet.</div>{% endif %}
+          {% elif c.players %}<div class="gt-lock">&#128274; {{ c.players }} player{{ '' if c.players == 1 else 's' }} hidden until this panel is approved.</div>{% endif %}
+        </li>
+        {% endfor %}
+        {% if n.leaves %}
+        <li><i class="gt-knot"></i>
+          <div class="gt-node"><span class="gt-open"><span class="ap-av sm">&#9733;</span><span><b>{{ n.user.full_name }}&rsquo;s own players</b><small>Recruited straight by this Agent</small></span></span></div>
+          <ul class="gt-leaves">{% for p in n.leaves[:leaf_cap] %}<li>{{ leaf(p) }}</li>{% endfor %}</ul>
+        </li>
+        {% endif %}
+      </ul>
+      {% endif %}
+    </li>
+{% endmacro %}
+{% if approvals %}
+<section class="gt-approve" id="approvals">
+  <div class="ap-h" style="margin-top:0"><h2>Waiting for your approval</h2><span class="muted small">A Sub Agent allowed their Agent to view their panel. Nothing shows to the Agent until you approve.</span></div>
+  {% for m in approvals %}{% set row = m.row %}
+  <div class="gt-node" style="margin-bottom:10px">
+    <span class="gt-open"><span class="ap-av sm">{{ m.sub.full_name[:1] | upper }}</span>
+      <span><b>{{ m.agent.full_name }} &rarr; {{ m.sub.full_name }}</b><small>wants to view {{ m.sub.full_name }}&rsquo;s panel &middot; @{{ m.sub.username }}</small></span></span>
+    <div class="gt-state">
+      {% if row.status == 'allowed' %}<span class="gt-pill wait">Needs approval</span>
+      <form method="post" action="/agent-panel/consents/{{ row.id }}/approve"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="back" value="panel"><button class="btn btn-sm btn-primary" type="submit">Approve</button></form>
+      <form method="post" action="/agent-panel/consents/{{ row.id }}/reject"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="back" value="panel"><button class="btn btn-sm" type="submit">Do not approve</button></form>
+      {% else %}<span class="gt-pill open">Open</span>
+      <form method="post" action="/agent-panel/consents/{{ row.id }}/revoke"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="back" value="panel"><button class="btn btn-sm" type="submit">Withdraw</button></form>{% endif %}
+    </div>
+  </div>{% endfor %}
+</section>
+{% endif %}
+{% if master_view %}
+<div class="ap-hero">
+  <span class="ap-av">{{ master.full_name[:1] | upper }}</span>
+  <div class="ap-id">
+    <span class="ap-branch"><i></i>{{ 'Whole network' if root_dev else 'Users branch' }}</span>
+    <h2>{{ master.full_name }}</h2>
+    <div class="muted">@{{ master.username }}{% if not root_dev %} &middot; referral code <strong>{{ master.ref_code }}</strong>{% endif %} &middot; {{ ui.badge(master.status.value, 'green' if master.status.value == 'active' else 'red') }}</div>
+    <div class="ap-ladder" aria-label="Tier {{ ladder_on }} of {{ tiers | length }}">
+      {% for tname in tiers %}<span class="ap-step {{ 'on' if loop.index == ladder_on else 'past' if loop.index < ladder_on }}">{{ tname }}</span>{% endfor %}
+    </div>
+  </div>
+  <div class="ap-stats">
+    {% if root_dev %}{{ ui.stat('Master Agents', master_total, 'in the network') }}{% endif %}
+    {{ ui.stat('Agents', agent_total, 'in this ' ~ ('network' if root_dev else 'branch')) }}
+    {{ ui.stat('Sub Agents', sub_total, 'in this ' ~ ('network' if root_dev else 'branch')) }}
+    {{ ui.stat('Players', players_total, 'in this ' ~ ('network' if root_dev else 'branch')) }}
+    {% if totals %}{{ ui.stat('Earned', totals.earned | money, 'all games') }}
+    {{ ui.stat('Unclaimed', totals.unclaimed | money, 'ready to claim') }}{% endif %}
+  </div>
+</div>
+
+<div class="ap-h" style="margin-top:0"><h2>Branch tree</h2><span class="muted small">Open an Agent to see their panel. A Sub Agent&rsquo;s players show only after the Sub Agent allows it and you approve.</span></div>
+<section class="gt" aria-label="Branch tree of {{ master.full_name }}">
+  <div class="gt-root"><span class="gt-crown" aria-hidden="true">&#9819;</span><div><b>{{ master.full_name }}</b><small>{{ root_label }} &middot; {% if root_dev %}{{ master_total }} Master{{ '' if master_total == 1 else 's' }} &middot; {% endif %}{{ agent_total }} Agent{{ '' if agent_total == 1 else 's' }} &middot; {{ sub_total }} Sub Agent{{ '' if sub_total == 1 else 's' }} &middot; {{ players_total }} player{{ '' if players_total == 1 else 's' }}</small></div></div>
+  {% if nodes or master_groups or direct_players %}
+  <ul class="gt-branches">
+    {% for g in master_groups %}
+    <li><i class="gt-knot"></i>
+      <div class="gt-node"><span class="gt-open"><span class="ap-av sm">{{ g.user.full_name[:1] | upper }}</span>
+        <span><b>{{ g.user.full_name }}</b><small>@{{ g.user.username }} &middot; Master Agent</small>
+          <small>{{ g.nodes | length }} Agent{{ '' if g.nodes | length == 1 else 's' }} &middot; {{ g.branch_players }} player{{ '' if g.branch_players == 1 else 's' }}</small></span></span></div>
+      {% if g.nodes or g.leaves %}<ul class="gt-branches gt-nested">
+        {% for n in g.nodes %}{{ agent_li(n) }}{% endfor %}
+        {% if g.leaves %}<li><i class="gt-knot"></i><div class="gt-node"><span class="gt-open"><span class="ap-av sm">&#9733;</span><span><b>{{ g.user.full_name }}&rsquo;s own players</b><small>Recruited straight by this Master</small></span></span></div>
+          <ul class="gt-leaves">{% for p in g.leaves[:leaf_cap] %}<li>{{ leaf(p) }}</li>{% endfor %}</ul></li>{% endif %}
+      </ul>{% endif %}
+    </li>
+    {% endfor %}
+    {% for n in nodes %}{{ agent_li(n) }}{% endfor %}
+    {% if direct_players %}
+    <li><i class="gt-knot"></i>
+      <div class="gt-node"><span class="gt-open"><span class="ap-av sm">&#9733;</span><span><b>Your own players</b><small>Recruited straight by you</small></span></span></div>
+      <ul class="gt-leaves">{% for p in direct_players[:leaf_cap] %}<li>{{ leaf(p) }}</li>{% endfor %}</ul>
+    </li>
+    {% endif %}
+  </ul>
+  {% else %}{{ ui.empty('No Agents yet. Invite one from Referral Codes.') }}{% endif %}
+</section>
+{% else %}
+
+<div class="ap-hero">
+  <span class="ap-av">{{ target.full_name[:1] | upper }}</span>
+  <div class="ap-id">
+    <span class="ap-branch"><i></i>{{ profile.branch_label }} branch</span>
+    <h2>{{ target.full_name }}</h2>
+    <div class="muted">@{{ target.username }} · referral code <strong>{{ target.ref_code }}</strong> · {{ ui.badge(target.status.value, 'green' if target.status.value == 'active' else 'red') }}</div>
+    <div class="ap-ladder" aria-label="Tier {{ profile.tier }} of {{ profile.of }} in the {{ profile.branch_label }} branch">
+      {% for t in tiers %}<span class="ap-step {{ 'on' if loop.index == profile.tier else 'past' if loop.index < profile.tier }}">{{ t }}</span>{% endfor %}
+    </div>
+    {% if viewer != 'Agent' %}<div class="small" style="margin-top:8px"><a href="/agent-panel">&larr; {{ 'My branch' if viewer == 'Master' else 'Whole network' }}</a> <span class="muted">· you are viewing this panel as the {{ viewer }}</span></div>{% endif %}
+  </div>
+  <div class="ap-stats">
+    {{ ui.stat('Sub Agents', cards | length, 'in this branch') }}
+    {{ ui.stat('Players', players_total, 'in this branch') }}
+    {{ ui.stat('Earned', totals.earned | money, 'all games') }}
+    {{ ui.stat('Unclaimed', totals.unclaimed | money, 'ready to claim') }}
+  </div>
+</div>
+
+<div class="ap-h" style="margin-top:0"><h2>Branch tree</h2><span class="muted small">{% if viewer == 'Master' %}Open a Sub Agent to see and set their commission.{% else %}Open a Sub Agent to control their commission.{% endif %} Their players and earnings open only after they allow it and the Master approves.</span></div>
+<section class="gt" aria-label="Branch tree of {{ target.full_name }}">
+  <div class="gt-root"><span class="gt-crown" aria-hidden="true">&#9819;</span><div><b>{{ target.full_name }}</b><small>Agent &middot; {{ cards | length }} Sub Agent{{ '' if cards | length == 1 else 's' }} &middot; {{ players_total }} player{{ '' if players_total == 1 else 's' }}</small></div></div>
+  {% if cards or direct_players %}
+  <ul class="gt-branches">
+    {% for c in cards %}
+    <li><i class="gt-knot"></i>
+      <div class="gt-node {{ 'on' if sub and sub.id == c.user.id }}">
+        <a class="gt-open" href="{{ back }}{{ '&' if '?' in back else '?' }}sub={{ c.user.id }}#sub">
+          <span class="ap-av sm">{{ c.user.full_name[:1] | upper }}</span>
+          <span><b>{{ c.user.full_name }}</b>
+            <small>@{{ c.user.username }} &middot; {{ c.d.label }} &middot; tier {{ c.d.tier }} of {{ c.d.of }}</small>
+            <small>{{ c.players }} player{{ '' if c.players == 1 else 's' }} &middot; SOP {{ pct(c.sop['sabong']) }} Meron / Wala &middot; {{ pct(c.sop['bola']) }} Bola</small></span>
+        </a>
+        <div class="gt-state">{{ access_state(c) }}</div>
+      </div>
+      {% if c.leaves is not none %}
+        {% if c.leaves %}<ul class="gt-leaves">{% for p in c.leaves[:leaf_cap] %}<li>{{ leaf(p) }}</li>{% endfor %}
+          {% if c.leaves | length > leaf_cap %}<li class="gt-more">and {{ c.leaves | length - leaf_cap }} more</li>{% endif %}</ul>
+        {% else %}<div class="gt-lock">No players under this Sub Agent yet.</div>{% endif %}
+      {% elif c.players %}<div class="gt-lock">&#128274; {{ c.players }} player{{ '' if c.players == 1 else 's' }} hidden until this panel is approved.</div>{% endif %}
+    </li>
+    {% endfor %}
+    {% if direct_players %}
+    <li><i class="gt-knot"></i>
+      <div class="gt-node"><span class="gt-open"><span class="ap-av sm">&#9733;</span><span><b>Your own players</b><small>Recruited straight by you &middot; you keep your whole cut on them</small></span></span></div>
+      <ul class="gt-leaves">{% for p in direct_players[:leaf_cap] %}<li>{{ leaf(p) }}</li>{% endfor %}
+        {% if direct_players | length > leaf_cap %}<li class="gt-more">and {{ direct_players | length - leaf_cap }} more</li>{% endif %}</ul>
+    </li>
+    {% endif %}
+  </ul>
+  {% else %}{{ ui.empty('No Sub Agents yet. Invite one from Referral Codes.') }}{% endif %}
+</section>
+
+{% if sub %}
+<div class="card" id="sub" style="margin-top:18px">
+  <div class="card-head"><div class="ap-sub-head">
+    <span class="ap-av sm">{{ sub.full_name[:1] | upper }}</span>
+    <h2 style="margin:0">Commission for {{ sub.full_name }} <small class="muted">@{{ sub.username }}</small></h2></div>
+    <a class="btn btn-sm" href="{{ back }}">Close</a></div>
+  <div class="card-body">
+    {% if can_sop %}
+    <form method="post" action="/agent-panel/cut" class="ap-set" style="margin-bottom:12px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="user_id" value="{{ sub.id }}">
+      {% if viewer != 'Agent' %}<input type="hidden" name="agent_id" value="{{ target.id }}">{% endif %}
+      <label class="small muted">{{ sub.full_name }}&rsquo;s SOP %, all rooms <input name="sop" inputmode="decimal" aria-label="SOP %" placeholder="default" value="{{ (sub.cut_bps / 100) | round(2) if sub.cut_bps is not none else '' }}"></label>
+      <button class="btn btn-sm btn-primary" type="submit">Save</button>
+      <span class="small muted">A room&rsquo;s own cut (below) still beats this. Blank = default.</span>
+    </form>
+    {% endif %}
+    <p class="small muted" style="margin-top:0">These are the games being played right now. What you set for a room applies to that room's games from now on
+      (including the one running) until you change it. It comes out of your own cut, and everything above you stays as it is.
+      Blank = back to your room setting, their own cut and the defaults.
+      {% if not unlimited %}Highest SOP allowed: {{ pct(max_sop) }}.{% endif %}</p>
+  </div>
+  {% if sub_totals is not none %}
+  <div class="card-body"><div class="ap-stats">
+    {{ ui.stat('Their players', (cards | selectattr('user.id', 'equalto', sub.id) | first).players, 'panel open') }}
+    {{ ui.stat('They earned', sub_totals.earned | money, 'all games') }}
+    {{ ui.stat('Unclaimed', sub_totals.unclaimed | money, 'ready to claim') }}
+  </div></div>
+  {% endif %}
+  {% if sub_rows %}
+  {% for game in games %}{% set gr = sub_rows | selectattr('game', 'equalto', game) | list %}{% if gr %}
+  <div class="card-body tight"><div class="table-wrap"><table class="table">
+    <thead><tr><th>{{ game_labels[game] }} · room and what is on</th><th>Earns now</th><th class="right">Per ₱1,000 pool: you</th><th class="right">them</th><th>Set their SOP %</th></tr></thead>
+    <tbody>{% for r in gr %}
+      <tr>
+        <td><strong>{{ r.location.name }}</strong>{% if r.location.city %} <small class="muted">{{ r.location.city }}</small>{% endif %}<br>
+          {% for w in r.what %}<span class="ap-chip">{{ w }}</span>{% endfor %}</td>
+        <td class="num"><strong>{{ pct(r.sop_bps) }}</strong><br><span class="ap-src">{{ sources[r.source] }}</span></td>
+        <td class="right num">{{ r.split.agent | money }}</td><td class="right num">{{ r.split.sub_agent | money }}</td>
+        <td>{% if can_sop %}<form method="post" action="/agent-panel/subs" class="ap-set">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="game" value="{{ r.game }}">
+          <input type="hidden" name="location_id" value="{{ r.location.id }}"><input type="hidden" name="sub_id" value="{{ sub.id }}">
+          {% if is_dev %}<input type="hidden" name="agent_id" value="{{ target.id }}">{% endif %}
+          <input name="sop" inputmode="decimal" aria-label="SOP %" placeholder="reset" value="{{ (r.own_bps / 100) | round(2) if r.own_bps is not none else '' }}">
+          <button class="btn btn-sm btn-primary" type="submit">Save</button></form>{% else %}<span class="muted small">View only</span>{% endif %}</td>
+      </tr>{% endfor %}
+    </tbody></table></div></div>
+  {% endif %}{% endfor %}
+  {% else %}<div class="card-body">{{ ui.empty('No games are running right now. When a Sabong event or a Bola draw is open, it shows up here.') }}</div>{% endif %}
+</div>
+{% endif %}
+
+{% if can_volume %}
+<div class="card" id="cut" style="margin-top:18px">
+  <div class="card-head"><h2>{{ target.full_name }}&rsquo;s cut, all rooms</h2><span class="muted small">A room&rsquo;s own cut (below) still beats this. Blank = the game&rsquo;s default.</span></div>
+  <div class="card-body">
+    <form method="post" action="/agent-panel/cut" class="ap-set">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="user_id" value="{{ target.id }}">
+      {% if viewer != 'Agent' %}<input type="hidden" name="agent_id" value="{{ target.id }}">{% endif %}
+      <label class="small muted">Volume % <input name="volume" inputmode="decimal" aria-label="Volume %" placeholder="default" value="{{ (target.cut_bps / 100) | round(2) if target.cut_bps is not none else '' }}"></label>
+      <label class="small muted">SOP % <input name="sop" inputmode="decimal" aria-label="SOP %" placeholder="default" value="{{ (target.sop_bps / 100) | round(2) if target.sop_bps is not none else '' }}"></label>
+      <button class="btn btn-sm btn-primary" type="submit">Save</button>
+    </form>
+    <p class="small muted" style="margin:8px 0 0">Volume % is this Agent&rsquo;s share of the network pool. SOP % is what their Sub Agents get out of it.</p>
+  </div>
+</div>
+{% endif %}
+
+<details class="card ap-defaults" id="defaults" style="margin-top:22px" {{ 'open' if not sub and not cards }}>
+  <summary>Defaults for all your Sub Agents, room by room</summary>
+  <div class="card-body">
+    <p class="small muted" style="margin-top:0">A room has its own cut instead of the game's default. This is what <strong>all</strong> your Sub Agents earn there, unless you set
+      one Sub Agent differently above.
+      {% if can_volume %}You can set this Agent's <strong>Volume %</strong> for a room too.{% else %}Your own <strong>Volume %</strong> is set by your upline.{% endif %}</p>
+  </div>
+  {% for game in games %}
+  <div class="card-body tight"><div class="table-wrap"><table class="table">
+    <thead><tr><th>{{ game_labels[game] }} · room</th><th>Default</th><th>Your Volume %</th><th>SOP % to Sub Agents</th><th class="right">Per ₱1,000: you</th><th class="right">a Sub Agent</th><th>Change</th></tr></thead>
+    <tbody>
+    {% for r in rooms if r.game == game %}
+      <tr>
+        <td>{{ r.location.name }}{% if r.location.city %} <small class="muted">{{ r.location.city }}</small>{% endif %}</td>
+        <td class="num"><small class="muted">Vol {{ pct(r.room_volume_bps if r.room_volume_bps is not none else r.game_volume_bps) }} · SOP {{ pct(r.room_sop_bps if r.room_sop_bps is not none else r.game_sop_bps) }}{% if r.room_volume_bps is none and r.room_sop_bps is none %} (game){% else %} (room){% endif %}</small></td>
+        <td class="num">{{ pct(r.volume_bps) }}{% if r.mine_volume_bps is not none %} <small>(set)</small>{% endif %}</td>
+        <td class="num"><strong>{{ pct(r.sop_bps) }}</strong>{% if r.mine_sop_bps is not none %} <small>(yours)</small>{% endif %}</td>
+        <td class="right num">{{ r.with_sub.agent | money }}</td><td class="right num">{{ r.with_sub.sub_agent | money }}</td>
+        <td><form method="post" action="/agent-panel/rooms" class="ap-set">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="game" value="{{ r.game }}"><input type="hidden" name="location_id" value="{{ r.location.id }}">
+          {% if is_dev %}<input type="hidden" name="agent_id" value="{{ target.id }}">{% endif %}
+          {% if can_volume %}<input name="volume" inputmode="decimal" aria-label="Volume %" placeholder="Vol %" value="{{ (r.mine_volume_bps / 100) | round(2) if r.mine_volume_bps is not none else '' }}">{% endif %}
+          {% if can_sop %}<input name="sop" inputmode="decimal" aria-label="SOP %" placeholder="SOP %" value="{{ (r.mine_sop_bps / 100) | round(2) if r.mine_sop_bps is not none else '' }}">
+          <button class="btn btn-sm btn-primary" type="submit">Save</button>{% else %}<span class="muted small">View only</span>{% endif %}
+        </form></td>
+      </tr>
+    {% else %}<tr><td colspan="7"><span class="muted">No active rooms yet. The Admin side adds venues under Locations.</span></td></tr>{% endfor %}
+    </tbody></table></div></div>
+  {% endfor %}
+</details>
+{% endif %}
+{% endblock %}

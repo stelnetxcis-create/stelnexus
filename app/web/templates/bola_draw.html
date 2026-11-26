@@ -16,7 +16,7 @@
 </div>
 
 <div class="bl-banner" data-bola-live data-draw-id="{{ draw.id }}" data-live-url="/bola/draws/{{ draw.id }}/live" data-scheduled-ms="{{ (draw.scheduled_at.timestamp() * 1000) | int }}"
-     data-auto="{{ '0' if can_declare else '1' }}" data-title="{{ draw.location.name }} · slot {{ draw.slot }}" data-max="{{ odds.max_number }}"{% if draw.status.value in ('settled', 'void') %} hidden{% endif %}>
+     data-auto="{{ '0' if can_declare else '1' }}" data-title="{{ draw.location.name }} · slot {{ draw.slot }}" data-max="{{ odds.max_number }}"{% if can_skip and draw.status.value in ('scheduled', 'open', 'locked') %} data-skip-url="/bola/draws/{{ draw.id }}/skip" data-csrf="{{ csrf_token }}"{% endif %}{% if draw.status.value in ('settled', 'void') %} hidden{% endif %}>
   <span class="bl-dot" aria-hidden="true"></span>
   <div class="bl-b-text"><small>Live draw</small><strong data-bl-clock>Draw at {{ local(draw.scheduled_at) | datetime('%H:%M') }}</strong></div>
   <button class="btn btn-sm btn-brand" type="button" data-bl-open>Watch live</button>
@@ -121,7 +121,7 @@
 {% endif %}
 
 {# ----------------------------------------------------------- operations #}
-{% if can_manage or can_open or can_declare or can_redeclare %}
+{% if can_manage or can_open or can_declare or can_redeclare or can_skip %}
 <div class="card">
   <div class="card-head"><h2>Operations</h2></div>
   <div class="card-body">
@@ -130,6 +130,10 @@
     {% endif %}
     {% if can_open and draw.status.value == 'open' %}
     <form method="post" action="/bola/draws/{{ draw.id }}/lock" style="display:inline">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm">Close betting</button></form>
+    {% endif %}
+
+    {% if can_skip and draw.status.value in ('scheduled', 'open', 'locked') %}
+    <form method="post" action="/bola/draws/{{ draw.id }}/skip" style="display:inline" data-confirm="Skip the wait? Betting closes now and the draw becomes due at once.">{{ ui.csrf(csrf_token) }}<button class="btn btn-sm">Skip wait</button></form>
     {% endif %}
 
     {% if can_declare and draw.status.value in ('open', 'locked') %}

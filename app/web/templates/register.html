@@ -23,13 +23,14 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="code" value="{{ code }}">
     <label class="field"><span>Full name</span><input name="full_name" value="{{ full_name or '' }}" required maxlength="120" autofocus></label>
-    <label class="field"><span>Username</span><input name="username" value="{{ username or '' }}" required maxlength="32" autocapitalize="none" spellcheck="false"><small>3–32 characters: letters, digits, dot, dash, underscore.</small></label>
+    <label class="field"><span>Username</span><input name="username" value="{{ username or '' }}" required minlength="{{ settings.get('account.username_min_length', 7) }}" maxlength="32" autocapitalize="none" spellcheck="false"><small>At least {{ settings.get('account.username_min_length', 7) }} characters (up to 32): letters, numbers, dot, dash, underscore. Must be a name nobody else uses.</small></label>
     {% if role == 'player' %}
     <label class="field"><span>Date of birth</span><input type="date" name="birth_date" value="{{ birth_date or '' }}" required></label>
     <label class="field"><span>GCash number</span><input name="gcash_number" value="" required maxlength="11" inputmode="numeric" placeholder="09XXXXXXXXX"></label>
     {% else %}
     <label class="field"><span>Mobile number</span><input name="contact" value="{{ contact or '' }}" required maxlength="16" inputmode="tel" placeholder="09XXXXXXXXX"><small>Philippine mobile number, required.</small></label>
     {% endif %}
+    <label class="field"><span>Gmail address</span><input type="email" name="email" value="{{ email or '' }}" {{ 'required' if settings.get('signup.require_gmail', True) }} maxlength="254" inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" placeholder="yourname@gmail.com"><small>Account information only. It is <b>not</b> used to sign in. A Gmail can belong to one account.</small></label>
     <label class="field"><span>Password</span><input type="password" name="password" required minlength="{{ settings.get('security.password_min_length', 12) }}" maxlength="256" autocomplete="new-password"><small>At least {{ settings.get('security.password_min_length', 12) }} characters, mixing 3 of: lower, upper, digits, symbols.</small></label>
     <label class="field"><span>Confirm password</span><input type="password" name="password2" required maxlength="256" autocomplete="new-password"></label>
     <button class="btn btn-primary btn-block" type="submit">Create account</button>

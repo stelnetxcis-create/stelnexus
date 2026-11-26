@@ -51,9 +51,13 @@ def cached(key: Hashable, ttl: float, compute: Callable[[], Any]) -> Any:
     return value
 
 
-def clear(prefix: str | None = None) -> None:
-    """Drop everything, or every key whose first element equals ``prefix``."""
+def clear(prefix: str | None = None, *, broadcast: bool = True) -> None:
+    """Drop everything, or every key whose first element equals ``prefix``. Other workers hear about it through
+    Redis (when configured); a worker that does not is still bounded by the entry's own TTL."""
     global _gen
+    if broadcast:
+        from app.core import redisbus
+        redisbus.publish_invalidate([prefix])
     with _lock:
         _gen += 1
         if prefix is None:
@@ -70,8 +74,12 @@ def invalidate_after_commit(db: Session, prefix: str = "dashboard") -> None:
 
 @event.listens_for(Session, "after_commit")
 def _flush_invalidations(session: Session) -> None:
-    for prefix in session.info.pop("ttl_invalidate", ()):
-        clear(prefix)
+    prefixes = session.info.pop("ttl_invalidate", ())
+    for prefix in prefixes:
+        clear(prefix, broadcast=False)
+    if prefixes:
+        from app.core import redisbus
+        redisbus.publish_invalidate(prefixes)        # one message for the whole commit
 
 
 @event.listens_for(Session, "after_rollback")

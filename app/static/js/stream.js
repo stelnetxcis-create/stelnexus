@@ -16,7 +16,12 @@
 (function () {
   const WINDOW = 120, STEP = 10;
   const snx = window.snx || {};
-  const fmt = (s) => String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  const fmt = (s) => {
+    s = Math.max(0, Math.floor(s));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+    return (h ? h + ':' + String(m).padStart(2, '0') : String(m).padStart(2, '0')) + ':' + String(r).padStart(2, '0');
+  };
+  const BAR_SPAN = 600;                              // the progress bar covers the last 10 minutes; Previous / Forward and Go live still reach the whole rewind window
 
   /* ------------------------------------------------------------------------------------------------------------------
      YouTube controller. Talks to an embed (enablejsapi=1) with postMessage and looks like the small part of an
@@ -151,6 +156,17 @@
     const mediaHost = $('[data-vp-media]'), msg = $('[data-vp-msg]'), mute = $('[data-vp-mute]');
     const vol = $('[data-vp-vol]'), snd = $('[data-vp-sound]');
     let guardTimer = 0, liveCheck = 0, seekTarget = null, seekUntil = 0;
+    // Some phone browsers only start a YouTube frame from a tap on the frame itself. If our Play did not start it, the frame
+    // becomes tappable (CSS: is-yt-tap) so YouTube's own play button gets the tap; it goes click-proof again once it plays.
+    let tapTimer = 0, userPaused = false, tapSaid = false;
+    function needTap(on) {
+      root.classList.toggle('is-yt-tap', !!on);
+      if (on && !tapSaid) { tapSaid = true; say('Tap the video to start it. This browser wants a tap on the player itself.', 'info'); }
+    }
+    function armTap() {
+      clearTimeout(tapTimer);
+      tapTimer = setTimeout(() => { if (media && media.isYt && media.ready && media.paused && !userPaused && !ended) needTap(true); }, 2600);
+    }
     // YouTube live: we keep our own "seconds behind live" (ytBase, growing while paused). YouTube's duration / seekable
     // numbers are not trustworthy on live streams, but its currentTime and seekTo share one clock, so every move is relative
     // to that clock and checked afterwards (ytMove).
@@ -168,7 +184,8 @@
     const DVR = () => Math.max(30, Number((cfg && cfg.dvr_window) || WINDOW));
     const edge = () => { const r = media.seekable; return r && r.length ? r.end(r.length - 1) : (isFinite(media.duration) ? media.duration : 0); };
     const floorT = () => { const r = media.seekable; return r && r.length ? Math.max(r.start(0), edge() - DVR()) : 0; };
-    const win = () => (media ? (isLive ? DVR() : (media.duration || 0)) : WINDOW);
+    const span = () => Math.min(DVR(), BAR_SPAN);
+    const win = () => (media ? (isLive ? span() : (media.duration || 0)) : WINDOW);
     function ytFold() {                              // called on every paint: starts the clock at the first frame, and folds pauses in
       if (!media || !media.isYt || !isLive) return;
       const p = media.paused, now = Date.now();
@@ -188,6 +205,40 @@
     const showMsg = (t) => { if (msg) { msg.hidden = !t; msg.textContent = t || ''; } };
 
     const say = (m, level) => (snx.toast ? snx.toast(m, { level: level || 'warning' }) : null);
+
+    // Credit rule. The SERVER decides (services/stream_access.py) and a locked viewer is sent no address at all, so
+    // here we only draw the card. A viewer who may finish the fight they bet on gets a small banner and keeps watching.
+    let gateEl = null, graceEl = null, gateTimer = 0;
+    const peso = (c) => (snx.money ? snx.money(c) : '\u20B1' + (Number(c || 0) / 100).toFixed(2));
+    function hideGate() { if (gateEl) gateEl.hidden = true; root.classList.remove('is-gated'); }
+    function showGate(g) {
+      g = g || {};
+      if (!gateEl) { gateEl = document.createElement('div'); gateEl.className = 'vp-gate'; gateEl.setAttribute('role', 'alert'); screen.appendChild(gateEl); }
+      const title = document.createElement('b'), text = document.createElement('p');
+      if (g.pending_load) {
+        title.textContent = 'Waiting for your load';
+        text.textContent = 'Your load request is waiting to be approved. The video resumes by itself as soon as the credit arrives.';
+      } else if (!g.balance_cents) {
+        title.textContent = 'Add credit to watch';
+        text.textContent = 'You need at least ' + peso(g.min_cents) + ' in your credit to watch the stream.';
+      } else {
+        title.textContent = 'Your credit is too low to keep watching';
+        text.textContent = 'You have ' + peso(g.balance_cents) + '. You need at least ' + peso(g.min_cents) + ' to watch. Add ' + peso(g.need_cents) + ' or more.';
+      }
+      gateEl.replaceChildren(title, text);
+      if (!g.pending_load) {
+        const a = document.createElement('a');
+        a.className = 'btn btn-primary'; a.href = g.topup_url || '/wallet'; a.textContent = 'Add credit';
+        gateEl.append(a);
+      }
+      gateEl.hidden = false; root.classList.add('is-gated');
+    }
+    function showGrace(g) {
+      if (!g || g.state !== 'grace') { if (graceEl) graceEl.hidden = true; return; }
+      if (!graceEl) { graceEl = document.createElement('div'); graceEl.className = 'vp-grace'; graceEl.setAttribute('role', 'status'); screen.appendChild(graceEl); }
+      graceEl.textContent = 'Your credit is low. You can keep watching until this fight ends.';
+      graceEl.hidden = false;
+    }
     const needPass = () => {
       say('Previous and forward are Battle Pass features. Get one in the Store.', 'warning');
       if (snx.Sound) snx.Sound.play('err');
@@ -289,7 +340,7 @@
       media.currentTime = Math.max(floorT(), t - 1);
     }
     function start() {
-      if (media) { if (!pass && isLive) goLive(); const p = media.play(); if (p && p.catch) p.catch(() => {}); paint(); return; }
+      if (media) { userPaused = false; if (!pass && isLive) goLive(); const p = media.play(); if (p && p.catch) p.catch(() => {}); if (media.isYt) armTap(); paint(); return; }
       if (embed) return;
       if (!pass) behind = 0;                         // no pass: no rewind, playing means live
       playing = true; clearInterval(tick);
@@ -298,7 +349,7 @@
       paint();
     }
     function stop() {
-      if (media) { media.pause(); paint(); return; }
+      if (media) { userPaused = true; clearTimeout(tapTimer); needTap(false); media.pause(); paint(); return; }
       if (embed) return;
       playing = false; clearInterval(tick);
       if (pass) {                                     // with a pass, the time you paused for is kept
@@ -362,7 +413,7 @@
         if (isLive) {
           if (!pass) return needPass();
           if (ytLocked()) { seekTarget = null; if (commit) noRewind(); paint(); return; }
-          const secs = Math.round((1 - p) * DVR());                    // seconds behind live
+          const secs = Math.round((1 - p) * span());                   // seconds behind live (the bar shows the last 10 minutes)
           if (!commit) { seekTarget = secs; paint(); return; }
           if (media.isYt) { ytMove(secs); return; }
           const e = edge();
@@ -404,15 +455,16 @@
       document.head.appendChild(el);
     }
     function unmount() {
-      clearTimeout(retryTimer); clearTimeout(guardTimer); clearTimeout(liveCheck); clearTimeout(ytVerify); clearTimeout(qCheck); clearInterval(ytTimer);
+      clearTimeout(retryTimer); clearTimeout(guardTimer); clearTimeout(liveCheck); clearTimeout(ytVerify); clearTimeout(qCheck); clearInterval(ytTimer); clearTimeout(tapTimer);
       ytBase = 0; ytSince = 0; ytWasPaused = true; ytStarted = false; qTried = {};
       if (hls) { try { hls.destroy(); } catch (e) { /* ignore */ } hls = null; }
       if (media) { try { media.pause(); media.removeAttribute('src'); media.load(); } catch (e) { /* ignore */ } if (media.destroy) media.destroy(); }
       if (mediaHost) mediaHost.replaceChildren();
       media = null; embed = false; seekTarget = null; showMsg('');
+      hideGate(); showGrace(null);
       if (snd) snd.hidden = true;
       if (qBox) { qBox.hidden = true; qMenu.hidden = true; }
-      root.classList.remove('has-media', 'is-embed', 'is-yt', 'is-embed-native', 'is-replay', 'is-standby', 'is-slate');
+      root.classList.remove('has-media', 'is-embed', 'is-yt', 'is-yt-tap', 'is-embed-native', 'is-replay', 'is-standby', 'is-slate');
     }
     // Failover: after two failures in a row the player tells the server which source it could not play, and the server
     // answers with the next one in the chain (or the same one if there is none, so retrying simply continues).
@@ -532,6 +584,10 @@
     function mount(c, retrying) {
       cfg = c; unmount();
       if (!retrying) failures = 0;
+      if (c && c.status === 'locked') {                 // credit rule: the server sent no address, only the reason
+        showGate(c.gate); paint(); return;
+      }
+      showGrace(c && c.gate);
       if (c && (c.status === 'slate' || c.status === 'off')) {      // nothing usable (or the admin chose a message): never a black box
         root.classList.add('is-slate'); showMsg(c.message || 'The stream is offline. Please check back soon.'); paint(); return;
       }
@@ -541,6 +597,12 @@
       if (c.kind === 'hls' || c.kind === 'file') {
         const v = document.createElement('video');
         v.setAttribute('playsinline', ''); v.playsInline = true; v.preload = 'auto';
+        // Several phone browsers (MIUI, QQ / X5, UC) take over a plain <video> with their own player: back arrow, pop-out, cast,
+        // their own seek bar on top of ours. These attributes ask them not to; the CSS also makes the element click-proof.
+        v.setAttribute('webkit-playsinline', ''); v.setAttribute('x5-playsinline', ''); v.setAttribute('x5-video-player-type', 'h5-page');
+        v.setAttribute('x5-video-player-fullscreen', 'false'); v.setAttribute('x-webkit-airplay', 'deny');
+        v.setAttribute('controlslist', 'nodownload nofullscreen noremoteplayback noplaybackrate');
+        v.controls = false; v.disablePictureInPicture = true; v.disableRemotePlayback = true;
         v.muted = c.autoplay_muted !== false; v.loop = !!c.loop && c.kind === 'file';
         mediaHost.appendChild(v); media = v;
         isLive = c.kind === 'hls' && c.mode !== 'replay' && c.mode !== 'standby';
@@ -583,7 +645,7 @@
       const f = document.createElement('iframe');
       f.src = url; f.loading = 'lazy'; f.title = title || 'Live video';
       f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation');
-      f.allow = 'autoplay; picture-in-picture'; f.allowFullscreen = false; f.referrerPolicy = 'strict-origin-when-cross-origin';
+      f.allow = 'autoplay'; f.allowFullscreen = false;     // no full screen and no pop-out: only our own full screen keeps the strip, chat and bet panel f.referrerPolicy = 'strict-origin-when-cross-origin';
       return f;
     }
     function ytUrl(embed, c, ownControls) {
@@ -605,7 +667,7 @@
       const f = makeFrame(ytUrl(c.embed || '', c, false), c.name);
       const shim = ytShim(f, {
         ready() { clearTimeout(guardTimer); showMsg(''); applyPrefs(shim); if (!ended && shim.paused) shim.play(); paint(); },
-        change() { if (media === shim) { if (!shim.paused) { failures = 0; showMsg(''); } paint(); } },
+        change() { if (media === shim) { if (!shim.paused) { failures = 0; showMsg(''); clearTimeout(tapTimer); needTap(false); } paint(); } },
         error(code) { if (media === shim) embedFail(code); },
         levels(list) { if (media === shim) ytLevels(list); },
       }, c.autoplay_muted !== false);
@@ -651,7 +713,21 @@
           if (r.status === 200) {
             const d = await r.json();
             etag = r.headers.get('ETag') || etag;
-            if (sig(d) !== sig(cfg)) { if (rev) say('The video was just updated.', 'info'); mount(d); } else cfg = d;
+            if (sig(d) !== sig(cfg)) {
+              if (d.status === 'locked' && cfg && cfg.status === 'playing' && d.gate && d.gate.delay_seconds > 0) {
+                // They were watching and the fight they bet on just ended: leave the picture, and so the result, up
+                // for a few seconds before the top-up card covers it.
+                if (!gateTimer) gateTimer = setTimeout(() => { gateTimer = 0; mount(d); }, d.gate.delay_seconds * 1000);
+              } else {
+                clearTimeout(gateTimer); gateTimer = 0;
+                if (rev && d.status !== 'locked') say('The video was just updated.', 'info');
+                mount(d);
+              }
+            } else {
+              cfg = d;
+              if (gateTimer && d.status !== 'locked') { clearTimeout(gateTimer); gateTimer = 0; }     // credit came back in time
+              if (d.status === 'locked') showGate(d.gate); else showGrace(d.gate);
+            }
             rev = d.rev || rev;
           }
         }
@@ -659,6 +735,7 @@
       pollTimer = setTimeout(poll, 3000);
     }
     let etag = '', lastUrl = '';
+    document.addEventListener('snx:wallet', () => { etag = ''; poll(); });      // credit moved (top-up approved, a bet, a win): ask again at once
     document.addEventListener('visibilitychange', () => { if (document.hidden && media && !isLive && !media.paused) media.pause(); });   // a replay in a hidden tab only burns data
     track.addEventListener('keydown', (ev) => {
       if (ev.key === 'ArrowLeft') { ev.preventDefault(); prev.click(); }
@@ -776,7 +853,7 @@
 
     let boot = null;
     try { boot = JSON.parse(root.dataset.stream || 'null'); } catch (e) { boot = null; }
-    if (boot && (boot.kind || boot.status === 'slate' || boot.status === 'off')) mount(boot);
+    if (boot && (boot.kind || boot.status === 'slate' || boot.status === 'off' || boot.status === 'locked')) mount(boot);
     else { cfg = boot; paint(); autoStart(false); }
     if (root.dataset.liveUrl) pollTimer = setTimeout(poll, 3000);
   });

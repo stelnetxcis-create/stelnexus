@@ -8,8 +8,9 @@ from __future__ import annotations
 from app.games.base import RECORD_TABS, RIGHTS, TAB_LABELS, WORKSPACE_TABS, Filters, GameAdapter, can_see_money
 from app.games.bola import BolaAdapter
 from app.games.sabong import SabongAdapter
+from app.games.scatter import ScatterAdapter
 
-GAMES: dict[str, GameAdapter] = {a.key: a for a in (SabongAdapter(), BolaAdapter())}
+GAMES: dict[str, GameAdapter] = {a.key: a for a in (SabongAdapter(), BolaAdapter(), ScatterAdapter())}
 
 __all__ = ["GAMES", "RECORD_TABS", "RIGHTS", "TAB_LABELS", "WORKSPACE_TABS", "Filters", "GameAdapter",
            "can_see_money", "get", "visible_games"]

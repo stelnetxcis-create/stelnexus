@@ -24,7 +24,8 @@ from app.core.pagination import clamp_limit, clamp_offset
 from app.core import audit
 from app.core.errors import Conflict, Forbidden, NotFound, ValidationError
 from app.core.rbac import Perm, has_perm
-from app.core.security import USERNAME_RE, mask, pii
+from app.core.identity import check_username, normalize_ph_mobile
+from app.core.security import mask, pii
 from app.db.models import (
     BolaTicket,
     CashRequest,
@@ -83,11 +84,11 @@ def _clean_name(value: str | None) -> str:
 
 
 def _clean_username(db: Session, value: str | None, *, user_id=None, player_id=None) -> str:
-    value = (value or "").strip()
-    if not USERNAME_RE.match(value):
-        raise ValidationError("Username must be 3-32 characters: letters, digits, dot, dash, underscore.")
+    from app.core.settings_registry import SettingsStore
+    from app.services import identity
+    value = check_username(value, min_length=identity.min_username_length(SettingsStore(db)))
     if _name_taken(db, value, user_id=user_id, player_id=player_id):
-        raise Conflict("That username is already taken.")
+        raise Conflict("That username is already taken. Please choose another.")
     return value
 
 
@@ -95,7 +96,7 @@ def _clean_username(db: Session, value: str | None, *, user_id=None, player_id=N
 
 def edit_user(db: Session, actor: User, user_id: int, *, username: str | None = None,
               full_name: str | None = None, contact: str | None = None,
-              reason: str | None = None) -> User:
+              reason: str | None = None, email: str | None = None) -> User:
     target = _user_target(db, actor, user_id, Perm.ACCOUNTS_EDIT)
     if target.status == Status.CLOSED:
         raise Conflict("That account was removed. Nothing on it can be changed.")
@@ -106,7 +107,16 @@ def edit_user(db: Session, actor: User, user_id: int, *, username: str | None = 
     if full_name is not None:
         target.full_name = _clean_name(full_name)
     if contact is not None:
-        target.contact = contact.strip()[:32] or None
+        if contact.strip() == (target.contact or ""):
+            pass                                           # untouched: an older, free-text contact is left alone
+        else:
+            target.contact = normalize_ph_mobile(contact, what="Contact number") if contact.strip() else None
+    if email is not None:                                  # "" clears it; a value must be a Gmail nobody else uses
+        from app.services import identity
+        if email.strip():
+            target.email_enc, target.email_key = identity.claim_gmail(db, email, user_id=target.id)
+        else:
+            target.email_enc = target.email_key = None
     db.flush()
     after = {"username": target.username, "full_name": target.full_name, "contact": target.contact}
     if after != before:
@@ -118,7 +128,7 @@ def edit_user(db: Session, actor: User, user_id: int, *, username: str | None = 
 def edit_player(db: Session, actor: User, player_id: int, *, username: str | None = None,
                 full_name: str | None = None, gcash_number: str | None = None,
                 address: str | None = None, notes: str | None = None,
-                reason: str | None = None) -> Player:
+                reason: str | None = None, email: str | None = None) -> Player:
     target = _player_target(db, actor, player_id, Perm.ACCOUNTS_EDIT)
     if target.status == Status.CLOSED:
         raise Conflict("That player was removed. Nothing on it can be changed.")
@@ -131,9 +141,13 @@ def edit_player(db: Session, actor: User, player_id: int, *, username: str | Non
     if full_name is not None:
         target.full_name = _clean_name(full_name)
     if gcash_number is not None and gcash_number.strip():
-        if not GCASH_RE.match(gcash_number.strip()):
-            raise ValidationError("GCash number must be 11 digits starting with 09.")
-        target.gcash_enc = pii.encrypt(gcash_number.strip())
+        target.gcash_enc = pii.encrypt(normalize_ph_mobile(gcash_number, what="GCash number"))
+    if email is not None:
+        from app.services import identity
+        if email.strip():
+            target.email_enc, target.email_key = identity.claim_gmail(db, email, player_id=target.id)
+        else:
+            target.email_enc = target.email_key = None
     if address is not None:
         target.address_enc = pii.encrypt(address.strip()[:255]) if address.strip() else None
     if notes is not None:

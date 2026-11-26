@@ -82,7 +82,16 @@ def _parse_nets(values):
     return nets
 
 
-_TRUSTED_NETS = _parse_nets(_cfg.TRUSTED_PROXIES)
+def build_trusted_nets(proxies, trust_cloudflare: bool = False):
+    """The proxies whose X-Forwarded-For hops are believed (and skipped when looking for the visitor)."""
+    values = list(proxies)
+    if trust_cloudflare:
+        from app.core import cloudflare
+        values += list(cloudflare.ALL)
+    return _parse_nets(values)
+
+
+_TRUSTED_NETS = build_trusted_nets(_cfg.TRUSTED_PROXIES, _cfg.TRUST_CLOUDFLARE)
 
 
 def _is_trusted(addr: str) -> bool:

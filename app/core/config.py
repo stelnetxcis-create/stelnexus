@@ -32,6 +32,8 @@ class Settings(BaseSettings):
 
     # --- database (PostgreSQL is the target platform) ----------------------
     DATABASE_URL: str = "postgresql+psycopg://stelnexus:stelnexus@127.0.0.1:5432/stelnexus"
+    # Per WORKER. Total connections = (DB_POOL_SIZE + DB_MAX_OVERFLOW) x workers, and PostgreSQL's max_connections
+    # (default 100) must be larger than that, or sit behind PgBouncer. See docs/SCALING.md.
     DB_POOL_SIZE: int = 10
     DB_MAX_OVERFLOW: int = 20
     DB_ECHO: bool = False
@@ -85,6 +87,19 @@ class Settings(BaseSettings):
     BOLA_DEV_ONLY: bool = False
 
     RATE_LIMIT_ENABLED: bool = True
+
+    # --- several web workers (see docs/SCALING.md) --------------------------
+    # Redis keeps what must be shared between workers: rate-limit counters, instant chat wake-ups, cache
+    # invalidation, typing dots. Empty = single-process behaviour (fine for --workers 1). If Redis is configured
+    # but down, every worker falls back to its own memory for a few seconds at a time instead of failing.
+    REDIS_URL: str = ""
+    REDIS_PREFIX: str = "stelnexus"
+    REDIS_TIMEOUT: float = Field(default=0.25, gt=0, le=5)
+    # Believe X-Forwarded-For hops that are Cloudflare addresses (set when the site is proxied by Cloudflare AND
+    # Caddy trusts Cloudflare, see deploy/cloudflare.caddy). Without it every visitor looks like one Cloudflare IP.
+    TRUST_CLOUDFLARE: bool = False
+    # DATABASE_URL points at PgBouncer in transaction mode: turn off server-side prepared statements.
+    DB_PGBOUNCER: bool = False
     SEED_DEMO: bool = False
 
     @field_validator("SECRET_KEY")

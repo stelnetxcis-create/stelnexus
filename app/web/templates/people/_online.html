@@ -1,0 +1,26 @@
+{# Online now. A Teller gets the short version: who, what type, when, and their GCash number. #}
+<div class="grid grid-3">
+  {{ ui.stat('Online now', rows | length, 'active in the last ' ~ window ~ ' min') }}
+</div>
+<div class="card" style="margin-top:12px">
+  <div class="card-head"><h2>Signed in right now</h2><span class="muted small">active in the last {{ window }} min</span></div>
+  <div class="card-body tight">
+  {% if rows %}
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>Account</th><th>Type</th><th>Last active</th><th>GCash number</th>{% if not lite %}<th>Device</th><th>IP</th><th class="right">Sessions</th>{% endif %}</tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td><span class="pp-dot"></span><strong>{{ who(r.user) if not r.user.is_hidden else r.user.username }}</strong>{{ badge_strip(badge_map.get(r.user.id, []), 16) }} <small class="muted">{{ r.user.full_name }}</small></td>
+          <td>{% set d = describe(r.user.role) %}{{ ui.badge(d.label, d.tone) }} <small class="muted">{{ d.branch_label }}</small></td>
+          <td class="small nowrap">{{ r.last_seen_at | datetime }}</td>
+          <td class="mono">{% if gcash.get(r.user.id) %}{{ gcash[r.user.id] }}{% else %}<span class="muted">—</span>{% endif %}</td>
+          {% if not lite %}<td class="small">{{ r.device }}</td><td class="mono small">{{ r.ip or '—' }}</td><td class="right num">{{ r.sessions }}</td>{% endif %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  {% else %}{{ ui.empty('Nobody else is online.') }}{% endif %}
+  </div>
+</div>
+<p class="muted small">Only accounts that can sign in are listed. In this build a player is a record under its agent and has no sign-in of its own, so players never appear here. {% if lite %}Only Tellers hold a GCash number of their own.{% endif %}</p>

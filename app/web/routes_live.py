@@ -31,7 +31,7 @@ from app.db.models import (AppSetting, Event, Fight, FightStatus, PayoutModel, R
                            StreamSource, Ticket, TicketStatus)
 from app.services import betting, events, reports
 from app.web.conditional import etag_matches, not_modified
-from app.web.deps import Ctx, require_ctx
+from app.web.deps import Ctx, game_gate, require_ctx
 
 router = APIRouter()
 
@@ -180,7 +180,7 @@ def _live_event_pack(ctx: Ctx, event_id: int, hide: bool, house: bool) -> tuple[
     return _pack({"event": head, "hide": hide, "fights": rows})
 
 
-@router.get("/_live/event/{event_id}")
+@router.get("/_live/event/{event_id}", dependencies=[Depends(game_gate("sabong"))])
 async def live_event(event_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
     if not (ctx.can(Perm.EVENTS_VIEW) or ctx.can(Perm.FIGHTS_VIEW)):
         ctx.need(Perm.EVENTS_VIEW)
@@ -206,7 +206,7 @@ def live_row(db, store, user, fight: Fight) -> dict:
                  sees_house(user) and not hide)[0]
 
 
-@router.get("/_live/fight/{fight_id}/final")
+@router.get("/_live/fight/{fight_id}/final", dependencies=[Depends(game_gate("sabong"))])
 async def live_fight_final(fight_id: int, request: Request, ctx: Ctx = Depends(require_ctx)):
     """How a finished game ended, for the animated result scene over the video: result, final payout multiple,
     total bets, house cut, winners and what was paid out. Figures come from the applied settlement run (the real

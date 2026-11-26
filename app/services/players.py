@@ -19,6 +19,7 @@ from app.core.pagination import clamp_limit, clamp_offset
 from app.core import audit
 from app.core.errors import Conflict, Forbidden, NotFound, ValidationError
 from app.core.rbac import assert_player_in_scope, has_global_scope, is_top, scope_ids
+from app.core.identity import check_username, normalize_ph_mobile
 from app.core.security import USERNAME_RE, hash_password, mask, password_problems, pii
 from app.core.settings_registry import SettingsStore
 from app.db.models import (
@@ -27,6 +28,7 @@ from app.db.models import (
     Player,
     PlayerKind,
     Role,
+    ScatterRound,
     Status,
     Ticket,
     TicketStatus,
@@ -87,16 +89,16 @@ def register_card_player(
 def register_online_player(
     db: Session, actor: User, *, username: str, password: str, full_name: str,
     birth_date: dt.date, gcash_number: str, settings: SettingsStore,
-    address: str | None = None, agent_id: int | None = None,
+    address: str | None = None, agent_id: int | None = None, email: str | None = None,
+    public_signup: bool = False,
 ) -> Player:
-    username = username.strip()
-    if not USERNAME_RE.match(username):
-        raise ValidationError("Username must be 3-32 characters: letters, digits, dot, dash, underscore.")
-    if db.scalar(select(Player.id).where(func.lower(Player.username) == username.lower())):
-        raise Conflict("That username is already taken.")
-    gcash_number = gcash_number.strip()
-    if not GCASH_RE.match(gcash_number):
-        raise ValidationError("GCash number must be 11 digits starting with 09.")
+    from app.services import identity
+    username = check_username(username, min_length=identity.min_username_length(settings), public_signup=public_signup)
+    identity.assert_username_free(db, username)           # users AND players, ignoring upper/lower case
+    gcash_number = normalize_ph_mobile(gcash_number, what="GCash number")
+    email_enc = email_key_ = None
+    if (email or "").strip():
+        email_enc, email_key_ = identity.claim_gmail(db, email)
     _check_age(birth_date, settings)
     problems = password_problems(password, username, min_length=int(settings.get("security.password_min_length")))
     if problems:
@@ -106,6 +108,7 @@ def register_online_player(
         kind=PlayerKind.ONLINE, username=username, password_hash=hash_password(password),
         full_name=full_name.strip()[:120], birth_date=birth_date,
         gcash_enc=pii.encrypt(gcash_number), address_enc=pii.encrypt(address),
+        email_enc=email_enc, email_key=email_key_,
         agent_id=agent_id or actor.id, status=Status.ACTIVE, created_by_id=actor.id,
         age_verified_at=dt.datetime.now(dt.timezone.utc),
         kyc_verified=not bool(settings.get("player.require_kyc_for_online")),
@@ -170,11 +173,11 @@ def staked_today(db: Session, player: Player) -> int:
 
 
 def account_staked_today(db: Session, user: User) -> int:
-    """Today's own-credit stakes of one login account across both games (Meron/Wala + Bola)."""
+    """Today's own-credit stakes of one login account across every game (Meron/Wala, Bola, Scatter)."""
     start = dt.datetime.now(dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     live = [TicketStatus.ACTIVE, TicketStatus.SETTLED]
     total = 0
-    for model in (Ticket, BolaTicket):
+    for model in (Ticket, BolaTicket, ScatterRound):
         total += int(db.scalar(
             select(func.coalesce(func.sum(model.stake_cents), 0))
             .where(model.user_id == user.id, model.placed_at >= start, model.status.in_(live))) or 0)

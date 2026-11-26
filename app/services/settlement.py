@@ -340,6 +340,7 @@ def _apply(db: Session, run: SettlementRun, actor: User, settings: SettingsStore
     lines = commissions.compute_lines(
         db, settled_tickets, basis=basis, house_gross=plan.house_take,
         total_staked=plan.total, settings=settings,
+        location_id=getattr(fight.event, "location_id", None),      # the room's own cuts apply on top of the game's
     )
     commission_txn = commissions.persist(db, actor, run, fight, lines, basis=basis)
 

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui %}
+{% block title %}People · {{ brand }}{% endblock %}
+{% block heading %}{{ 'Staff Panel' if staff_tabs else 'People' }}{% endblock %}
+{% block actions %}
+{% if tab == 'team' and 'agents.create' in perms %}<button class="btn btn-sm btn-brand" data-modal="create-modal"><svg class="ico"><use href="#i-plus"/></svg>Create user</button>{% endif %}
+{% if tab == 'players' and 'players.create' in perms %}<button class="btn btn-sm btn-brand" data-modal="register-modal"><svg class="ico"><use href="#i-plus"/></svg>Register player</button>{% endif %}
+{% endblock %}
+{% block content %}
+{% if staff_tabs %}{% include "_staff_nav.html" %}{% endif %}
+<style>
+  .pp-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}
+  .pp-tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin:0 0 12px}
+  .pp-chips{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .pp-chips .chip.is-active{border-color:var(--gold);color:var(--gold-hi)}
+  .pp-list{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);overflow:hidden}
+  .pp-head,.pp-person>summary{display:grid;grid-template-columns:var(--cols);gap:12px;align-items:center;padding:11px 16px}
+  .pp-head{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);border-bottom:1px solid var(--line)}
+  .pp-person{border-bottom:1px solid var(--line)}
+  .pp-person:last-child{border-bottom:0}
+  .pp-person>summary{cursor:pointer;list-style:none}
+  .pp-person>summary::-webkit-details-marker{display:none}
+  .pp-person>summary:hover{background:var(--hover)}
+  .pp-person[open]{background:var(--panel-2)}
+  .pp-person[open] .pp-chev{transform:rotate(90deg)}
+  .pp-chev{color:var(--ink-3);transition:transform .15s;text-align:center}
+  .pp-name strong{display:block}
+  .pp-name small{color:var(--ink-3)}
+  .pp-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:6px}
+  .pp-body{padding:2px 16px 16px;display:grid;gap:14px}
+  .pp-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .pp-facts>div{background:var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);padding:8px 10px;min-width:0;overflow-wrap:anywhere}
+  .pp-facts span{display:block;font-size:11.5px;color:var(--ink-3)}
+  .pp-forms{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;align-items:start}
+  .pp-form{border:1px solid var(--line);border-radius:var(--radius-sm);padding:12px}
+  .pp-form h4{margin:0 0 8px;font-size:13px}
+  .pp-form.is-danger{border-color:var(--red)}
+  .pp-form .field{margin-bottom:8px}
+  .pp-links{display:flex;gap:8px;flex-wrap:wrap}
+  @media (max-width:820px){
+    .pp-head{display:none}
+    .pp-person>summary{grid-template-columns:1fr auto 20px}
+    .pp-hide-sm{display:none}
+  }
+</style>
+
+{% if people_tabs | length > 1 %}
+<div class="subtabs pp-tabs" role="tablist" aria-label="People">
+  {% for key, label in people_tabs %}<a class="subtab {{ 'is-active' if tab == key }}" href="/staff/people?tab={{ key }}">{{ label }}</a>{% endfor %}
+</div>
+{% endif %}
+
+{% set role = user.role.value %}
+{% if role == 'teller' %}<p class="notice">You can see who is signed in and their GCash numbers. Everything else about an account stays with the Admin.</p>
+{% elif role == 'master' %}<p class="notice">This is your network: every account below you, with its credit and commission.</p>
+{% elif role == 'pawn' %}<p class="notice">You see only what the Admin switched on for your account.</p>{% endif %}
+
+{% include "people/_" ~ tab ~ ".html" %}
+{% include "people/_modals.html" %}
+{% endblock %}

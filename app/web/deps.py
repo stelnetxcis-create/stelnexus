@@ -1,6 +1,7 @@
 """Shared web dependencies: authenticated context, templating, flashes, cookies."""
 from __future__ import annotations
 
+import contextvars
 import datetime as dt
 import json
 from dataclasses import dataclass, field
@@ -14,7 +15,7 @@ from sqlalchemy.orm import Session as DbSession
 
 from app.core import audit
 from app.core.config import get_settings
-from app.core.errors import AuthError, Forbidden
+from app.core.errors import AuthError, Forbidden, NotFound
 from app.core.middleware import CSRF_COOKIE, cookie_header, csrf_cookie_valid, make_csrf_cookie
 from app.core.money import fmt, pesos
 from app.core import assets
@@ -52,6 +53,16 @@ def _visible_games(ctx):
 
 
 templates.env.globals["visible_games"] = _visible_games
+
+
+def _badge_strip(items, size: int = 18):
+    from app.services import badges
+    return badges.strip(items, size)
+
+
+templates.env.globals["badge_strip"] = _badge_strip
+templates.env.globals["badge_icon"] = lambda key, size=24, locked=False: __import__(
+    "app.services.badges", fromlist=["icon"]).icon(key, size, locked=locked)
 templates.env.filters["money"] = fmt
 templates.env.filters["datetime"] = lambda v, p="%Y-%m-%d %H:%M": v.strftime(p) if v else "—"
 templates.env.filters["date"] = lambda v: v.strftime("%Y-%m-%d") if v else "—"
@@ -199,6 +210,14 @@ def _apply_view_as(ctx: Ctx) -> None:
     ctx.real_user, ctx.user = user, target
 
 
+def game_gate(key: str):
+    """Router dependency: the whole feature 404s for everyone while Admin Panel > Variables > Games has it off."""
+    def _gate(ctx: Ctx = Depends(require_ctx)) -> None:
+        if not ctx.store.get(f"games.show_{key}"):
+            raise NotFound("That page does not exist.")
+    return _gate
+
+
 def require_ctx(request: Request, db: DbSession = Depends(get_db)) -> Ctx:
     ctx = optional_ctx(request, db)
     if ctx.user is None:
@@ -229,6 +248,14 @@ def _fragment_name(ctx: Ctx) -> str | None:
 
 
 from app.services.license_info import license_info  # noqa: E402
+
+
+def _people_nav(ctx: "Ctx") -> bool:
+    """Show the sidebar's People link? Only to an account that has People but no Staff Panel to reach it through."""
+    if ctx.user is None:
+        return False
+    from app.web.routes_people import people_nav
+    return people_nav(ctx)
 
 
 def wallet_snapshot(ctx: Ctx) -> tuple[int | None, int]:
@@ -265,16 +292,21 @@ def render(ctx: Ctx, template: str, status_code: int = 200, **extra: Any):
         notifications = list(ctx.db.scalars(
             select(Notification).where(Notification.user_id == ctx.user.id, Notification.is_read.is_(False))
             .order_by(Notification.id.desc()).limit(8)).all())
+    my_badges: list = []
+    if ctx.user is not None and fragment is None:          # the badges shown next to the account's own name
+        from app.services import badges as _badges
+        my_badges = _badges.my_showcase(ctx.db, ctx.user, store)
     real = ctx.real_user or ctx.user
     is_dev = bool(real is not None and real.role == Role.ADMIN)
     my_balance, wallet_pending = wallet_snapshot(ctx)
     context = {
         "license": license_info(store), "my_balance": my_balance, "wallet_pending": wallet_pending, "request": ctx.request, "ctx": ctx, "user": ctx.user, "perms": ctx.perms,
+        "people_nav": _people_nav(ctx),
         "settings": settings, "brand": settings.get("brand.name", "StelNexus"),
         "tagline": settings.get("brand.tagline", ""), "csrf_token": ctx.csrf_token,
         "flashes": ctx.flashes, "notifications": notifications,
         "active": extra.pop("active", ""), "now": dt.datetime.now(dt.timezone.utc),
-        "who": ctx.who, "is_dev": is_dev, "viewing_as": ctx.viewing_as,
+        "who": ctx.who, "is_dev": is_dev, "my_badges": my_badges, "viewing_as": ctx.viewing_as,
         "dev": _dev_context(ctx) if is_dev else None,
         **extra,
     }
@@ -369,7 +401,9 @@ def flash_redirect(url: str, message: str | None = None, level: str = "success",
     adds an Undo button to the toast that re-posts that (inverse) action with the page's CSRF token.
     Only offer it for actions that are safely reversible (lock / mode / status switches)."""
     from starlette.responses import RedirectResponse
-    response = RedirectResponse(url, status_code=status_code)
+    target = _RETURN_TO.get() or url
+    _RETURN_TO.set(None)                                 # used once: it never leaks into another request
+    response = RedirectResponse(target, status_code=status_code)
     if message:
         note = {"level": level, "message": message}
         if undo and undo.get("action", "").startswith("/") and not undo["action"].startswith("//"):
@@ -399,9 +433,28 @@ def clear_session_cookie(response) -> None:
             secure=_cfg.COOKIE_SECURE, same_site=_cfg.COOKIE_SAMESITE))
 
 
+_RETURN_TO: contextvars.ContextVar = contextvars.ContextVar("snx_return_to", default=None)
+
+
+def safe_return_to(raw: str | None) -> str | None:
+    """A page inside the Staff Panel that a form asked to come back to, or None. Only local /staff/ paths: never a
+    full URL, never //host, never anything with a line break (no open redirect, no header injection)."""
+    raw = (raw or "").strip()
+    if (raw.startswith("/staff/") and not raw.startswith("//") and "\\" not in raw
+            and "\n" not in raw and "\r" not in raw and len(raw) <= 300):
+        return raw
+    return None
+
+
+def set_return_to(raw: str | None) -> None:
+    _RETURN_TO.set(safe_return_to(raw))
+
+
 async def form_data(request: Request) -> dict[str, str]:
     form = await request.form()
-    return {key: (value if isinstance(value, str) else "") for key, value in form.items()}
+    data = {key: (value if isinstance(value, str) else "") for key, value in form.items()}
+    set_return_to(data.get("return_to"))                # honoured by flash_redirect below, for this request only
+    return data
 
 
 def audit_action(ctx: Ctx, action: str, **kwargs) -> None:

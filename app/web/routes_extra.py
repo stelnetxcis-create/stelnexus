@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core import redisbus
 from app.core.errors import NotFound, ValidationError
 from app.core.rbac import Perm, bola_visible_to, hides_totals, permissions_of
 from app.db.models import ChatMessage, DrawStatus, Event, Fight, FightStatus, Ticket, TicketStatus, User
@@ -83,6 +84,9 @@ def _chat_json(rows: list[ChatMessage], ctx: Ctx) -> list[dict]:
 
 
 def _typing_now(ctx: Ctx) -> list[str]:
+    shared = redisbus.typing_list(ctx.user.id)          # every worker's typists, when Redis is configured
+    if shared is not None:
+        return shared
     now = time.monotonic()
     with _typing_lock:
         for uid in [uid for uid, (_, exp) in _typing.items() if exp <= now]:
@@ -128,16 +132,19 @@ def _on_air(db: Session, ctx: Ctx) -> dict:
     open_fights = int(db.scalar(select(func.count(Fight.id))
                                 .where(Fight.status == FightStatus.OPEN)) or 0)
     ticker: list[dict] = []
-    for fight in db.scalars(select(Fight).where(Fight.result.is_not(None))
-                            .order_by(Fight.declared_at.desc().nulls_last(), Fight.id.desc())
-                            .limit(4)).all():
+    show_sabong = bool(ctx.store.get("games.show_sabong"))
+    if not show_sabong:
+        open_fights = 0
+    for fight in (db.scalars(select(Fight).where(Fight.result.is_not(None))
+                             .order_by(Fight.declared_at.desc().nulls_last(), Fight.id.desc())
+                             .limit(4)).all() if show_sabong else []):
         ticker.append({"kind": "Sabong", "label": f"Fight #{fight.number}",
                        "value": (fight.result.value if fight.result else "").upper(),
                        "tone": "meron" if str(fight.result) == "meron" else
                                ("wala" if str(fight.result) == "wala" else "amber"),
                        "at": fight.declared_at.strftime("%H:%M") if fight.declared_at else ""})
     next_draw = None
-    if bola_visible_to(ctx.user) and ctx.store.get("bola.enabled"):
+    if bola_visible_to(ctx.user) and ctx.store.get("bola.enabled") and ctx.store.get("games.show_bola"):
         draw = _bola.next_draw(db)
         if draw is not None:
             next_draw = {"id": draw.id, "area": draw.location.name if draw.location else "—",
@@ -216,6 +223,7 @@ async def chat_typing(ctx: Ctx = Depends(require_ctx)):
             for uid in [uid for uid, (_, exp) in _typing.items() if exp <= now]:
                 _typing.pop(uid, None)
         _typing[ctx.user.id] = (name, time.monotonic() + _TYPING_TTL)
+    await run_in_threadpool(redisbus.typing_touch, ctx.user.id, name, _TYPING_TTL)
     realtime.hub.publish(realtime.chat_topic())     # streams show the dots now, not at the next heartbeat
     return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
 
@@ -239,6 +247,7 @@ async def chat_send(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.db.flush()
     with _typing_lock:
         _typing.pop(ctx.user.id, None)            # sent: stop showing them as typing (the commit wakes the streams)
+    redisbus.typing_clear(ctx.user.id)
     if request.headers.get("accept", "").startswith("application/json"):
         return JSONResponse({"ok": True, "id": message.id})
     return flash_redirect("/chat")

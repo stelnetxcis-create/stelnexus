@@ -351,20 +351,19 @@
         const c = $('[data-event="' + e.id + '"]', grid);
         if (!c) { unknown = true; return; }
         const prevSt = c.dataset.status;
-        const numbers = [e.total, e.open, e.locked, e.done];
-        const was = $$(".lobby-nums b", c).map((b) => b.textContent.trim());
-        $$(".lobby-nums b", c).forEach((b, i) => { b.textContent = numbers[i]; });
+        // The card shows two things: the fight going on now and how many fights are finished.
+        const sig = (e.live || 0) + ":" + e.done + ":" + e.st;
+        const was = c.dataset.sig; c.dataset.sig = sig;
+        const nowEl = $(".n-now", c);
+        if (nowEl) nowEl.innerHTML = e.live && e.st === "open" ? "Fight <b data-now>#" + e.live + "</b> ongoing"
+          : (e.total && e.done >= e.total ? "All fights finished" : "No fight ongoing");
+        const doneB = $(".n-done b", c); if (doneB) doneB.textContent = e.done;
         const bar = $(".lobby-bar i", c); if (bar) { bar.style.setProperty("--w", e.pct + "%"); bar.style.width = e.pct + "%"; }
-        const live = $(".lobby-live", c);
-        if (e.live && e.st === "open") {
-          if (live) live.lastChild.textContent = "Fight " + e.live + " up next";
-          else { const s = document.createElement("span"); s.className = "lobby-live"; s.innerHTML = "<i></i>Fight " + e.live + " up next"; $(".lobby-top", c).appendChild(s); }
-        } else if (live) live.remove();
         if (prevSt !== e.st) {
           c.className = c.className.replace(/\bst-\S+/, "st-" + e.st); c.dataset.status = e.st;
           const ls = $(".lobby-status", c); if (ls) ls.innerHTML = "<i></i>" + e.st.toUpperCase();
         }
-        const changed = prevSt !== e.st || was.join() !== numbers.map(String).join();
+        const changed = prevSt !== e.st || (was !== undefined && was !== sig);
         if (changed && !first && !reduce) { c.classList.remove("is-updated"); void c.offsetWidth; c.classList.add("is-updated"); }
         if (changed && !first && prevSt !== e.st) Sound.play(e.st === "open" ? "open" : "lock");
       });

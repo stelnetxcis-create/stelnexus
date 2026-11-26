@@ -17,6 +17,14 @@ from app.services import agents, events, locations, proofs, referrals, settlemen
 from tests.conftest import PASSWORD
 from tests.test_network import chain  # noqa: F401  (fixture)
 
+
+_gm_n = __import__("itertools").count(1)
+
+
+def _gm(w):
+    """A fresh, valid Gmail for a sign-up in these tests."""
+    return f"signup.{next(_gm_n)}.{w.tag}@gmail.com"
+
 @pytest.fixture(autouse=True)
 def _fresh_rate_limits():
     """These tests sign in many times from one test IP; never let that eat the login budget of other files."""
@@ -198,22 +206,22 @@ def test_admin_referral_codes_make_any_account_type(chain):
     code = referrals.create_code(w.db, w.admin, ttl_minutes=60)            # default stays Master
     assert code.role == "master" and code.parent_id is None
     m = referrals.redeem(w.db, code.code, username=f"am{w.tag}", password=PASSWORD, full_name="AM",
-                         contact="09171234567", settings=w.store)
+                         contact="09171234567", settings=w.store, email=_gm(w))
     assert m.role == Role.MASTER and m.parent_id == w.admin.id
 
     code = referrals.create_code(w.db, w.admin, ttl_minutes=60, role="agent", parent_id=w.master.id)
     c = referrals.redeem(w.db, code.code, username=f"ac{w.tag}", password=PASSWORD, full_name="AC",
-                         contact="09171234567", settings=w.store)
+                         contact="09171234567", settings=w.store, email=_gm(w))
     assert c.role == Role.AGENT and c.parent_id == w.master.id
 
     code = referrals.create_code(w.db, w.admin, ttl_minutes=60, role="sub_agent", parent_id=w.cavo.id)
     k = referrals.redeem(w.db, code.code, username=f"ak{w.tag}", password=PASSWORD, full_name="AK",
-                         contact="09171234567", settings=w.store)
+                         contact="09171234567", settings=w.store, email=_gm(w))
     assert k.role == Role.SUB_AGENT and k.parent_id == w.cavo.id
 
     code = referrals.create_code(w.db, w.admin, ttl_minutes=60, role="player", parent_id=w.kub.id)
     p = referrals.redeem(w.db, code.code, username=f"ap{w.tag}", password=PASSWORD, full_name="AP",
-                         contact="09171234567", settings=w.store, birth_date=dt.date(1990, 1, 1), gcash_number="09171234567")
+                         contact="09171234567", settings=w.store, birth_date=dt.date(1990, 1, 1), gcash_number="09171234567", email=_gm(w))
     assert p.agent_id == w.kub.id
 
 

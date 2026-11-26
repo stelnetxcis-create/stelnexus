@@ -18,11 +18,12 @@ import datetime as dt
 import re
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.pagination import clamp_limit, clamp_offset
 from app.core import audit
-from app.core.errors import Forbidden, NotFound, StelError, ValidationError
+from app.core.errors import Conflict, Forbidden, NotFound, StelError, ValidationError
 from app.core.rbac import scope_ids
 from app.core.security import random_code
 from app.core.settings_registry import SettingsStore
@@ -122,27 +123,20 @@ def lookup_valid(db: Session, code: str) -> ReferralCode:
     return row
 
 
-_PH_MOBILE_RE = re.compile(r"^09\d{9}$")
-
-
 def _ph_mobile(raw: str | None) -> str:
-    """A Philippine mobile number, stored as 09XXXXXXXXX. Accepts 09.., +639.. and 639.. (spaces/dashes ignored)."""
-    s = re.sub(r"[\s\-()]", "", raw or "")
-    if s.startswith("+63"):
-        s = "0" + s[3:]
-    elif s.startswith("63") and len(s) == 12:
-        s = "0" + s[2:]
-    if not _PH_MOBILE_RE.match(s):
-        raise ValidationError("A Philippine mobile number is required (11 digits starting with 09).")
-    return s
+    """Kept for callers of the old name: the rules now live in core/identity.py."""
+    from app.core.identity import normalize_ph_mobile
+    return normalize_ph_mobile(raw)
 
 
 def redeem(db: Session, code: str, *, username: str, password: str, full_name: str,
            contact: str | None, settings: SettingsStore, birth_date: dt.date | None = None,
-           gcash_number: str | None = None) -> User | Player:
+           gcash_number: str | None = None, email: str | None = None) -> User | Player:
     """Consume a code and create the invited account. Returns a User (Master/Agent/Sub Agent) or,
     for a player code, a Player."""
     row = lookup_valid(db, code)
+    if bool(settings.get("signup.require_gmail")) and not (email or "").strip():
+        raise ValidationError("A Gmail address is required (it is shown as account information, never used to sign in).")
     claimed = db.execute(
         update(ReferralCode)
         .where(ReferralCode.id == row.id, ReferralCode.used_at.is_(None),
@@ -161,17 +155,21 @@ def redeem(db: Session, code: str, *, username: str, password: str, full_name: s
             account = players.register_online_player(
                 db, issuer, username=username, password=password, full_name=full_name,
                 birth_date=birth_date, gcash_number=gcash_number or "", settings=settings,
-                agent_id=row.parent_id or issuer.id)
+                agent_id=row.parent_id or issuer.id, email=email, public_signup=True)
         else:
             contact = _ph_mobile(contact)      # every referral sign-up needs a PH mobile number
             account = agents.create_agent(db, issuer, username=username, password=password,
                                           role=Role(row.role), full_name=full_name, contact=contact,
-                                          parent_id=row.parent_id, settings=settings)
+                                          parent_id=row.parent_id, settings=settings, email=email, public_signup=True)
             account.must_change_password = False  # they just chose their own password
     except StelError:
         # Bad username / weak password must not burn the code.
         db.execute(update(ReferralCode).where(ReferralCode.id == row.id).values(used_at=None))
         raise
+    except IntegrityError as exc:
+        # Two people took the same username or Gmail at the very same moment: the database's unique index caught it.
+        db.rollback()                                     # also gives the code back (its use was part of this transaction)
+        raise Conflict("That username or Gmail was just taken by someone else. Please choose another.") from exc
     if row.role != "player":
         row.used_by_id = account.id         # a Player is not a user row; the audit entry names it
     row.used_at = _now()

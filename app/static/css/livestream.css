@@ -1,3 +1,5 @@
+/* Pages with a live video player opt out of the cross-fade between pages (it would freeze the picture). */
+@view-transition{navigation:none}
 /* StelNexus — Livestream Chat (experimental).
    Loaded only on /chat, after app.css + luxe.css, so it inherits the gold-on-black tokens.
    Palette: broadcast red for ON AIR, gold for the desk, the console's role hues for people.

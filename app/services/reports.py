@@ -98,7 +98,8 @@ def cashflow(db: Session, flows: dict | None = None) -> dict:
         "agent_wallets": kb(AccountKind.WALLET, users_only=True),
         "commission_payable": kb(AccountKind.COMMISSION_PAYABLE),
         "house_revenue": kb(AccountKind.HOUSE_REVENUE) + kb(AccountKind.ROUNDING),
-        "commission_expense": kb(AccountKind.COMMISSION_EXPENSE),
+        "commission_expense": kb(AccountKind.COMMISSION_EXPENSE),     # paid to the network AND set aside in the system pool
+        "system_pool": kb(AccountKind.SYSTEM_POOL),                   # the house reserve, locked on the Teller page
         "pool_escrow": kb(AccountKind.FIGHT_POOL),
         "bola_pool_escrow": kb(AccountKind.BOLA_POOL),
         "bola": flows["bola"],
@@ -490,7 +491,7 @@ def bola_board(db: Session, settings) -> dict | None:
     from app.core.rbac import bola_dev_only
     if bola_dev_only():
         return None            # the public board is never a dev surface
-    if not (settings.get("live.show_bola") and settings.get("bola.enabled")):
+    if not (settings.get("live.show_bola") and settings.get("bola.enabled") and settings.get("games.show_bola")):
         return None
     from app.db.models import DrawStatus
     from app.services import bola

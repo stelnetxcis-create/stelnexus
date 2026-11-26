@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as ui %}
 {% block title %}My profile · {{ brand }}{% endblock %}
-{% block heading %}My profile{% endblock %}
+{% block heading %}My profile{{ badge_strip(my_badges, 22) }}{% endblock %}
 {% block content %}
 {% if user.must_change_password %}
 <div class="alert alert-warning" role="alert">You must change your password before continuing.</div>
@@ -10,6 +10,27 @@
   {% if user.has_wallet %}{{ ui.stat('Credit', wallet | money, 'open the Wallet for history') }}
   {{ ui.stat('Commission balance', commission | money) }}{% endif %}
   {{ ui.stat('Role', user.role_label, 'Ref code ' ~ user.ref_code) }}
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Badges next to my name</h2><a class="btn btn-sm btn-ghost" href="/achievements">All achievements →</a></div>
+  {% if earned_badges %}
+  <form class="card-body" method="post" action="/profile/badges">
+    {{ ui.csrf(csrf_token) }}
+    <p class="small muted">Pick up to {{ max_badges }} of the badges you have earned. They appear next to your name.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+      {% for r in earned_badges %}
+      <label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--line);border-radius:10px;cursor:pointer">
+        <input type="checkbox" name="badge" value="{{ r.badge.key }}" {{ 'checked' if r.slot is not none }}>
+        {{ badge_icon(r.badge.key, 28) }}<span>{{ r.badge.name }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    <button class="btn btn-primary" type="submit">Save badges</button>
+  </form>
+  {% else %}
+  <div class="card-body"><p class="small muted">You have not earned a badge yet. They are hard to get: win streaks, big payouts and long play in the games. See <a href="/achievements">Achievements</a> for what each one needs.</p></div>
+  {% endif %}
 </div>
 
 <div class="card">

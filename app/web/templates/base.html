@@ -78,16 +78,20 @@
         ('', [
           ('dashboard', '/dashboard', 'i-home', 'Dashboard', 'dashboard.view'),
           ('store', '/store', 'i-crown', 'Store', 'wallet.transfer'),
+          ('achievements', '/achievements', 'i-trophy', 'Achievements', 'wallet.transfer'),
           ('admin', '/admin', 'i-sliders', 'Admin Panel', 'panel.view'),
-          ('staff', '/staff', 'i-monitor', 'Staff Panel', 'staff.view')]),
+          ('staff', '/staff', 'i-monitor', 'Staff Panel', 'staff.view'),
+          ('agentpanel', '/agent-panel', 'i-users', 'Agent Panel', 'agentpanel.view'),
+          ('consents', '/agent-panel/consents', 'i-eye', 'Panel Requests', 'panelconsent.nav')]),
         ('Network', [
-          ('agents', '/agents', 'i-users', 'Users', 'agents.view'),
-          ('clp', '/clp', 'i-card', 'Players', 'players.view'),
+          ('people', '/staff/people', 'i-users', 'People', 'people.nav'),
           ]),
       ] %}
+      {# 'people.nav' is not a right: it is switched on for accounts that have People but no Staff Panel (a Master, a Pawn). #}
+      {% set nav_perms = (perms | list) + (['people.nav'] if people_nav else []) + (['panelconsent.nav'] if user and user.role.value == 'sub_agent' else []) %}
       {% for title, items in groups %}
         {% if loop.index == 2 %}{% include "_nav_games.html" %}{% endif %}
-        {% set shown = items | selectattr(4, 'in', perms) | list %}
+        {% set shown = items | selectattr(4, 'in', nav_perms) | list %}
         {% if shown %}
         {% if title %}<div class="nav-title {{ 'is-sabong' if title.startswith('Sabong') else 'is-number' if title == 'Number game' }}"><span>{{ title }}{% if title == 'Number game' and bola_dev_only() %} · dev only{% endif %}</span>{% if title.startswith('Sabong') %}<i class="nav-dots" aria-hidden="true"><b class="m"></b><b class="w"></b></i>{% endif %}</div>{% endif %}
         {% for key, href, icon, label, perm in shown %}
@@ -221,10 +225,11 @@
         {% endif %}
         <details class="menu account-menu">
           <summary class="chip user-chip" aria-label="Account menu">
-            <span class="avatar sm">{{ user.full_name[:1] | upper }}</span><span class="uname">{{ user.username }}</span>
+            <span class="avatar sm">{{ user.full_name[:1] | upper }}</span><span class="uname">{{ user.username }}</span>{{ badge_strip(my_badges, 16) }}
           </summary>
           <div class="menu-panel account-panel">
-            <div class="account-who"><strong>{{ user.full_name }}</strong><small>{{ user.username }} · {{ user.role_label }}</small></div>
+            <div class="account-who"><strong>{{ user.full_name }}{{ badge_strip(my_badges, 18) }}</strong><small>{{ user.username }} · {{ user.role_label }}</small></div>
+            <a class="account-item {{ 'is-active' if active == 'achievements' }}" href="/achievements"><svg class="ico"><use href="#i-trophy"/></svg>Achievements</a>
             <a class="account-item {{ 'is-active' if active == 'preferences' }}" href="/preferences"><svg class="ico"><use href="#i-gear"/></svg>Settings</a>
             <a class="account-item" href="/profile"><svg class="ico"><use href="#i-user"/></svg>Profile &amp; security</a>
             {% if 'referrals.manage' in perms %}<a class="account-item {{ 'is-active' if active == 'referrals' }}" href="/referrals"><svg class="ico"><use href="#i-key"/></svg>Referral codes</a>{% endif %}

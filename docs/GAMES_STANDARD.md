@@ -43,7 +43,6 @@ on Schedule both open that same page. Sections appear by right, the way Bola sta
 |---|---|
 | Fight panel: video, bet panel, declare, correct, tickets | everyone with `fights.view`; declare / correct by right |
 | Event head and **All fights** (pools) | everyone; pools hidden from money-blind roles |
-| **Sell tickets** | an account that has players to sell to and may place bets |
 | **Summary**, **Event expenses** | `cashflow.view`, never money-blind roles |
 | **Manage event** (cancel the whole event) | `events.manage` |
 | Delete event / fight | the Admin only |

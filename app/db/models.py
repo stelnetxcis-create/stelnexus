@@ -168,6 +168,7 @@ class AccountKind(StrEnum):
     ROUNDING = "rounding"                   # integer-division remainder
     CASH_ON_HAND = "cash_on_hand"           # RETIRED: legacy cash, kept so old ledger rows load
     GCASH_CLEARING = "gcash_clearing"
+    SYSTEM_POOL = "system_pool"             # the house reserve: a locked share of every game's cut, shown on the Teller page
 
 
 class AccountType(StrEnum):
@@ -188,6 +189,7 @@ KIND_TYPE: dict[AccountKind, AccountType] = {
     AccountKind.ROUNDING: AccountType.REVENUE,
     AccountKind.CASH_ON_HAND: AccountType.ASSET,
     AccountKind.GCASH_CLEARING: AccountType.ASSET,
+    AccountKind.SYSTEM_POOL: AccountType.LIABILITY,
 }
 DEBIT_NORMAL = {AccountType.ASSET, AccountType.EXPENSE}
 
@@ -280,6 +282,9 @@ class User(UUIDMixin, TimestampMixin, Base):
     role: Mapped[Role] = mapped_column(EnumStr(Role, 16), index=True)
     full_name: Mapped[str] = mapped_column(String(120))
     contact: Mapped[str | None] = mapped_column(String(32))
+    # Gmail: information only, never used to sign in. email_key is a keyed hash of the canonical address (unique).
+    email_enc: Mapped[str | None] = mapped_column(String(500))
+    email_key: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
     parent_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
     ref_code: Mapped[str] = mapped_column(String(16), unique=True, index=True)
     status: Mapped[Status] = mapped_column(EnumStr(Status, 16), default=Status.ACTIVE, index=True)
@@ -384,6 +389,8 @@ class Player(UUIDMixin, TimestampMixin, Base):
     birth_date: Mapped[dt.date | None] = mapped_column(Date)
     gender: Mapped[str | None] = mapped_column(String(16))
     address_enc: Mapped[str | None] = mapped_column(Text)     # encrypted at rest
+    email_enc: Mapped[str | None] = mapped_column(String(500))  # Gmail, information only (never a login)
+    email_key: Mapped[str | None] = mapped_column(String(64), unique=True, index=True)
     gcash_enc: Mapped[str | None] = mapped_column(Text)       # encrypted at rest
     agent_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
     status: Mapped[Status] = mapped_column(EnumStr(Status, 16), default=Status.ACTIVE, index=True)
@@ -537,6 +544,30 @@ class AccessRequest(Base):
     uses_left: Mapped[int | None] = mapped_column(Integer)                  # the pass is spent after this many uses
     created_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow, index=True)
     used_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+
+
+class PanelAccess(Base):
+    """An Agent's request to open a Sub Agent's own panel (its players and earnings).
+
+    asked    the Agent asked; the Sub Agent has not answered yet
+    allowed  the Sub Agent said yes; the Master (or, with no Master above, the Admin) must approve before anything shows
+    approved the Master approved: the Agent may open the Sub Agent's panel
+    declined the Sub Agent said no
+    rejected the Master said no
+    revoked  the Sub Agent, the Master or the Admin withdrew it later
+    """
+    __tablename__ = "panel_access"
+    __table_args__ = (UniqueConstraint("agent_id", "sub_id", name="uq_panel_access_pair"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    agent_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    sub_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(10), default="asked", index=True)
+    allowed_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+    decided_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    decided_at: Mapped[dt.datetime | None] = mapped_column(UtcDateTime())
+    created_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow)
+    updated_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow, onupdate=utcnow)
 
 
 class PermUsage(Base):
@@ -1452,6 +1483,45 @@ class BolaExpense(TimestampMixin, Base):
     __table_args__ = (CheckConstraint("amount_cents > 0", name="bola_expense_positive"),)
 
 
+class ScatterRound(UUIDMixin, TimestampMixin, Base):
+    """One played round of Scatter: the stake, what it paid, and the whole replay.
+
+    A round is the opening spin plus any free spins it started; it is resolved in one request, so it is born
+    settled. ``result`` is the engine's JSON (every grid, tumble and multiplier) and ``seed`` re-creates it
+    exactly (``scatter_engine.play_seeded``), which is how a disputed round is checked.
+    """
+    __tablename__ = "scatter_rounds"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(16), unique=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), index=True)
+    stake_cents: Mapped[int] = mapped_column(Money, nullable=False)
+    win_cents: Mapped[int] = mapped_column(Money, default=0, nullable=False)
+    win_x100: Mapped[int] = mapped_column(Integer, default=0, nullable=False)     # hundredths of the bet
+    status: Mapped[TicketStatus] = mapped_column(EnumStr(TicketStatus, 12), default=TicketStatus.SETTLED, index=True)
+    spins: Mapped[int] = mapped_column(Integer, default=1, nullable=False)          # 1 + free spins played
+    free_spins: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    top_multiplier: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    capped: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    seed: Mapped[str] = mapped_column(String(64))
+    engine_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    max_win_x: Mapped[int] = mapped_column(Integer, nullable=False)                 # the cap this round was played under
+    result: Mapped[dict | None] = mapped_column(JsonType)
+    stake_txn_id: Mapped[int | None] = mapped_column(ForeignKey("ledger_txns.id", ondelete="RESTRICT"))
+    win_txn_id: Mapped[int | None] = mapped_column(ForeignKey("ledger_txns.id", ondelete="RESTRICT"))
+    idempotency_key: Mapped[str | None] = mapped_column(String(120), unique=True)
+    placed_ip: Mapped[str | None] = mapped_column(String(64))
+    placed_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow, index=True)
+
+    bettor: Mapped[User] = relationship(foreign_keys=[user_id])
+
+    __table_args__ = (
+        CheckConstraint("stake_cents > 0", name="scatter_stake_positive"),
+        CheckConstraint("win_cents >= 0", name="scatter_win_nonneg"),
+        Index("ix_scatter_rounds_user_placed", "user_id", "placed_at"),
+    )
+
+
 class ReportSnapshot(Base):
     """A precomputed report figure (see app.services.snapshots). One row per (kind, scope); the
     refresh job overwrites it, so the table never grows."""
@@ -1465,6 +1535,73 @@ class ReportSnapshot(Base):
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
 
     __table_args__ = (UniqueConstraint("kind", "scope", name="uq_report_snapshots_kind_scope"),)
+
+
+class RoomCut(TimestampMixin, Base):
+    """A commission cut set for ONE room (a location) of ONE game, instead of the game-wide default.
+
+    ``agent_id`` NULL is the room's own default (Admin side). A row with an Agent is that Agent's setting for
+    the room: ``volume_bps`` is the Agent's cut of the pool (the Admin side sets it), ``sop_bps`` is what the
+    Agent passes to its Sub Agents (the Agent sets it). A NULL field falls through to the next level
+    (see app.services.commissions.effective_agent_bps / effective_sub_bps)."""
+    __tablename__ = "room_cuts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game: Mapped[str] = mapped_column(String(12), index=True)          # 'sabong' | 'bola'
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), index=True)
+    agent_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    volume_bps: Mapped[int | None] = mapped_column(Integer)
+    sop_bps: Mapped[int | None] = mapped_column(Integer)
+    set_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    location: Mapped["Location"] = relationship(foreign_keys=[location_id])
+    agent: Mapped["User | None"] = relationship(foreign_keys=[agent_id])
+
+    __table_args__ = (
+        UniqueConstraint("game", "location_id", "agent_id", name="uq_room_cut"),
+        CheckConstraint("volume_bps is null or volume_bps between 0 and 10000", name="room_volume_range"),
+        CheckConstraint("sop_bps is null or sop_bps between 0 and 10000", name="room_sop_range"),
+    )
+
+
+class SubRoomCut(TimestampMixin, Base):
+    """What ONE Sub Agent earns (SOP %) in one room of one game. Set by its Agent (or the Admin side) from the Agent
+    Panel; it is the most specific SOP level and beats the Agent's room-wide SOP (see app.services.commissions)."""
+    __tablename__ = "sub_room_cuts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game: Mapped[str] = mapped_column(String(12), index=True)
+    location_id: Mapped[int] = mapped_column(ForeignKey("locations.id", ondelete="CASCADE"), index=True)
+    sub_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    sop_bps: Mapped[int] = mapped_column(Integer)
+    set_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    location: Mapped["Location"] = relationship(foreign_keys=[location_id])
+    sub: Mapped["User"] = relationship(foreign_keys=[sub_id])
+
+    __table_args__ = (
+        UniqueConstraint("game", "location_id", "sub_id", name="uq_sub_room_cut"),
+        CheckConstraint("sop_bps between 0 and 10000", name="sub_room_sop_range"),
+    )
+
+
+class UserBadge(Base):
+    """A badge an account has earned (Achievements). ``slot`` is 0..2 while the player shows it next to their name
+    (Profile > Badges), NULL otherwise. The catalog (names, icons, conditions) lives in code: app/services/badges.py;
+    a row here only records that ``badge_key`` was earned and when, so it survives catalog edits and game switches."""
+    __tablename__ = "user_badges"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    badge_key: Mapped[str] = mapped_column(String(40))
+    earned_at: Mapped[dt.datetime] = mapped_column(UtcDateTime(), default=utcnow)
+    slot: Mapped[int | None] = mapped_column(Integer)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "badge_key", name="uq_user_badge"),
+        UniqueConstraint("user_id", "slot", name="uq_user_badge_slot"),     # NULL slots never clash
+        CheckConstraint("slot is null or slot between 0 and 2", name="badge_slot_range"),
+    )
 
 
 __all__ = [n for n in dir() if isinstance(getattr(n, "__mro__", None), tuple)]

@@ -99,7 +99,7 @@ def test_fight_view_has_strip_early_bet_panel_and_no_seller_panel():
     panel = extract_region(html, "fight-panel") or ""
     assert "/sell/place" not in html and "Sell tickets" not in panel and 'id="sell"' not in panel
     assert 'data-self="1"' in html and 'data-sl="player"' not in html   # bets as the logged-in account, no picker
-    assert "Start fight" in html and "pre-show" in html
+    assert "pre-show" in html and "Start fight" not in html      # going on air is on the Declarator Desk, not here
 
 
 def test_early_bet_follows_the_game_order():
@@ -136,11 +136,11 @@ def test_early_bet_follows_the_game_order():
     assert bad.status_code in (303, 409, 422)                              # refused (flash redirect for forms)
     rows = {f["n"]: f for f in c.get(f"/_live/event/{ev_id}").json()["fights"]}
     assert rows[1]["ph"] == "onair" and rows[1]["sd"] and rows[2]["ph"] == "waiting" and not rows[2]["sd"]
-    # normal betting is not tied to the stream
+    # there is no seller form any more: a bet is the account's own, placed from the Bet panel with its own credit
     t = _csrf(c)
-    normal = c.post("/bets/place", data={"fight_id": fight_id, "side": "meron", "amount": "100", "player_id": player_id,
-                                         "idempotency_key": "norm-1", "csrf_token": t}, follow_redirects=False)
-    assert normal.status_code in (302, 303)
+    gone = c.post("/bets/place", data={"fight_id": fight_id, "side": "meron", "amount": "100", "player_id": player_id,
+                                       "idempotency_key": "norm-1", "csrf_token": t}, follow_redirects=False)
+    assert gone.status_code in (404, 405)
     # back to pre-show reopens game 1
     assert c.post(f"/events/{ev_id}/stream", data={"action": "reset", "fight_id": fight_id,
                                                    "csrf_token": _csrf(c)}).status_code in (302, 303)

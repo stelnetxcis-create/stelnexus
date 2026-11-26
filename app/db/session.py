@@ -19,6 +19,12 @@ from app.core.config import get_settings
 _settings = get_settings()
 
 
+def pg_connect_args(settings) -> dict:
+    """PgBouncer in transaction mode hands a different server connection to every transaction, so psycopg's
+    server-side prepared statements (which live on one connection) must be switched off."""
+    return {"prepare_threshold": None} if settings.DB_PGBOUNCER else {}
+
+
 def _build_engine() -> Engine:
     url = _settings.DATABASE_URL
     if url.startswith("sqlite"):
@@ -46,6 +52,7 @@ def _build_engine() -> Engine:
         max_overflow=_settings.DB_MAX_OVERFLOW,
         pool_pre_ping=True,
         pool_recycle=1800,
+        connect_args=pg_connect_args(_settings),
         future=True,
     )
 

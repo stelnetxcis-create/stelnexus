@@ -4,7 +4,7 @@
 {% block title %}Dashboard · {{ brand }}{% endblock %}
 {% block heading %}Dashboard{% endblock %}
 {% block actions %}
-{% if 'events.manage' in perms %}<a class="btn btn-sm btn-brand" href="/games/sabong/live?pick=1&create=1" title="New event"><svg class="ico"><use href="#i-plus"/></svg><span class="lbl">New event</span></a>{% endif %}
+{% if 'events.manage' in perms and settings.get('games.show_sabong', True) %}<a class="btn btn-sm btn-brand" href="/games/sabong/live?pick=1&create=1" title="New event"><svg class="ico"><use href="#i-plus"/></svg><span class="lbl">New event</span></a>{% endif %}
 {% endblock %}
 
 {% macro spark(values) %}
@@ -79,8 +79,10 @@
 <div class="kpis">
 {% if mine %}
   {{ kpi('i-coins', 'My credit', mine.credit | money, 'available credit', 'gold') }}
+  {% if mine.downline is not none %}
   {{ kpi('i-users', 'My agents', mine.downline, 'in my downline') }}
   {{ kpi('i-card', 'My players', mine.players, 'in my network') }}
+  {% endif %}
   {{ kpi('i-target', 'Open Sabong fights', stats.open_fights, stats.events ~ ' events on file', live='open') }}
 {% elif show_money %}
   {{ kpi('i-chart', 'Stake today', stats.stake_today | money, stats.tickets_today ~ ' tickets sold', 'gold', stats.stake_delta_pct, series=stats.series | map(attribute='stake') | list, live='stake') }}
@@ -166,6 +168,7 @@
     </div>
     {% endif %}
 
+    {% if settings.get('games.show_sabong', True) %}
     {% call ui.region('live-games') %}
     <div class="card">
       <div class="card-head"><h2>Live fights</h2><span class="sect sect-sabong">Sabong</span>{% if 'fights.view' in perms %}<a class="btn btn-sm btn-ghost" href="/games/sabong/live">Fight view →</a>{% endif %}</div>
@@ -210,6 +213,7 @@
         {% else %}{{ ui.empty('Create your first event to open betting.', kind='arena', title='No events yet', href='/games/sabong/live?pick=1' if 'events.view' in perms else '', cta='Go to events', compact=true) }}{% endif %}
       </div>
     </div>
+    {% endif %}
   </div>
 
   <div class="dash-col">

@@ -62,7 +62,7 @@ def test_house_losing_draw_pays_no_commission(bw):
         assert sum(r.amount_cents for r in rows) == 0
         assert ledger.verify_integrity(w.db)["ok"]
     finally:
-        w.store.set("bola.commission.pay_master", "false", w.admin.id)
+        w.store.set("bola.commission.pay_master", "true", w.admin.id)
 
 
 # ---------------------------------------------------------------- pawn proof on Bola declare

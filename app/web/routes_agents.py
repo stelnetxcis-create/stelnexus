@@ -4,10 +4,9 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 
 from app.core.errors import ValidationError
-from app.core.rbac import Perm, creatable_roles, hides_totals, scope_ids
+from app.core.rbac import Perm, creatable_roles
 from app.db.models import UPLINE_ROLES, Role, Status, User
-from app.services import accounts, agents
-from app.web.paging import paginate
+from app.services import agents
 from app.web.deps import Ctx, form_data, flash_redirect, render, require_ctx
 
 router = APIRouter()
@@ -31,22 +30,6 @@ def _uplines(ctx: Ctx, creatable: list[Role]) -> list[User]:
                                .order_by(User.role, User.username)).all())
 
 
-@router.get("/agents")
-async def agents_page(request: Request, ctx: Ctx = Depends(require_ctx)):
-    ctx.need(Perm.AGENTS_VIEW)
-    search = request.query_params.get("q", "")[:60]
-    pager, rows = paginate(request, 200, lambda limit, offset: agents.list_agents(
-        ctx.db, ctx.user, search=search or None, limit=limit, offset=offset))
-    hide = hides_totals(ctx.user)           # a Pawn without 'see stakes, pools and payouts' sees no balances
-    bal = accounts.user_balances(ctx.db, [] if hide else rows)       # one query, not two per row
-    wallets = {row.id: (bal[row.id][0] if not hide and row.id in bal else None) for row in rows}
-    commissions = {row.id: (bal[row.id][1] if not hide and row.id in bal else None) for row in rows}
-    creatable = creatable_roles(ctx.user)
-    return render(ctx, "agents.html", active="agents", rows=rows, pager=pager, wallets=wallets, hide_balances=hide,
-                  commissions=commissions, search=search, creatable=creatable, uplines=_uplines(ctx, creatable),
-                  downline=sorted(scope_ids(ctx.db, ctx.user) - {ctx.user.id}))
-
-
 @router.post("/agents/create")
 async def agents_create(request: Request, ctx: Ctx = Depends(require_ctx)):
     ctx.need(Perm.AGENTS_CREATE)
@@ -60,7 +43,7 @@ async def agents_create(request: Request, ctx: Ctx = Depends(require_ctx)):
         role=role, full_name=data.get("full_name", ""), contact=data.get("contact"),
         parent_id=_int(data.get("parent_id")), settings=ctx.store, gcash_number=data.get("gcash"),
     )
-    return flash_redirect("/agents", f"{user.role_label} '{user.username}' created. Ref code {user.ref_code}.")
+    return flash_redirect("/staff/people?tab=team", f"{user.role_label} '{user.username}' created. Ref code {user.ref_code}.")
 
 
 @router.post("/agents/{agent_id}/update")
@@ -73,7 +56,7 @@ async def agents_update(agent_id: int, request: Request, ctx: Ctx = Depends(requ
         contact=data.get("contact"), status=Status(status) if status else None,
         reason=data.get("reason"),
     )
-    return flash_redirect("/agents", "Agent updated.")
+    return flash_redirect("/staff/people?tab=team", "Agent updated.")
 
 
 @router.post("/agents/{agent_id}/password")
@@ -81,4 +64,4 @@ async def agents_password(agent_id: int, request: Request, ctx: Ctx = Depends(re
     ctx.need(Perm.AGENTS_EDIT)
     data = await form_data(request)
     agents.reset_password(ctx.db, ctx.user, agent_id, data.get("password", ""), settings=ctx.store)
-    return flash_redirect("/agents", "Password reset. The agent must change it at next sign-in.")
+    return flash_redirect("/staff/people?tab=team", "Password reset. The agent must change it at next sign-in.")

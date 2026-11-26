@@ -107,11 +107,13 @@
         b.disabled = true;
         b.dataset.label = b.textContent;
         b.textContent = 'Working…';
+        b.classList.add('is-working');
       });
       setTimeout(() => {
         form.dataset.submitted = '';
         $$('button', form).forEach((b) => {
           b.disabled = false;
+          b.classList.remove('is-working');
           if (b.dataset.label) b.textContent = b.dataset.label;
         });
       }, 8000);

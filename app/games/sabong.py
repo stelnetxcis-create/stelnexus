@@ -57,7 +57,7 @@ class SabongAdapter(GameAdapter):
         return super().can(ctx, right)
 
     def visible(self, ctx) -> bool:
-        return ctx.can(Perm.FIGHTS_VIEW) or ctx.can(Perm.EVENTS_VIEW)
+        return self.shown(ctx) and (ctx.can(Perm.FIGHTS_VIEW) or ctx.can(Perm.EVENTS_VIEW))
 
     # ---- workspace -------------------------------------------------------------------
     def workspace_urls(self, ctx) -> dict[str, str | None]:

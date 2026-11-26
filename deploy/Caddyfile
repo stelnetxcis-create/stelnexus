@@ -1,3 +1,13 @@
+# --- Behind Cloudflare (orange cloud)? Replace the line below this comment with the block that follows it, and put
+# cloudflare.caddy next to this file (deploy/update-cloudflare-ips.sh writes it). In .env also set TRUST_CLOUDFLARE=true
+# and TRUSTED_PROXIES=["127.0.0.1"]. Without this, every visitor looks like one Cloudflare address to the app.
+#
+#   {
+#   	import cloudflare.caddy
+#   }
+#
+# Also allow ports 80/443 from Cloudflare's ranges only (docs/SCALING.md), so nobody can reach this server directly.
+
 # Automatic HTTPS + reverse proxy. Replace the domain, then:  caddy run --config deploy/Caddyfile
 stelnexus.example.com {
 	# Live chat streams are server-sent events (/chat/stream, /fights/<id>/chat/stream). They must NOT be compressed

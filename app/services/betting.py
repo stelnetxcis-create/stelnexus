@@ -246,6 +246,8 @@ def place_bet(
     numbers: str | None = None, kubrador: str | None = None, cavo: str | None = None,
     ip: str | None = None, source: str | None = None,
 ) -> Ticket:
+    if not settings.get("games.show_sabong"):
+        raise LockedState("Sabong is switched off right now.")
     if idempotency_key:
         existing = db.scalar(select(Ticket).where(Ticket.idempotency_key == idempotency_key))
         if existing is not None:

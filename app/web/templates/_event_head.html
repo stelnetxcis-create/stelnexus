@@ -10,6 +10,6 @@
 {% if event.status.value == 'canceled' %}
 <div class="alert alert-danger">This event was <strong>cancelled</strong>. All open stakes were refunded.</div>
 {% elif event.status.value != 'open' %}
-<div class="alert alert-warning">This event is <strong>{{ event.status.value }}</strong>. Set it to OPEN before selling tickets.</div>
+<div class="alert alert-warning">This event is <strong>{{ event.status.value }}</strong>. It has to be OPEN before anyone can bet.</div>
 {% endif %}
 {% endcall %}

@@ -334,7 +334,9 @@
     let html = '<div class="dk-panel"><div class="dk-head"><div><span class="dk-kicker">' + esc(e.venue || 'Sabong') + ' · ' + esc(e.date) +
       '</span><h3>' + esc(e.title) + '</h3></div><div class="dk-head-r">' + pill +
       '<button type="button" class="btn btn-sm dk-watch' + (watching() && follow.game === g.id ? ' is-on' : '') + '" data-act="watch" title="Open the live video and pools in a pop-out window">' +
-      '<span aria-hidden="true">&#9654;</span> Watch live <kbd>S</kbd></button></div></div>' +
+      '<span aria-hidden="true">&#9654;</span> Watch live <kbd>S</kbd></button>' +
+      '<a class="btn btn-sm" href="/staff/declarator/events/' + e.id + '/tools?fight_id=' + g.id +
+      '" title="Entry names, Llamado, odds, corrections, summary, expenses, cancel the event">Event tools</a></div></div>' +
       '<div class="dk-duel' + (ended ? ' has-result' : '') + '">' +
       '<div class="dk-side m' + (win === 'meron' ? ' is-win' : '') + '" style="--wc:var(--meron)"><small>MERON</small><strong>' + esc(g.nm) + '</strong>' +
       (lbl('meron') ? '<span class="dk-tag">' + lbl('meron') + '</span>' : '') + '</div>' +
@@ -403,6 +405,98 @@
       (st.error && !draft('b' + dw.id).b1 ? errHtml() : '') + '</div>';
   }
 
+  /* ---------------------------------------------------------------- mini live-draw screen */
+  const REDUCE = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const hhmm = (ms) => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'Asia/Manila' }).format(new Date(ms));
+  let tvBalls = '';                                    // built once, so a redraw of the stage never re-shuffles the globe
+  function globeBalls() {
+    if (tvBalls) return tvBalls;
+    const max = Math.max(2, data.bola_max || 40);
+    for (let i = 0; i < 14; i += 1) {
+      const n = 1 + Math.floor(Math.random() * max);
+      tvBalls += '<span class="bl-b ' + ballClass(n) + '" style="--x:' + Math.round(rnd(24, 52)) + 'px;--y:' + Math.round(rnd(24, 52)) + 'px;--r:' + Math.round(rnd(-300, 300)) +
+        'deg;--d1:-' + rnd(0, 2).toFixed(2) + 's;--d2:-' + rnd(0, 2).toFixed(2) + 's;--dx:' + rnd(0.9, 1.7).toFixed(2) + 's;--dy:' + rnd(0.7, 1.4).toFixed(2) + 's">' + n + '</span>';
+    }
+    return tvBalls;
+  }
+  function tvHtml(title, mode, countHtml, say) {
+    return '<div class="dk-tv" data-tv data-mode="' + mode + '"><div class="bl-globe"><div class="bl-glass">' + globeBalls() + '</div><div class="bl-base"></div></div>' +
+      '<div class="dk-tv-side"><div class="dk-tv-title"><i></i>Live draw \u00B7 ' + esc(title) + '</div><div class="dk-tv-count">' + countHtml + '</div>' +
+      '<div class="dk-tv-say" data-tv-say>' + esc(say) + '</div>' +
+      '<div class="bl-slots"><div class="bl-slot"><small>Tumbok</small><b class="bl-ball">?</b></div><div class="bl-slot"><small>Sahod</small><b class="bl-ball">?</b></div></div></div></div>';
+  }
+  /* The countdown on the Bola stage: the same clock the rail uses (data-until), so tick() keeps it moving. */
+  function miniTv(dw) {
+    const due = now() >= dw.at;
+    return tvHtml((dw.venue || 'Bola') + ' \u00B7 slot ' + dw.slot, due ? 'drawing' : 'count',
+      '<time data-until="' + dw.at + '" data-done="\u2026"></time>', due ? 'Drawing\u2026 waiting for the two balls' : 'The draw starts in');
+  }
+  /* After a result is declared: the same screen plays the two balls dropping out, in a pop-up that survives redraws. */
+  function playReveal(info) {
+    const old = document.querySelector('[data-tv-pop]');
+    if (old) old.remove();
+    const pop = document.createElement('div');
+    pop.className = 'dk-tv-pop'; pop.setAttribute('data-tv-pop', ''); pop.setAttribute('role', 'status');
+    pop.innerHTML = '<button type="button" class="dk-tv-x" aria-label="Close">\u2715</button>' +
+      tvHtml((info.venue || 'Bola') + ' \u00B7 slot ' + info.slot, 'drawing', '', 'And the numbers are\u2026');
+    document.body.appendChild(pop);
+    const tv = pop.querySelector('[data-tv]'), say = pop.querySelector('[data-tv-say]'), slots = pop.querySelectorAll('.bl-ball');
+    const timers = [];
+    const later = (fn, ms) => timers.push(setTimeout(fn, ms));
+    const close = () => { timers.forEach(clearTimeout); pop.remove(); };
+    pop.querySelector('.dk-tv-x').addEventListener('click', close);
+    const play = (n) => { try { if (snx.Sound) snx.Sound.play(n); } catch (e) { /* sound is optional */ } };
+    const land = (i, n) => {
+      const b = slots[i];
+      if (REDUCE) { b.textContent = String(n); b.className = 'bl-ball is-landed ' + ballClass(n); return; }
+      b.className = 'bl-ball is-rolling'; play('tick');
+      const spin = setInterval(() => { b.textContent = String(1 + Math.floor(Math.random() * (data.bola_max || 40))); }, 55);
+      later(() => { clearInterval(spin); b.textContent = String(n); b.className = 'bl-ball is-landed ' + ballClass(n); play('ok'); }, 1000);
+    };
+    const t1 = REDUCE ? 0 : 1300, t2 = t1 + (REDUCE ? 0 : 1600), t3 = t2 + (REDUCE ? 200 : 1400);
+    tv.classList.add('is-shuffle');
+    later(() => { tv.classList.remove('is-shuffle'); land(0, info.a); }, t1);
+    later(() => land(1, info.b), t2);
+    later(() => { say.textContent = 'Result ' + info.a + ' / ' + info.b; tv.classList.add('is-final'); tv.dataset.mode = 'final'; }, t3);
+    later(close, t3 + 14000);
+  }
+
+  /* Change the draw time, void and delete: the same rights as the draw page (Manage; delete is the Admin account only). */
+  function bolaManage(dw) {
+    if (!data.can.bola_manage && !data.can.dev) return '';
+    if (dw.st !== 'scheduled' && dw.st !== 'open' && dw.st !== 'locked') return '';
+    const d = draft('b' + dw.id);
+    let out = '';
+    if (data.can.bola_manage) {
+      out += '<div class="dk-panel"><h5>Change draw time</h5><div class="dk-fields">' +
+        '<label><span>New draw time (Manila, same day)</span><input type="time" data-f="rt" value="' + esc(d.rt != null ? d.rt : hhmm(dw.at)) + '"></label>' +
+        '<label><span>Reason (optional)</span><input type="text" data-f="rr" maxlength="255" value="' + esc(d.rr || '') + '"></label></div>' +
+        '<div class="dk-actions"><button type="button" class="btn" data-act="bola-resched"' + dis() + '>Change draw time</button></div>' +
+        '<p class="dk-hint">Tickets already sold stay valid. The cut-off is recalculated. If betting had already closed, re-open it by hand after the move.</p></div>';
+      out += '<div class="dk-panel"><h5>Void this draw</h5><div class="dk-fields">' +
+        '<label><span>Reason to void <em style="font-style:normal;color:var(--red)">required</em></span><input type="text" data-f="vr" minlength="5" maxlength="255" value="' + esc(d.vr || '') + '"></label></div>' +
+        '<div class="dk-actions"><button type="button" class="btn btn-danger" data-act="bola-void"' + dis() + '>Void draw</button></div>' +
+        '<p class="dk-hint">Every stake is refunded in full.</p></div>';
+    }
+    if (data.can.dev) {
+      out += '<div class="dk-panel is-alert"><h5>Delete this draw<span class="dk-pill-dev">DEV ONLY</span></h5>' +
+        '<p class="dk-hint">Permanently removes it with its tickets, settlements and chat. Wallet and ledger history is kept. A draw that still holds live stakes is refused: void it first.</p>' +
+        '<div class="dk-actions"><button type="button" class="btn btn-danger" data-act="bola-purge"' + dis() + '>Delete draw</button></div></div>';
+    }
+    return out;
+  }
+
+  /* Skip the wait: only for accounts the server allowed (the server checks again). Not shown once the draw is already due. */
+  function bolaSkip(dw) {
+    if (!data.can.bola_skip) return '';
+    if (dw.st !== 'scheduled' && dw.st !== 'open' && dw.st !== 'locked') return '';
+    if (dw.st === 'locked' && now() >= dw.at) return '';
+    return '<div class=\"dk-panel\"><h5>Skip the wait</h5><div class=\"dk-actions\">' +
+      '<button type=\"button\" class=\"btn\" data-act=\"bola-skip\"' + dis() + '>Skip wait</button></div>' +
+      '<p class=\"dk-hint\">Closes betting now and makes the draw due at once.</p></div>';
+  }
+
   function bolaStage(c) {
     const dw = c.d, d = draft('b' + dw.id);
     const due = now() >= dw.at, early = !due && data.early_ok;
@@ -414,6 +508,7 @@
       ' · draw at ' + esc(at(dw.at)) + '</span><h3>Slot ' + esc(dw.slot) + ' draw</h3></div>' +
       '<div class="dk-head-r"><span class="dk-pill" data-lane="' + lane + '"><i></i>' + (dw.due ? 'Result due' : 'Draw in') + ' <time data-until="' + dw.at + '" data-done="now"></time></span>' +
       '<a class="btn btn-sm" href="/bola/draws/' + dw.id + '" title="Open the full draw page">Draw page</a></div></div>' +
+      miniTv(dw) +
       (!data.can.bola ? '<p class="dk-hint">Your account can follow this draw but not declare it.</p>'
         : !due && !early ? '<div class="dk-warn">The draw time has not come yet. You can enter the balls from ' + esc(at(dw.at)) + '.</div>'
           : early ? '<div class="dk-warn">This draw has not reached its time. You may declare early, but you must write the reason.</div>' : '') +
@@ -423,7 +518,7 @@
       '</span><input type="text" data-f="note" maxlength="200" placeholder="' + (early ? 'why this draw is declared early' : 'e.g. read from the draw sheet') + '" value="' + esc(d.note) + '"></label>' +
       proofField(d) + '</div><div class="dk-err" role="alert" data-err' + (st.error ? '' : ' hidden') + '>' + esc(st.error) + '</div>' +
       '<div class="dk-go-row"><button type="button" class="btn btn-primary dk-go" data-act="bola-declare" disabled>Confirm &amp; settle</button>' +
-      '<button type="button" class="btn" data-act="bola-clear"' + dis() + '>Clear</button></div></div></div>' + bolaControls(dw);
+      '<button type="button" class="btn" data-act="bola-clear"' + dis() + '>Clear</button></div></div></div>' + bolaControls(dw) + bolaSkip(dw) + bolaManage(dw);
   }
 
   /* Update the Bola stage in place while typing (a redraw would drop the cursor). */
@@ -593,12 +688,27 @@
       const d = draft('b' + c.d.id);
       if (t.dataset.act === 'proof') { chooseProof('b' + c.d.id); return; }
       if (t.dataset.act === 'bola-open') { twoTap(t, () => run(() => post('/staff/declarator/bola/' + c.d.id + '/open', {}))); return; }
+      if (t.dataset.act === 'bola-skip') { twoTap(t, () => run(() => post('/staff/declarator/bola/' + c.d.id + '/skip', {}))); return; }
+      if (t.dataset.act === 'bola-resched') {
+        const dd = draft('b' + c.d.id);
+        run(() => post('/staff/declarator/bola/' + c.d.id + '/reschedule', { draw_time: dd.rt != null ? dd.rt : hhmm(c.d.at), reason: dd.rr || '' }),
+          () => { delete dd.rt; dd.rr = ''; });
+        return;
+      }
+      if (t.dataset.act === 'bola-void') {
+        const dd = draft('b' + c.d.id);
+        if ((dd.vr || '').trim().length < 5) { toast('Write a reason of at least 5 characters to void a draw.', 'warning'); return; }
+        twoTap(t, () => run(() => post('/staff/declarator/bola/' + c.d.id + '/void', { reason: dd.vr }), () => { delete st.drafts['b' + c.d.id]; }));
+        return;
+      }
+      if (t.dataset.act === 'bola-purge') { twoTap(t, () => run(() => post('/staff/declarator/bola/' + c.d.id + '/purge', {}), () => { delete st.drafts['b' + c.d.id]; })); return; }
       if (t.dataset.act === 'bola-lock') { twoTap(t, () => run(() => post('/staff/declarator/bola/' + c.d.id + '/lock', {}))); return; }
       if (t.dataset.act === 'bola-clear') { d.b1 = ''; d.b2 = ''; d.note = ''; st.error = ''; renderStage(true); return; }
       if (t.dataset.act === 'bola-declare' && ballsReady(d)) {
+        const shown = { venue: c.d.venue, slot: c.d.slot, a: parseInt(d.b1, 10), b: parseInt(d.b2, 10) };
         run(() => post('/staff/declarator/bola/' + c.d.id + '/declare',
-          { ball_first: parseInt(d.b1, 10), ball_second: parseInt(d.b2, 10), reason: d.note }, d.proof || null),
-        () => { delete st.drafts['b' + c.d.id]; });
+          { ball_first: shown.a, ball_second: shown.b, reason: d.note }, d.proof || null),
+        () => { delete st.drafts['b' + c.d.id]; playReveal(shown); });
       }
     }
   }
@@ -609,7 +719,7 @@
     if (!f || !c) return;
     if (c.kind === 'bola') {
       const d = draft('b' + c.d.id);
-      if (f === 'note') d.note = ev.target.value;
+      if (f === 'note' || f === 'rt' || f === 'rr' || f === 'vr') d[f] = ev.target.value;
       else { ev.target.value = ev.target.value.replace(/\D+/g, '').slice(0, 2); d[f] = ev.target.value; st.error = ''; }
       paintBola();
     } else if (c.e.st !== 'draft') {

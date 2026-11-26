@@ -72,7 +72,7 @@ async def register_submit(request: Request, ctx: Ctx = Depends(optional_ctx)):
         user = referrals.redeem(
             ctx.db, code, username=data.get("username", ""), password=data.get("password", ""),
             full_name=data.get("full_name", ""), contact=data.get("contact"), settings=ctx.store,
-            birth_date=birth, gcash_number=data.get("gcash_number"))
+            birth_date=birth, gcash_number=data.get("gcash_number"), email=data.get("email"))
     except StelError as exc:
         try:
             row = referrals.lookup_valid(ctx.db, code)
@@ -82,7 +82,7 @@ async def register_submit(request: Request, ctx: Ctx = Depends(optional_ctx)):
                        role=row.role, role_label=referrals.role_label(row.role),
                        issuer=row.issuer.full_name, error=exc.message,
                        username=data.get("username", "")[:32], full_name=data.get("full_name", "")[:120],
-                       contact=data.get("contact", "")[:32])
+                       contact=data.get("contact", "")[:32], email=data.get("email", "")[:254])
     return flash_redirect("/login", f"Account '{user.username}' created. Sign in below.", "success")
 
 

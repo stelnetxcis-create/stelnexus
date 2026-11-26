@@ -332,6 +332,7 @@ body.bl-lock{overflow:hidden}
 .bl-ball.is-landed{animation:bl-land .5s var(--ease) both}
 @keyframes bl-drop{0%{opacity:0;transform:translateY(-230px) rotate(-420deg) scale(.4)}70%{opacity:1;transform:translateY(8px) rotate(14deg) scale(1.04)}100%{transform:none}}
 @keyframes bl-land{0%{transform:scale(1.3)}100%{transform:none}}
+.bl-skip{position:relative;min-height:40px;font-weight:700;opacity:.9}
 .bl-done{position:relative;min-height:44px;font-weight:800}
 .bl-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 

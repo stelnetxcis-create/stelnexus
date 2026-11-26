@@ -20,6 +20,7 @@ from app.db.models import (
 SYSTEM_ACCOUNTS: tuple[tuple[str, AccountKind, str, bool], ...] = (
     ("sys:house", AccountKind.HOUSE_REVENUE, "House Revenue (Tong)", True),
     ("sys:rounding", AccountKind.ROUNDING, "Rounding Remainder", True),
+    ("sys:scatter", AccountKind.HOUSE_REVENUE, "Scatter House (stakes in, wins out)", True),
     ("sys:commission", AccountKind.COMMISSION_EXPENSE, "Commission Expense", True),
     ("sys:cash", AccountKind.CASH_ON_HAND, "Legacy Cash (retired, pre-online)", True),
     ("sys:gcash", AccountKind.GCASH_CLEARING, "Online Payments Clearing (GCash / Bank)", True),
@@ -169,6 +170,25 @@ def pool_for_draw(db: Session, draw: BolaDraw) -> Account:
 
 def house(db: Session) -> Account:
     return require_by_code(db, "sys:house")
+
+
+def scatter_house(db: Session) -> Account:
+    """Scatter's own house account: every stake lands here and every win is paid from it, so the game's result
+    is one balance. Created on first use, so an existing database needs no bootstrap step."""
+    account = get_by_code(db, "sys:scatter")
+    if account is None:
+        account = _create(db, "sys:scatter", AccountKind.HOUSE_REVENUE, "Scatter House (stakes in, wins out)",
+                          allow_negative=True)
+    return account
+
+
+def system_pool(db: Session) -> Account:
+    """The system pool: the house reserve that builds up from every game's cut (see commissions). Created on first use,
+    so an existing database needs no bootstrap step."""
+    account = get_by_code(db, "sys:pool")
+    if account is None:
+        account = _create(db, "sys:pool", AccountKind.SYSTEM_POOL, "System pool (house reserve)")
+    return account
 
 
 def rounding(db: Session) -> Account:

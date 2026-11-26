@@ -21,17 +21,18 @@ from app.core.errors import Conflict, Forbidden, NotFound, ValidationError
 from app.core.rbac import assert_user_in_scope, can_create_role, downline_ids, has_global_scope, is_top, scope_ids
 import re
 
-from app.core.security import USERNAME_RE, hash_password, password_problems, pii, random_code
+from app.core.identity import check_username, normalize_ph_mobile
+from app.core.security import hash_password, password_problems, pii, random_code
 from app.core.settings_registry import SettingsStore
 from app.db.models import ADMIN_TIER, UPLINE_ROLES, Role, Status, User
 from app.services import accounts, ledger
 
 
-def _unique_username(db: Session, username: str) -> None:
-    if not USERNAME_RE.match(username):
-        raise ValidationError("Username must be 3-32 characters: letters, digits, dot, dash, underscore.")
-    if db.scalar(select(User.id).where(func.lower(User.username) == username.lower())):
-        raise Conflict("That username is already taken.")
+def _unique_username(db: Session, username: str, settings=None, *, public_signup: bool = False) -> str:
+    from app.services import identity
+    username = check_username(username, min_length=identity.min_username_length(settings), public_signup=public_signup)
+    identity.assert_username_free(db, username)           # users AND players, ignoring upper/lower case
+    return username
 
 
 def _unique_ref(db: Session) -> str:
@@ -93,8 +94,10 @@ def create_agent(
     parent_id: int | None = None,
     settings: SettingsStore | None = None,
     gcash_number: str | None = None,
+    email: str | None = None,
+    public_signup: bool = False,
 ) -> User:
-    username = username.strip()
+    username = (username or "").strip()
     full_name = full_name.strip()
     if not full_name or len(full_name) > 120:
         raise ValidationError("Full name is required (max 120 characters).")
@@ -104,10 +107,16 @@ def create_agent(
         raise Forbidden(f"A {actor.role_label} cannot create a {role.label}.")
     if role == Role.BISHOP and actor.role != Role.ADMIN:
         raise Forbidden("Only the King appoints a Bishop.")
-    _unique_username(db, username)
+    username = _unique_username(db, username, settings, public_signup=public_signup)
+    if (contact or "").strip():
+        contact = normalize_ph_mobile(contact, what="Contact number")
     gcash = (gcash_number or "").strip()
-    if role == Role.TELLER and not re.fullmatch(r"09\d{9}", gcash):
-        raise ValidationError("A Teller needs a GCash number (11 digits starting with 09).")
+    if role == Role.TELLER:
+        gcash = normalize_ph_mobile(gcash, what="A Teller's GCash number")
+    email_enc = email_key_ = None
+    if (email or "").strip():
+        from app.services import identity
+        email_enc, email_key_ = identity.claim_gmail(db, email)
 
     problems = password_problems(
         password, username, min_length=int(settings.get("security.password_min_length")) if settings else None)
@@ -124,6 +133,7 @@ def create_agent(
         role=role,
         full_name=full_name,
         contact=(contact or "").strip()[:32] or None,
+        email_enc=email_enc, email_key=email_key_,
         gcash_enc=pii.encrypt(gcash) if role == Role.TELLER else None,
         parent_id=parent.id if parent else None,
         ref_code=_unique_ref(db),

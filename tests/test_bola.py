@@ -65,38 +65,48 @@ def test_bet_declare_pays_800x_and_books_balance(bw):
     assert ledger.verify_integrity(w.db)["ok"]
 
 
+def _pool_balance(db):
+    from app.services import accounts
+    account = accounts.get_by_code(db, "sys:pool")
+    return int(account.balance_cents) if account else 0
+
+
 def test_commissions_written_and_sum_to_pool(bw):
-    """D4 alternative: with ``bola.commission.pay_master`` on, the whole pool is paid out."""
+    """Default: the Master is paid too, so the whole network pool (the 10% cut minus the 30% house reserve) is paid
+    out, and the reserve is what lands in the system pool."""
     w = bw
-    w.store.set("bola.commission.pay_master", "true", w.admin.id)
-    try:
-        _bet(w, [1, 2], BolaKind.PAIR, 5000, 5000)                 # PHP 100 stake
-        bola_settlement.declare(w.db, w.admin, draw_id=w.draw.id, ball_first=30, ball_second=31,
-                                settings=w.store, reason="test: declare before draw time")
-        rows = list(w.db.scalars(select(BolaCommission).where(BolaCommission.draw_id == w.draw.id)))
-        pool = 10_000 * int(w.store.get("bola.commission.pool_bps")) // 10_000
-        assert rows and sum(r.amount_cents for r in rows) == pool
-        assert {r.tier for r in rows} == {"master", "agent"}       # the bettor (Sub Agent) earns nothing on its own bet
-        assert commissions.totals_for(w.db, w.cavo)["earned"] > 0
-        assert ledger.verify_integrity(w.db)["ok"]
-    finally:
-        w.store.set("bola.commission.pay_master", "false", w.admin.id)
-
-
-def test_master_remainder_stays_with_house_by_default(bw):
-    """Plan D4 default: no Master line; the Master's share of the pool is simply the house's."""
-    w = bw
-    assert w.store.get("bola.commission.pay_master") is False
-    _bet(w, [1, 2], BolaKind.PAIR, 5000, 5000)
+    before = _pool_balance(w.db)
+    _bet(w, [1, 2], BolaKind.PAIR, 5000, 5000)                 # PHP 100 stake
     bola_settlement.declare(w.db, w.admin, draw_id=w.draw.id, ball_first=30, ball_second=31,
                             settings=w.store, reason="test: declare before draw time")
     rows = list(w.db.scalars(select(BolaCommission).where(BolaCommission.draw_id == w.draw.id)))
-    pool = 10_000 * int(w.store.get("bola.commission.pool_bps")) // 10_000
-    split = commissions.split_pool(pool, agent_bps=commissions.effective_agent_bps(w.cavo, w.store, "bola"),
-                                   sub_bps=0, has_sub=False)         # the bettor earns nothing on its own bet
-    assert {r.tier for r in rows} == {"agent"}
-    assert sum(r.amount_cents for r in rows) == split.agent < pool
+    cut = 10_000 * int(w.store.get("bola.commission.pool_bps")) // 10_000
+    reserve = cut * int(w.store.get("bola.commission.reserve_bps")) // 10_000
+    assert rows and sum(r.amount_cents for r in rows) == cut - reserve
+    assert _pool_balance(w.db) - before == reserve
+    assert {r.tier for r in rows} == {"master", "agent"}       # the bettor (Sub Agent) earns nothing on its own bet
+    assert commissions.totals_for(w.db, w.cavo)["earned"] > 0
     assert ledger.verify_integrity(w.db)["ok"]
+
+
+def test_master_remainder_stays_with_house_when_pay_master_is_off(bw):
+    """With ``bola.commission.pay_master`` off there is no Master line; the Master's share is simply the house's."""
+    w = bw
+    w.store.set("bola.commission.pay_master", "false", w.admin.id)
+    try:
+        _bet(w, [1, 2], BolaKind.PAIR, 5000, 5000)
+        bola_settlement.declare(w.db, w.admin, draw_id=w.draw.id, ball_first=30, ball_second=31,
+                                settings=w.store, reason="test: declare before draw time")
+        rows = list(w.db.scalars(select(BolaCommission).where(BolaCommission.draw_id == w.draw.id)))
+        cut = 10_000 * int(w.store.get("bola.commission.pool_bps")) // 10_000
+        network = cut - cut * int(w.store.get("bola.commission.reserve_bps")) // 10_000
+        split = commissions.split_pool(network, agent_bps=commissions.effective_agent_bps(w.cavo, w.store, "bola"),
+                                       sub_bps=0, has_sub=False)    # the bettor earns nothing on its own bet
+        assert {r.tier for r in rows} == {"agent"}
+        assert sum(r.amount_cents for r in rows) == split.agent < network
+        assert ledger.verify_integrity(w.db)["ok"]
+    finally:
+        w.store.set("bola.commission.pay_master", "true", w.admin.id)
 
 
 def test_plan_commission_example_on_a_100_peso_stake():
@@ -319,7 +329,8 @@ def test_suspended_cavo_earns_nothing_and_share_rolls_up(bw):
     w = bw
     w.cavo.status = Status.SUSPENDED
     w.db.flush()
-    pool = 10_000 * int(w.store.get("bola.commission.pool_bps")) // 10_000
+    cut = 10_000 * int(w.store.get("bola.commission.pool_bps")) // 10_000
+    pool = cut - cut * int(w.store.get("bola.commission.reserve_bps")) // 10_000      # the network pool
     try:
         w.store.set("bola.commission.pay_master", "true", w.admin.id)
         _bet(w, [1, 2], BolaKind.PAIR, 5000, 5000)
@@ -328,14 +339,15 @@ def test_suspended_cavo_earns_nothing_and_share_rolls_up(bw):
         assert rows and all(r.agent_id != w.cavo.id for r in rows)
         assert {r.tier for r in rows} == {"master"} and sum(r.amount_cents for r in rows) == pool
     finally:
-        w.store.set("bola.commission.pay_master", "false", w.admin.id)
+        w.store.set("bola.commission.pay_master", "true", w.admin.id)
         w.cavo.status = Status.ACTIVE
         w.db.flush()
 
 
-def test_suspended_cavo_with_default_d4_pays_no_commission(bw):
+def test_suspended_cavo_pays_no_commission_when_the_master_is_not_paid(bw):
     w = bw
     w.cavo.status = Status.SUSPENDED
+    w.store.set("bola.commission.pay_master", "false", w.admin.id)     # no Master line: the share goes to the house
     w.db.flush()
     try:
         _bet(w, [1, 2], BolaKind.PAIR, 5000, 5000)
@@ -344,6 +356,7 @@ def test_suspended_cavo_with_default_d4_pays_no_commission(bw):
             BolaCommission.draw_id == w.draw.id)))
         assert ledger.verify_integrity(w.db)["ok"]
     finally:
+        w.store.set("bola.commission.pay_master", "true", w.admin.id)
         w.cavo.status = Status.ACTIVE
         w.db.flush()
 

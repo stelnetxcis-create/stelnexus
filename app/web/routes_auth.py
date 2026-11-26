@@ -82,7 +82,11 @@ async def settings_page(ctx: Ctx = Depends(require_ctx)):
 
 @router.get("/profile")
 async def profile(ctx: Ctx = Depends(require_ctx)):
-    return render(ctx, "profile.html", active="profile",
+    from app.services import badges
+    badges.sync(ctx.db, ctx.user, ctx.store)
+    earned = [r for r in badges.board(ctx.db, ctx.user, ctx.store)["rows"] if r["earned"]]
+    return render(ctx, "profile.html", active="profile", earned_badges=earned, max_badges=badges.MAX_SHOWN,
+
                   tokens=auth.list_api_tokens(ctx.db, ctx.user),
                   wallet=agents.wallet_balance(ctx.db, ctx.user),
                   commission=agents.commission_balance(ctx.db, ctx.user))

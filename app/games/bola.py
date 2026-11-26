@@ -36,7 +36,7 @@ class BolaAdapter(GameAdapter):
 
     def visible(self, ctx) -> bool:
         # switched off, or dev-gated away from this account -> the game does not exist for them
-        return (bool(ctx.store.get("bola.enabled")) and bola_visible_to(ctx.user)
+        return (self.shown(ctx) and bool(ctx.store.get("bola.enabled")) and bola_visible_to(ctx.user)
                 and ctx.can(Perm.BOLA_VIEW))
 
     def workspace_urls(self, ctx) -> dict[str, str | None]:

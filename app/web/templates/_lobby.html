@@ -13,25 +13,24 @@
 <div class="lobby-grid" data-lobby data-live-lobby>
   {% for e in rows %}
   {% set s = stats[e.id] %}
+  {% set done = s.settled + s.void %}
   {% set pic = e.location.image_url if e.location else none %}
   {% set art = ['dusk', 'night', 'dawn', 'ember'][e.id % 4] %}
-  <a class="lobby-card has-img st-{{ e.status.value }}" data-event="{{ e.id }}" data-status="{{ e.status.value }}" href="{{ base }}{{ e.id }}" style="--card-img: url('{{ pic or '/static/img/arena/' ~ art ~ '.svg' }}'); --i: {{ loop.index0 }}">
+  <a class="lobby-card has-img st-{{ e.status.value }}" data-event="{{ e.id }}" data-status="{{ e.status.value }}" data-sig="{{ s.live or 0 }}:{{ done }}:{{ e.status.value }}" href="{{ base }}{{ e.id }}" style="--card-img: url('{{ pic or '/static/img/arena/' ~ art ~ '.svg' }}'); --i: {{ loop.index0 }}">
     <span class="lobby-art" aria-hidden="true"></span><span class="lobby-glare" aria-hidden="true"></span>
     <div class="lobby-top">
       <span class="lobby-status"><i></i>{{ e.status.value | upper }}</span>
-      {% if s.live and e.status.value == 'open' %}<span class="lobby-live"><i></i>Fight {{ s.live }} up next</span>{% endif %}
     </div>
     <h3>{{ e.title }}</h3>
     <div class="lobby-where">
       <svg class="ico"><use href="#i-target"/></svg>{{ e.location.name if e.location else 'No location' }}{% if e.location and e.location.city %} · {{ e.location.city }}{% endif %}
     </div>
     <div class="lobby-date"><svg class="ico"><use href="#i-calendar"/></svg>{{ e.event_date | date }}</div>
-    <div class="lobby-bar" title="{{ s.settled + s.void }} of {{ s.total }} fights finished"><i style="--w: {{ s.pct }}%; width: {{ s.pct }}%"></i></div>
+    <div class="lobby-bar" title="{{ done }} of {{ s.total }} fights finished"><i style="--w: {{ s.pct }}%; width: {{ s.pct }}%"></i></div>
+    {# Just two things: which fight is going on now, and how many are finished. fightview/royale.js keep them live. #}
     <div class="lobby-nums">
-      <span><b data-count>{{ s.total }}</b> fights</span>
-      <span class="n-open"><b>{{ s.open }}</b> open</span>
-      <span class="n-locked"><b>{{ s.locked }}</b> locked</span>
-      <span class="n-done"><b>{{ s.settled + s.void }}</b> done</span>
+      <span class="n-now">{% if s.live and e.status.value == 'open' %}Fight <b data-now>#{{ s.live }}</b> ongoing{% elif s.total and done == s.total %}All fights finished{% else %}No fight ongoing{% endif %}</span>
+      <span class="n-done"><b>{{ done }}</b> finished</span>
     </div>
   </a>
   {% endfor %}
